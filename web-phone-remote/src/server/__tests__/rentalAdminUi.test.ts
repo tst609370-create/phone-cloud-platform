@@ -19,6 +19,13 @@ describe('rental admin user controls', () => {
         expect(phonesJs).not.toContain('if (document.hidden)');
     });
 
+    it('automatically forwards desktop keyboard input to the active phone', () => {
+        expect(phonesJs).toContain("matchMedia?.('(any-hover: hover) and (any-pointer: fine)')");
+        expect(phonesJs).toContain('function forwardDesktopKeyboard(event)');
+        expect(phonesJs).toContain("document.addEventListener('keyup'");
+        expect(phonesJs).toContain("doc.addEventListener('pointerdown'");
+    });
+
     it('includes a persistent APK library with multi-device install controls', () => {
         expect(adminHtml).toContain('APK 软件库');
         expect(adminHtml).toContain('data-install-apk');

@@ -25,6 +25,7 @@
     let visibleDevices = [];
     let rentalByDevice = new Map();
     let rentalSignature = '';
+    const desktopKeyboard = window.matchMedia?.('(any-hover: hover) and (any-pointer: fine)').matches ?? false;
     const nativeMacShell = new URLSearchParams(location.search).get('native') === 'mac'
         || localStorage.getItem('phone-native-shell') === 'mac';
     if (new URLSearchParams(location.search).get('native') === 'mac') {
@@ -689,9 +690,38 @@
         });
     }
 
+    function forwardDesktopKeyboard(event) {
+        if (!desktopKeyboard || event.defaultPrevented) return false;
+        const source = event.target instanceof Element ? event.target : null;
+        if (source?.closest('input, select, textarea, [contenteditable="true"]')) return false;
+        if (source?.closest('button, a') && (event.key === 'Enter' || event.key === ' ')) return false;
+        const card = cards.find((item) => item.dataset.device === activeSerial && !item.classList.contains('closed'));
+        const doc = card?.querySelector('iframe')?.contentDocument;
+        if (!card || !doc?.body) return false;
+        const copy = new doc.defaultView.KeyboardEvent(event.type, {
+            bubbles: true,
+            cancelable: true,
+            key: event.key,
+            code: event.code,
+            location: event.location,
+            repeat: event.repeat,
+            ctrlKey: event.ctrlKey,
+            shiftKey: event.shiftKey,
+            altKey: event.altKey,
+            metaKey: event.metaKey,
+        });
+        (doc.activeElement || doc.body).dispatchEvent(copy);
+        if (syncEnabled && card.dataset.device === masterSerial) replayKey(card, event);
+        if (copy.defaultPrevented) event.preventDefault();
+        return copy.defaultPrevented;
+    }
+
     function installSyncBridge(card, doc) {
         if (doc.__phoneSyncInstalled) return;
         doc.__phoneSyncInstalled = true;
+        doc.addEventListener('pointerdown', () => {
+            if (card.dataset.device !== activeSerial) activate(card);
+        }, true);
         for (const type of ['dragenter', 'dragover', 'dragleave', 'drop']) {
             doc.addEventListener(type, (event) => handleFileDrag(card, event), true);
         }
@@ -1131,12 +1161,17 @@
     fps.addEventListener('change', () => updateStreamingMode(true));
     backdrop.addEventListener('click', collapseExpanded);
     document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape') collapseExpanded();
+        if (event.key === 'Escape' && cards.some((card) => card.classList.contains('expanded'))) {
+            collapseExpanded();
+            return;
+        }
+        if (forwardDesktopKeyboard(event)) return;
         if (layoutMode === 'carousel' && !event.target.closest('input, select, textarea')) {
             if (event.key === 'ArrowLeft') rotateCarousel(-1);
             if (event.key === 'ArrowRight') rotateCarousel(1);
         }
     });
+    document.addEventListener('keyup', (event) => forwardDesktopKeyboard(event));
     window.addEventListener('resize', () => {
         if (layoutMode === 'carousel') layoutCarousel();
         else if (autoArrange) scheduleTile();
