@@ -16,6 +16,26 @@
     let lastTap = null;
     let inputSequence = 0;
     let settleTimer = 0;
+    let semanticTimer = 0;
+
+    const fixedTapLabel = ({ x, y }) => {
+        if (y < touch.height * .84 || y > touch.height * .97) return '';
+        const tabs = ['首页', '朋友', '发布', '消息', '我'];
+        return `点击了${tabs[Math.min(4, Math.floor(x / touch.width * 5))]}`;
+    };
+
+    const identifyTap = (point, sequence) => {
+        clearTimeout(semanticTimer);
+        semanticTimer = setTimeout(async () => {
+            try {
+                const query = new URLSearchParams({ udid, x: String(point.x), y: String(point.y) });
+                const response = await fetch(`/api/devices/element?${query}`, { cache: 'no-store' });
+                if (!response.ok || sequence !== inputSequence) return;
+                const { label } = await response.json();
+                if (typeof label === 'string' && label) parent.postMessage({ type: 'phone-operation-log', label: `点击了${label}` }, location.origin);
+            } catch { /* semantic logs must never delay or break phone control */ }
+        }, 300);
+    };
 
     const showError = (message) => {
         status.textContent = message;
@@ -92,6 +112,7 @@
         if (!response.ok) throw new Error(`操作失败 HTTP ${response.status}`);
         if (sequence !== inputSequence) return;
         await paintFrame(await response.blob(), response.headers.get('ETag') || '');
+        if (action.action === 'tap' && label === '已点击屏幕') identifyTap({ x: action.x, y: action.y }, sequence);
         settleTimer = setTimeout(() => void refreshFrame(true), action.action === 'swipe' ? 450 : 240);
     }
 
@@ -128,7 +149,7 @@
         let label;
         if (distance < 10) {
             const liked = lastTap && performance.now() - lastTap.at < 420 && Math.hypot(current.end.x - lastTap.x, current.end.y - lastTap.y) < 60;
-            label = liked ? '已点赞' : '已点击屏幕';
+            label = liked ? '已点赞' : fixedTapLabel(current.end) || '已点击屏幕';
             lastTap = liked ? null : { ...current.end, at: performance.now() };
         } else {
             const dx = current.end.x - current.start.x;

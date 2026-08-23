@@ -9,12 +9,14 @@ describe('phone wall snapshot controls', () => {
         const source = publicFile('snapshot.js');
         expect(source).toContain('sequence !== inputSequence');
         expect(source).toContain("action.action === 'swipe' ? 450 : 240");
+        expect(source).toContain("const tabs = ['首页', '朋友', '发布', '消息', '我']");
+        expect(source).toContain('/api/devices/element?');
     });
 
     it('clicks snapshot navigation buttons and aligns the native layer to the canvas', () => {
         const source = publicFile('phones.js');
         expect(source).toContain("if (streamMode === 'snapshot')");
-        expect(source).toContain('canvasRect.left - cardRect.left');
-        expect(source).toContain('canvasRect.top - cardRect.top');
+        expect(source).toContain('frameRect.left - cardRect.left + canvasRect.left');
+        expect(source).toContain('frameRect.top - cardRect.top + canvasRect.top');
     });
 });

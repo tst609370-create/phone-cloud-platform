@@ -419,7 +419,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20260823e',
+                ui: '20260823f',
             });
             return `snapshot.html?${params}`;
         }
@@ -495,12 +495,14 @@
     function alignNativeInputLayer(card, canvas) {
         if (!nativeMacShell || !canvas) return;
         const layer = card.querySelector('.native-input-layer');
+        const frame = card.querySelector('iframe');
         const cardRect = card.getBoundingClientRect();
+        const frameRect = frame.getBoundingClientRect();
         const canvasRect = canvas.getBoundingClientRect();
         if (!canvasRect.width || !canvasRect.height) return;
         const toolsWidth = card.classList.contains('tools-open') ? Math.min(140, canvasRect.width) : 0;
-        layer.style.left = `${canvasRect.left - cardRect.left}px`;
-        layer.style.top = `${canvasRect.top - cardRect.top}px`;
+        layer.style.left = `${frameRect.left - cardRect.left + canvasRect.left}px`;
+        layer.style.top = `${frameRect.top - cardRect.top + canvasRect.top}px`;
         layer.style.width = `${Math.max(0, canvasRect.width - toolsWidth)}px`;
         layer.style.height = `${canvasRect.height}px`;
     }

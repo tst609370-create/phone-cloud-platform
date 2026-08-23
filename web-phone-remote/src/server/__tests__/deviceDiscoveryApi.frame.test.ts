@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AdbClient } from '../AdbClient';
-import { DeviceDiscoveryApi } from '../api/DeviceDiscoveryApi';
+import { DeviceDiscoveryApi, uiLabelAtPoint } from '../api/DeviceDiscoveryApi';
 import { Config } from '../Config';
 import { EnvName } from '../EnvName';
 import { makeReqRes } from './helpers/httpMock';
@@ -36,6 +36,12 @@ afterEach(() => {
 });
 
 describe('DeviceDiscoveryApi snapshot remote control', () => {
+    it('finds the smallest labelled UI node at a tap coordinate', () => {
+        const xml = '<node content-desc="" bounds="[0,0][1080,2400]"><node text="消息" content-desc="消息，按钮" bounds="[600,2100][800,2234]" /></node>';
+        expect(uiLabelAtPoint(xml, 700, 2150)).toBe('消息');
+        expect(uiLabelAtPoint(xml, 100, 100)).toBeUndefined();
+    });
+
     it('serves an ETagged PNG and returns 304 when the screen is unchanged', async () => {
         const { api, adb } = setup();
         const first = makeReqRes('GET', '/api/devices/frame?udid=S1');
@@ -77,5 +83,14 @@ describe('DeviceDiscoveryApi snapshot remote control', () => {
         await api.handle(request.req, request.res);
         expect(request.getStatus()).toBe(400);
         expect(adb.shell).not.toHaveBeenCalled();
+    });
+
+    it('returns the semantic label under a tap coordinate', async () => {
+        const { api, adb } = setup();
+        adb.shell.mockResolvedValue('<node text="我" content-desc="" bounds="[850,2100][1080,2234]" />');
+        const request = makeReqRes('GET', '/api/devices/element?udid=S1&x=960&y=2160');
+        await api.handle(request.req, request.res);
+        expect(request.getStatus()).toBe(200);
+        expect(request.getJson()).toEqual({ label: '我' });
     });
 });

@@ -14,6 +14,31 @@ import { RealtimeEventsApi } from './RealtimeEventsApi';
 
 const log = Logger.for('DeviceDiscoveryApi');
 const INPUT_KEYS: Record<string, number> = { back: 4, home: 3, recent: 187, enter: 66, delete: 67 };
+const coordinate = (value: unknown): number | null => {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 && number <= 20_000 ? Math.round(number) : null;
+};
+
+const decodeXml = (value: string): string => value
+    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+
+export function uiLabelAtPoint(xml: string, x: number, y: number): string | undefined {
+    let best: { area: number; label: string } | undefined;
+    for (const match of xml.matchAll(/<node\b([^>]*)>/g)) {
+        const attrs = match[1] || '';
+        const bounds = /bounds="\[(\d+),(\d+)]\[(\d+),(\d+)]"/.exec(attrs);
+        if (!bounds) continue;
+        const [left, top, right, bottom] = bounds.slice(1).map(Number);
+        if (x < left! || x > right! || y < top! || y > bottom!) continue;
+        const attribute = (name: string) => new RegExp(`${name}="([^"]*)"`).exec(attrs)?.[1] || '';
+        const raw = attribute('content-desc') || attribute('text');
+        const label = decodeXml(raw).replace(/[，,]?按钮$/, '').replace(/\s+/g, ' ').trim().slice(0, 40);
+        const area = (right! - left!) * (bottom! - top!);
+        if (label && area > 0 && (!best || area < best.area)) best = { area, label };
+    }
+    return best?.label;
+}
 
 type CachedFrame = { capturedAt: number; etag: string; data: Buffer };
 
@@ -80,6 +105,27 @@ export class DeviceDiscoveryApi {
                 return true;
             }
 
+            if (req.method === 'GET' && url.startsWith('/api/devices/element')) {
+                const parsedUrl = new URL(url, `http://${req.headers.host}`);
+                const udid = parsedUrl.searchParams.get('udid');
+                const x = coordinate(parsedUrl.searchParams.get('x'));
+                const y = coordinate(parsedUrl.searchParams.get('y'));
+                if (!udid || x === null || y === null) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({ error: 'udid, x and y are required' }));
+                    return true;
+                }
+                if (!requireDeviceAccess(req, res, udid)) return true;
+                const xml = await this.adbClient.shell(
+                    udid,
+                    'uiautomator dump --compressed /data/local/tmp/phonecloud-window.xml >/dev/null && cat /data/local/tmp/phonecloud-window.xml',
+                    8_000,
+                );
+                res.writeHead(200);
+                res.end(JSON.stringify({ label: uiLabelAtPoint(xml, x, y) || null }));
+                return true;
+            }
+
             if (req.method === 'POST' && url.startsWith('/api/devices/input')) {
                 const inputUrl = new URL(url, `http://${req.headers.host}`);
                 if (inputUrl.pathname !== '/api/devices/input') return false;
@@ -100,10 +146,6 @@ export class DeviceDiscoveryApi {
                     return true;
                 }
                 if (!requireDeviceAccess(req, res, body.udid)) return true;
-                const coordinate = (value: unknown): number | null => {
-                    const number = Number(value);
-                    return Number.isFinite(number) && number >= 0 && number <= 20_000 ? Math.round(number) : null;
-                };
                 let command = '';
                 if (body.action === 'tap') {
                     const x = coordinate(body.x);
