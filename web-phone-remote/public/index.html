@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>手机远程控制</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="phones.css?v=20260823e">
+    <link rel="stylesheet" href="phones.css?v=20260823g">
 </head>
 <body>
     <div class="app">
@@ -19,7 +19,7 @@
                 <button id="reconnect-all" type="button"><span>↻</span><b class="sidebar-label">全部重连</b></button>
                 <button id="expand-first" type="button"><span>⛶</span><b class="sidebar-label">首台放大</b></button>
                 <button id="refresh-page" type="button" hidden><span>⟳</span><b class="sidebar-label">刷新页面</b></button>
-                <button id="install-app" type="button" title="安装到当前云机"><span>⇧</span><b class="sidebar-label">安装软件</b></button>
+                <button id="install-app" type="button" title="打开软件库"><span>▦</span><b class="sidebar-label">软件库</b></button>
                 <button id="sync-toggle" type="button" aria-pressed="false"><span>◎</span><b class="sidebar-label">同步关闭</b></button>
                 <button id="screen-off-all" type="button"><span>◐</span><b class="sidebar-label">全部熄屏</b></button>
                 <button id="screen-on-all" type="button"><span>●</span><b class="sidebar-label">全部亮屏</b></button>
@@ -58,6 +58,14 @@
         </main>
     </div>
     <div id="viewer-backdrop" aria-hidden="true"></div>
-    <script src="phones.js?v=20260823f"></script>
+    <dialog id="app-library" class="app-library" aria-labelledby="app-library-title">
+        <header>
+            <div><strong id="app-library-title">软件库</strong><small>安装到 <b id="app-library-target">当前云机</b></small></div>
+            <button id="app-library-close" type="button" aria-label="关闭">×</button>
+        </header>
+        <div id="app-library-list" class="app-library-list"><p>正在读取软件列表…</p></div>
+        <footer><button id="app-local-install" type="button">选择本地 APK 安装</button></footer>
+    </dialog>
+    <script src="phones.js?v=20260823g"></script>
 </body>
 </html>

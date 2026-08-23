@@ -19,4 +19,14 @@ describe('phone wall snapshot controls', () => {
         expect(source).toContain('frameRect.left - cardRect.left + canvasRect.left');
         expect(source).toContain('frameRect.top - cardRect.top + canvasRect.top');
     });
+
+    it('shows the shared APK library and installs into the active phone', () => {
+        const html = publicFile('index.html');
+        const source = publicFile('phones.js');
+        expect(html).toContain('id="app-library"');
+        expect(html).toContain('软件库');
+        expect(source).toContain("fetch('/api/apks'");
+        expect(source).toContain("fetch('/api/apks/install'");
+        expect(source).toContain('devices: [card.dataset.device]');
+    });
 });

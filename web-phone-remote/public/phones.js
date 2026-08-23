@@ -68,6 +68,89 @@
         status.title = status.textContent;
     }
 
+    function activeCard() {
+        return cards.find((item) => item.dataset.device === activeSerial && !item.classList.contains('closed'))
+            || cards.find((item) => !item.classList.contains('closed'));
+    }
+
+    function formatFileSize(bytes) {
+        if (!Number.isFinite(bytes) || bytes < 1024) return `${Math.max(0, Number(bytes) || 0)} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    }
+
+    async function installLibraryApp(card, apk, button) {
+        button.disabled = true;
+        button.textContent = '安装中…';
+        setState(card, '', '正在安装');
+        logOperation(card, `正在安装 ${apk.name}`);
+        try {
+            const response = await fetch('/api/apks/install', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ name: apk.name, devices: [card.dataset.device] }),
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || !result.results?.[0]?.ok) throw new Error(result.error || '安装失败');
+            button.textContent = '已安装';
+            setState(card, 'connected', '安装完成');
+            logOperation(card, `已安装 ${apk.name}`);
+        } catch (error) {
+            button.disabled = false;
+            button.textContent = '重新安装';
+            setState(card, 'error', '安装失败');
+            logOperation(card, error instanceof Error ? error.message : '安装失败');
+        }
+    }
+
+    async function loadAppLibrary() {
+        const dialog = document.getElementById('app-library');
+        const list = document.getElementById('app-library-list');
+        const target = document.getElementById('app-library-target');
+        const card = activeCard();
+        target.textContent = card?.dataset.name || '无可用云机';
+        list.replaceChildren();
+        const loading = document.createElement('p');
+        loading.textContent = '正在读取软件列表…';
+        list.appendChild(loading);
+        try {
+            const response = await fetch('/api/apks', { cache: 'no-store' });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.error || '软件列表读取失败');
+            list.replaceChildren();
+            if (!result.apks?.length) {
+                const empty = document.createElement('p');
+                empty.textContent = '软件库暂无安装包，请管理员先在后台上传。';
+                list.appendChild(empty);
+                return;
+            }
+            for (const apk of result.apks) {
+                const item = document.createElement('article');
+                item.className = 'app-library-item';
+                const info = document.createElement('div');
+                const name = document.createElement('strong');
+                name.textContent = apk.name;
+                name.title = apk.name;
+                const meta = document.createElement('small');
+                meta.textContent = `${formatFileSize(apk.size)} · ${new Date(apk.modifiedAt).toLocaleString('zh-CN', { hour12: false })}`;
+                info.append(name, meta);
+                const install = document.createElement('button');
+                install.type = 'button';
+                install.textContent = '安装';
+                install.disabled = !card;
+                install.addEventListener('click', () => void installLibraryApp(card, apk, install));
+                item.append(info, install);
+                list.appendChild(item);
+            }
+        } catch (error) {
+            list.replaceChildren();
+            const failure = document.createElement('p');
+            failure.textContent = error instanceof Error ? error.message : '软件列表读取失败';
+            list.appendChild(failure);
+        }
+        if (!dialog.open) dialog.showModal();
+    }
+
     function rentalLabel(rental) {
         if (!rental) return '';
         if (rental.expired) return `已到期·${rental.label}`;
@@ -1161,7 +1244,16 @@
     document.getElementById('collapse').addEventListener('click', () => app.classList.toggle('sidebar-collapsed'));
     document.getElementById('refresh-page').addEventListener('click', () => location.reload());
     const appPackage = document.getElementById('app-package');
-    document.getElementById('install-app').addEventListener('click', () => appPackage.click());
+    const appLibrary = document.getElementById('app-library');
+    document.getElementById('install-app').addEventListener('click', () => {
+        appLibrary.showModal();
+        void loadAppLibrary();
+    });
+    document.getElementById('app-library-close').addEventListener('click', () => appLibrary.close());
+    document.getElementById('app-local-install').addEventListener('click', () => appPackage.click());
+    appLibrary.addEventListener('click', (event) => {
+        if (event.target === appLibrary) appLibrary.close();
+    });
     appPackage.addEventListener('change', () => {
         const file = appPackage.files?.[0];
         appPackage.value = '';
@@ -1170,8 +1262,7 @@
             alert('请选择 APK 安装包。');
             return;
         }
-        const card = cards.find((item) => item.dataset.device === activeSerial && !item.classList.contains('closed'))
-            || cards.find((item) => !item.classList.contains('closed'));
+        const card = activeCard();
         if (!card) {
             alert('当前没有可用的云机。');
             return;
@@ -1280,6 +1371,7 @@
             const { topic } = JSON.parse(event.data);
             if (topic === 'devices' || topic === 'rentals') void refreshDevices();
             if (topic === 'rentals') void updateAdminVisibility();
+            if (topic === 'apks' && appLibrary.open) void loadAppLibrary();
         } catch { /* reconnect delivers the next valid event */ }
     });
     window.addEventListener('message', (event) => {

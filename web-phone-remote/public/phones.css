@@ -147,6 +147,31 @@ button, select { transition: color .16s ease, background-color .16s ease, border
 .phone-card.closed iframe, .phone-card.closed .last-frame, .phone-card.closed .resume-stream, .phone-card.closed .phone-nav, .phone-card.closed .card-operation-log { display: none; }
 #viewer-backdrop { display: none; position: fixed; inset: 0; z-index: 900; background: rgba(25, 35, 50, .62); backdrop-filter: blur(3px); }
 #viewer-backdrop.visible { display: block; }
+.app-library {
+    width: min(520px, calc(100vw - 28px)); max-height: min(680px, calc(100dvh - 28px)); padding: 0;
+    overflow: hidden; color: #dce8f7; border: 1px solid #2c4261; border-radius: 14px;
+    background: #0d192a; box-shadow: 0 24px 70px rgba(0,0,0,.55);
+}
+.app-library::backdrop { background: rgba(3,9,18,.72); backdrop-filter: blur(4px); }
+.app-library > header { min-height: 62px; padding: 12px 14px; display: flex; align-items: center; border-bottom: 1px solid #233650; }
+.app-library > header div { min-width: 0; display: grid; gap: 3px; }
+.app-library > header strong { font-size: 17px; }
+.app-library > header small { color: #91a4bd; }
+.app-library > header small b { color: #73b3ff; }
+.app-library > header button { margin-left: auto; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 8px; color: #9db1ca; background: #14253b; font-size: 22px; cursor: pointer; }
+.app-library > header button:hover { color: #fff; background: #223b5b; }
+.app-library-list { min-height: 150px; max-height: min(500px, calc(100dvh - 180px)); padding: 10px; overflow: auto; display: grid; align-content: start; gap: 7px; }
+.app-library-list > p { margin: 38px 12px; color: #8295ae; text-align: center; }
+.app-library-item { min-width: 0; padding: 10px 11px; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 10px; border: 1px solid #233854; border-radius: 10px; background: #101f33; }
+.app-library-item div { min-width: 0; display: grid; gap: 3px; }
+.app-library-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.app-library-item small { color: #7f93ac; font-size: 11px; }
+.app-library-item button, .app-library > footer button { border: 1px solid #327ed7; border-radius: 8px; color: #eaf4ff; background: #176ac8; cursor: pointer; }
+.app-library-item button { min-width: 74px; min-height: 34px; padding: 0 12px; }
+.app-library-item button:hover, .app-library > footer button:hover { background: #2782e6; }
+.app-library-item button:disabled { cursor: wait; opacity: .62; }
+.app-library > footer { padding: 10px 12px 12px; border-top: 1px solid #233650; }
+.app-library > footer button { width: 100%; min-height: 38px; }
 .phone-card.expanded {
     position: fixed; inset: 18px; left: 18px !important; top: 18px !important; z-index: 901;
     width: auto; height: auto; min-width: 0; min-height: 0; max-width: none; max-height: none;

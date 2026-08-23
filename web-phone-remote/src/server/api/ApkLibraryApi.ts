@@ -2,6 +2,8 @@ import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { AdbClient } from '../AdbClient';
+import { resolveUserId } from '../auth/currentUser';
+import { canAccessDevice } from '../auth/deviceAccess';
 import { requireAdmin } from '../auth/requireAdmin';
 import { Config } from '../Config';
 import { Logger } from '../Logger';
@@ -30,7 +32,8 @@ export class ApkLibraryApi {
     async handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
         const url = new URL(req.url ?? '/', 'http://localhost');
         if (url.pathname !== '/api/apks' && url.pathname !== '/api/apks/install') return false;
-        if (!requireAdmin(req, res)) return true;
+        const adminOnly = req.method === 'DELETE' || (req.method === 'POST' && url.pathname === '/api/apks');
+        if (adminOnly && !requireAdmin(req, res)) return true;
 
         try {
             await mkdir(this.root, { recursive: true });
@@ -119,6 +122,12 @@ export class ApkLibraryApi {
                 }
                 if (path.extname(name).toLowerCase() !== '.apk' || serials.length === 0 || serials.length > 50) {
                     sendJson(res, 400, { error: '请选择 APK 和 1 至 50 台手机' });
+                    return true;
+                }
+                const db = Config.getInstance().db;
+                const userId = resolveUserId(req);
+                if (serials.some((serial) => !canAccessDevice(db, userId, serial))) {
+                    sendJson(res, 403, { error: '设备未分配' });
                     return true;
                 }
                 const localFile = path.join(this.root, name);

@@ -71,4 +71,41 @@ describe('ApkLibraryApi', () => {
         });
         expect(installed).toEqual(['PHONE_A', 'PHONE_B']);
     });
+
+    it('lets a rental user list APKs and install only on assigned phones', async () => {
+        const root = setup();
+        fs.mkdirSync(root, { recursive: true });
+        fs.writeFileSync(path.join(root, 'tool.apk'), 'apk');
+        const db = Config.getInstance().db;
+        const tenant = db.users.create({ username: 'ab123456', role: 'user', passwordHash: 'x' });
+        db.devices.setAssignments(tenant.id, ['PHONE_A']);
+        const installed: string[] = [];
+        const api = new ApkLibraryApi({
+            devices: async () => [
+                { serial: 'PHONE_A', state: 'device' },
+                { serial: 'PHONE_B', state: 'device' },
+            ],
+            install: async (serial: string) => {
+                installed.push(serial);
+                return 'Success';
+            },
+        } as never, root);
+
+        const list = makeReqRes('GET', '/api/apks');
+        (list.req as typeof list.req & { user: { id: number } }).user = { id: tenant.id };
+        await api.handle(list.req, list.res);
+        expect(list.getStatus()).toBe(200);
+        expect(list.getJson()).toMatchObject({ apks: [{ name: 'tool.apk' }] });
+
+        const allowed = makeReqRes('POST', '/api/apks/install', { name: 'tool.apk', devices: ['PHONE_A'] });
+        (allowed.req as typeof allowed.req & { user: { id: number } }).user = { id: tenant.id };
+        await api.handle(allowed.req, allowed.res);
+        expect(allowed.getStatus()).toBe(200);
+
+        const denied = makeReqRes('POST', '/api/apks/install', { name: 'tool.apk', devices: ['PHONE_B'] });
+        (denied.req as typeof denied.req & { user: { id: number } }).user = { id: tenant.id };
+        await api.handle(denied.req, denied.res);
+        expect(denied.getStatus()).toBe(403);
+        expect(installed).toEqual(['PHONE_A']);
+    });
 });
