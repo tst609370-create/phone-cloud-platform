@@ -26,7 +26,7 @@ export function safeUploadName(value: string): string {
     return base.slice(0, 180);
 }
 
-async function saveRequest(req: IncomingMessage, target: string): Promise<void> {
+export async function saveUploadRequest(req: IncomingMessage, target: string): Promise<void> {
     let size = 0;
     const limiter = new Transform({
         transform(chunk: Buffer, _encoding, callback) {
@@ -66,7 +66,7 @@ export class DeviceFileApi {
 
             tempDir = await mkdtemp(path.join(os.tmpdir(), 'phone-upload-'));
             const localFile = path.join(tempDir, extension === '.apk' ? 'upload.apk' : `upload${extension}`);
-            await saveRequest(req, localFile);
+            await saveUploadRequest(req, localFile);
 
             if (extension === '.apk') {
                 await this.adbClient.install(serial, localFile);

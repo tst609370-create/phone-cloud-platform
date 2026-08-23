@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 
-export type RealtimeTopic = 'devices' | 'rentals';
+export type RealtimeTopic = 'apks' | 'devices' | 'rentals';
 
 export class RealtimeEventsApi {
     private static readonly clients = new Set<ServerResponse>();

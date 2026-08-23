@@ -18,4 +18,11 @@ describe('rental admin user controls', () => {
         expect(phonesJs).not.toContain("document.addEventListener('visibilitychange'");
         expect(phonesJs).not.toContain('if (document.hidden)');
     });
+
+    it('includes a persistent APK library with multi-device install controls', () => {
+        expect(adminHtml).toContain('APK 软件库');
+        expect(adminHtml).toContain('data-install-apk');
+        expect(adminHtml).toContain("api('/api/apks/install'");
+        expect(adminHtml).toContain('安装到所选手机');
+    });
 });

@@ -2,14 +2,15 @@ import { VelopackApp } from 'velopack';
 import { SCAN_WS_PATH } from '../common/ScanMessage';
 import { AdbClient } from './AdbClient';
 import { AdbDaemonManager } from './AdbDaemonManager';
+import { ApkLibraryApi } from './api/ApkLibraryApi';
 import { AuthApi } from './api/AuthApi';
 import { CapabilitiesApi } from './api/CapabilitiesApi';
 import { ConfigApi } from './api/ConfigApi';
 import { DependencyApi } from './api/DependencyApi';
 import { DeviceDiscoveryApi } from './api/DeviceDiscoveryApi';
 import { DeviceFileApi } from './api/DeviceFileApi';
-import { RentalsApi } from './api/RentalsApi';
 import { RealtimeEventsApi } from './api/RealtimeEventsApi';
+import { RentalsApi } from './api/RentalsApi';
 import { ServerShutdownApi } from './api/ServerShutdownApi';
 import { ServiceApi } from './api/ServiceApi';
 import { SettingsApi } from './api/SettingsApi';
@@ -138,6 +139,7 @@ if (__ssArgs) {
     HttpServer.addApiHandler(depApi);
 
     HttpServer.addApiHandler(new DeviceFileApi());
+    HttpServer.addApiHandler(new ApkLibraryApi());
     const discoveryApi = new DeviceDiscoveryApi();
     HttpServer.addApiHandler(discoveryApi);
 

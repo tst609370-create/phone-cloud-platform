@@ -16,7 +16,8 @@
         .table{border:1px solid var(--line);border-radius:11px;overflow:auto}.row{display:grid;grid-template-columns:minmax(150px,.8fr) minmax(260px,1.45fr) minmax(145px,.7fr) minmax(250px,1.1fr);gap:12px;align-items:center;min-width:870px;padding:12px;border-top:1px solid #1d3048}.row:first-child{border-top:0}.head{color:var(--muted);font-size:12px;background:#101f33}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#a9d0ff}.user-cell{display:grid;gap:4px;min-width:0}.user-cell b,.user-cell span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.user-cell small{color:var(--muted);font-size:12px}.device-manager{display:grid;gap:8px;min-width:0}.device-chips{display:flex;flex-wrap:wrap;gap:6px}.device-chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;padding:5px 6px 5px 8px;border:1px solid #304863;border-radius:7px;background:#0a1728;color:#c8d8ea}.device-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.device-chip button{display:grid;place-items:center;width:21px;height:21px;padding:0;border:0;border-radius:5px;background:#3a2029;color:#ff9ca6;font-weight:800;line-height:1}.device-empty{color:var(--muted)}.quick-assign{display:flex;gap:6px}.quick-assign select{min-width:0;flex:1;height:32px;padding:0 8px;border:1px solid #304863;border-radius:7px;background:#081525;color:#d9e8fa}.quick-assign button{height:32px;padding:0 10px;white-space:nowrap}.expiry{display:grid;gap:3px;color:#b8c8da}.expiry small{color:var(--green)}.expired .expiry small{color:var(--red)}.disabled,.expired{opacity:.58}.actions{display:flex;flex-wrap:wrap;gap:6px}.actions button{height:30px;padding:0 9px}.empty{padding:35px 10px;text-align:center;color:var(--muted)}.toast{position:fixed;right:22px;bottom:22px;padding:11px 15px;border-radius:9px;background:#183a2d;color:#8ff0b9;box-shadow:0 12px 40px #0008;display:none}.toast.error{background:#47232b;color:#ff9da8}
         dialog{width:min(390px,calc(100vw - 28px));padding:22px;border:1px solid #304863;border-radius:15px;color:var(--text);background:#0d1a2c;box-shadow:0 28px 90px #000b}dialog::backdrop{background:#020812c9;backdrop-filter:blur(4px)}dialog h3{margin:0 0 9px;font-size:19px}dialog p{margin:8px 0;color:var(--muted);line-height:1.55}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.qr-image{display:block;width:260px;height:260px;margin:14px auto;border-radius:10px;background:#fff}.qr-code{text-align:center;font:700 22px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;color:#a9d0ff}
         #proxy-panel{display:none;padding:0;height:calc(100vh - 48px)}#proxy-frame{width:100%;height:100%;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
-        @media(max-width:900px){.shell{grid-template-columns:1fr}.side{position:sticky;top:0;z-index:4;padding:10px 13px;border:0;border-bottom:1px solid var(--line)}.brand{margin:0}.brand small{display:none}.nav{display:flex;margin-top:9px;overflow:auto}.nav button,.nav a{width:auto;white-space:nowrap}.nav .bottom{margin:0;padding:0;border:0}main{padding:16px}.stats{grid-template-columns:repeat(2,1fr)}.content{grid-template-columns:1fr}.row{grid-template-columns:1fr 1fr;min-width:0}.head{display:none}.device-manager,.actions{grid-column:1/-1}.shell.proxy main{padding:8px}#proxy-panel{height:calc(100vh - 132px)}}
+        #apks-panel{display:none}.apk-layout{display:grid;grid-template-columns:minmax(280px,.7fr) minmax(360px,1fr);gap:14px}.apk-library-card{grid-column:1/-1}.apk-upload{display:grid;gap:11px}.apk-upload p{margin:0;color:var(--muted);line-height:1.55}.apk-upload button{justify-self:start}.apk-device-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}.apk-device{display:flex;align-items:center;gap:9px;padding:10px;border:1px solid #253a53;border-radius:9px;background:#0a1728}.apk-device input{width:17px;height:17px;accent-color:var(--blue)}.apk-device span{display:grid;gap:2px;min-width:0}.apk-device b,.apk-device small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.apk-device small{color:var(--muted)}.apk-list{display:grid;gap:8px}.apk-item{display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:12px;align-items:center;padding:12px;border:1px solid #253a53;border-radius:9px;background:#0a1728}.apk-info{display:grid;gap:4px;min-width:0}.apk-info b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.apk-info small{color:var(--muted)}.apk-actions{display:flex;gap:7px;flex-wrap:wrap}.apk-actions button{height:32px}.section-head{display:flex;align-items:center;gap:8px;margin-bottom:15px}.section-head h2{margin:0}.section-head button{margin-left:auto;height:30px}
+        @media(max-width:900px){.shell{grid-template-columns:1fr}.side{position:sticky;top:0;z-index:4;padding:10px 13px;border:0;border-bottom:1px solid var(--line)}.brand{margin:0}.brand small{display:none}.nav{display:flex;margin-top:9px;overflow:auto}.nav button,.nav a{width:auto;white-space:nowrap}.nav .bottom{margin:0;padding:0;border:0}main{padding:16px}.stats{grid-template-columns:repeat(2,1fr)}.content,.apk-layout{grid-template-columns:1fr}.row{grid-template-columns:1fr 1fr;min-width:0}.head{display:none}.device-manager,.actions{grid-column:1/-1}.apk-item{grid-template-columns:1fr}.shell.proxy main{padding:8px}#proxy-panel{height:calc(100vh - 132px)}}
     </style>
 </head>
 <body>
@@ -25,6 +26,7 @@
         <div class="brand"><span class="logo">控</span><div><strong>云手机总控</strong><small>Mac 管理端</small></div></div>
         <nav class="nav">
             <button class="active" data-panel="rentals">设备与租用</button>
+            <button data-panel="apks">APK 软件库</button>
             <button data-panel="proxy">SOCKS5 代理</button>
             <a href="/">打开设备墙</a>
             <button class="bottom" id="logout">退出管理端</button>
@@ -51,6 +53,14 @@
                 <section class="card"><h2>租用用户列表</h2><div class="table" id="rental-table"><div class="empty">正在读取…</div></div></section>
             </div>
         </section>
+        <section id="apks-panel">
+            <header class="top"><div><h1>APK 软件库</h1><p>上传一次，可重复安装到一台或多台手机</p></div><span class="refresh">实时更新</span></header>
+            <div class="apk-layout">
+                <section class="card apk-upload"><h2>上传安装包</h2><p>APK 保存在 Mac，不会因为浏览器关闭或手机刷机而丢失。</p><input id="apk-file" type="file" accept=".apk,application/vnd.android.package-archive" hidden><button class="primary" id="apk-upload" type="button">选择并上传 APK</button><small id="apk-upload-status" class="device-empty">单个文件最大 512 MB</small></section>
+                <section class="card"><div class="section-head"><h2>安装目标</h2><button class="secondary" id="apk-select-all" type="button">全选</button></div><div class="apk-device-list" id="apk-devices"><div class="empty">正在读取设备…</div></div></section>
+                <section class="card apk-library-card"><h2>已上传 APK</h2><div class="apk-list" id="apk-list"><div class="empty">正在读取安装包…</div></div></section>
+            </div>
+        </section>
         <section id="proxy-panel"><iframe id="proxy-frame" title="SOCKS5 代理管理"></iframe></section>
     </main>
 </div>
@@ -62,11 +72,12 @@
     const $ = (selector) => document.querySelector(selector);
     const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
     const names = {HD1925:'一加 7T Pro 迈凯伦','Pixel 8':'谷歌 Pixel 8',A101BM:'巴慕达 Phone',CPH2211:'OPPO Find X3 Pro','SM-F926B':'三星 Galaxy Z Fold3'};
-    let connected = [], rentals = [], owners = {}, editingId = null, refreshing = false, refreshQueued = false;
+    let connected = [], rentals = [], apks = [], owners = {}, editingId = null, refreshing = false, refreshQueued = false;
     const displayName = (device) => device.label || names[device.model] || device.model || device.serial;
     const randomCode = () => { const bytes=crypto.getRandomValues(new Uint8Array(8)); return String.fromCharCode(97+bytes[0]%26,97+bytes[1]%26)+[...bytes.slice(2)].map((byte)=>String(byte%10)).join(''); };
     const expiryText = (rental) => rental.expiresAt ? new Date(rental.expiresAt).toLocaleString('zh-CN',{hour12:false}) : '永久有效';
     const loginText = (rental) => rental.lastLogin ? `最近登录：${new Date(rental.lastLogin).toLocaleString('zh-CN',{hour12:false})}` : '从未登录';
+    const sizeText = (bytes) => bytes < 1024*1024 ? `${Math.max(1,Math.round(bytes/1024))} KB` : `${(bytes/1024/1024).toFixed(1)} MB`;
     const toast = (message, error = false) => { const el=$('#toast'); el.textContent=message; el.className=`toast${error?' error':''}`; el.style.display='block'; clearTimeout(el.timer); el.timer=setTimeout(()=>el.style.display='none',2600); };
     async function api(url, options) { const response=await fetch(url,{cache:'no-store',...options}); const data=await response.json().catch(()=>({})); if(!response.ok) throw Error(data.error || `HTTP ${response.status}`); return data; }
     function allDevices() {
@@ -109,17 +120,28 @@
             row.querySelector('[data-delete]').onclick = () => remove(rental);
         });
     }
+    function renderApkDevices(selected = []) {
+        $('#apk-devices').innerHTML = connected.length ? connected.map((device) => `<label class="apk-device"><input type="checkbox" value="${esc(device.serial)}" ${selected.includes(device.serial)?'checked':''}><span><b>${esc(displayName(device))}</b><small>${esc(device.serial)}</small></span></label>`).join('') : '<div class="empty">当前没有连接的手机</div>';
+    }
+    function renderApks() {
+        $('#apk-list').innerHTML = apks.length ? apks.map((item) => `<div class="apk-item"><span class="apk-info"><b title="${esc(item.name)}">${esc(item.name)}</b><small>${sizeText(item.size)} · ${new Date(item.modifiedAt).toLocaleString('zh-CN',{hour12:false})}</small></span><span class="apk-actions"><button class="primary" type="button" data-install-apk="${esc(item.name)}">安装到所选手机</button><button class="danger" type="button" data-delete-apk="${esc(item.name)}">删除</button></span></div>`).join('') : '<div class="empty">还没有上传 APK</div>';
+        document.querySelectorAll('[data-install-apk]').forEach((button) => button.onclick = () => installApk(button.dataset.installApk, button));
+        document.querySelectorAll('[data-delete-apk]').forEach((button) => button.onclick = () => deleteApk(button.dataset.deleteApk));
+    }
     async function refresh() {
         if (refreshing) { refreshQueued = true; return; }
         refreshing = true;
         const selected=[...document.querySelectorAll('#device-picks input:checked')].map((input)=>input.value);
+        const apkSelected=[...document.querySelectorAll('#apk-devices input:checked')].map((input)=>input.value);
         try {
             const me = await api('/api/auth/me');
             if (me.user?.role !== 'admin') { location.href='/'; return; }
-            const [deviceData, rentalData] = await Promise.all([api('/api/devices/connected'), api('/api/rentals')]);
-            connected = deviceData; rentals = rentalData.rentals; owners = rentalData.assignmentOwners;
+            const [deviceData, rentalData, apkData] = await Promise.all([api('/api/devices/connected'), api('/api/rentals'), api('/api/apks')]);
+            connected = deviceData; rentals = rentalData.rentals; apks = apkData.apks; owners = rentalData.assignmentOwners;
             renderRentals();
             renderPicks(selected);
+            renderApkDevices(apkSelected);
+            renderApks();
         } catch (error) { toast(error.message, true); }
         finally {
             refreshing = false;
@@ -135,6 +157,9 @@
     async function copyText(text) { try{await navigator.clipboard.writeText(text);}catch{const area=document.createElement('textarea');area.value=text;document.body.append(area);area.select();document.execCommand('copy');area.remove();} }
     async function copyInfo(rental) { const origin=['127.0.0.1','localhost'].includes(location.hostname)?'https://phone.anyuekf.cn':location.origin; const info=`云手机租用信息\n登录链接：${origin}/\n识别码：${rental.code}\n有效期：${expiryText(rental)}\n请打开链接后手动输入识别码。`; await copyText(info); toast('链接、识别码和有效期已复制'); }
     function showQr(rental) { $('#qr-image').src=`/api/rentals/${rental.id}/qr?t=${Date.now()}`; $('#qr-code').textContent=rental.code; $('#qr-dialog').showModal(); }
+    async function uploadApk(file) { const status=$('#apk-upload-status'),button=$('#apk-upload'); if(!file || !/\.apk$/i.test(file.name)){toast('请选择 APK 安装包',true);return;} button.disabled=true; status.textContent=`正在上传 ${file.name}…`; try{await api(`/api/apks?name=${encodeURIComponent(file.name)}`,{method:'POST',headers:{'content-type':'application/vnd.android.package-archive'},body:file});toast('APK 已加入软件库');status.textContent='上传完成';await refresh();}catch(error){toast(error.message,true);status.textContent='上传失败';}finally{button.disabled=false;$('#apk-file').value='';} }
+    async function installApk(name, button) { const devices=[...document.querySelectorAll('#apk-devices input:checked')].map((input)=>input.value); if(!devices.length){toast('请先选择要安装的手机',true);return;} const old=button.textContent;button.disabled=true;button.textContent='安装中…';try{const data=await api('/api/apks/install',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name,devices})});const failed=data.results.filter((item)=>!item.ok);toast(failed.length?`${data.results.length-failed.length} 台成功，${failed.length} 台失败`:`已安装到 ${data.results.length} 台手机`,Boolean(failed.length));}catch(error){toast(error.message,true);}finally{button.disabled=false;button.textContent=old;} }
+    async function deleteApk(name) { if(!confirm(`确定从 APK 库删除“${name}”吗？`))return;try{await api(`/api/apks?name=${encodeURIComponent(name)}`,{method:'DELETE'});toast('APK 已删除');await refresh();}catch(error){toast(error.message,true);} }
     $('#rental-form').addEventListener('submit', async (event) => {
         event.preventDefault();
         const code=$('#rental-code').value.trim(); const existing=editingId?rentals.find((item)=>item.id===editingId):null;
@@ -145,10 +170,13 @@
     });
     $('#generate').onclick = () => { setCodeRules(); $('#rental-code').value=randomCode(); };
     $('#cancel-edit').onclick = resetForm;
+    $('#apk-upload').onclick = () => $('#apk-file').click();
+    $('#apk-file').onchange = () => uploadApk($('#apk-file').files?.[0]);
+    $('#apk-select-all').onclick = () => { const boxes=[...document.querySelectorAll('#apk-devices input')];const checked=boxes.some((box)=>!box.checked);boxes.forEach((box)=>box.checked=checked);$('#apk-select-all').textContent=checked?'取消全选':'全选'; };
     $('#logout').onclick = async () => { await fetch('/api/auth/logout',{method:'POST'}); location.href='/'; };
     document.querySelectorAll('[data-panel]').forEach((button) => button.onclick = () => {
         document.querySelectorAll('[data-panel]').forEach((item)=>item.classList.toggle('active',item===button));
-        const proxy=button.dataset.panel==='proxy'; $('#rentals-panel').style.display=proxy?'none':''; $('#proxy-panel').style.display=proxy?'block':'none'; document.querySelector('.shell').classList.toggle('proxy',proxy);
+        const panel=button.dataset.panel,proxy=panel==='proxy'; $('#rentals-panel').style.display=panel==='rentals'?'':'none'; $('#apks-panel').style.display=panel==='apks'?'block':'none'; $('#proxy-panel').style.display=proxy?'block':'none'; document.querySelector('.shell').classList.toggle('proxy',proxy);
         if(proxy && !$('#proxy-frame').src) $('#proxy-frame').src='http://127.0.0.1:8099/';
     });
     const events=new EventSource('/api/events');
