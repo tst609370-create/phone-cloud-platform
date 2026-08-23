@@ -178,6 +178,7 @@ export class HttpServer extends TypedEmitter<HttpServerEvents> implements Servic
             }
             if (decision.setCookie) {
                 res.setHeader('Set-Cookie', decision.setCookie);
+                res.setHeader('Cache-Control', 'no-store');
             }
             const tryHandlers = async () => {
                 for (const handler of HttpServer.apiHandlers) {

@@ -29,4 +29,11 @@ describe('phone wall snapshot controls', () => {
         expect(source).toContain("fetch('/api/apks/install'");
         expect(source).toContain('devices: [card.dataset.device]');
     });
+
+    it('recovers the device list after a service restart invalidates the instance cookie', () => {
+        const source = publicFile('phones.js');
+        expect(source).toContain('response.status !== 403');
+        expect(source).toContain('/?refresh-token=');
+        expect(source).toContain('response = await fetchConnectedDevices()');
+    });
 });

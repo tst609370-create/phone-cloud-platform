@@ -450,6 +450,14 @@
 
     let devicesRefreshing = false;
     let devicesRefreshQueued = false;
+    async function fetchConnectedDevices() {
+        let response = await fetch('/api/devices/connected', { cache: 'no-store' });
+        if (response.status !== 403) return response;
+        await fetch(`/?refresh-token=${Date.now()}`, { cache: 'no-store', credentials: 'same-origin' });
+        response = await fetch('/api/devices/connected', { cache: 'no-store' });
+        return response;
+    }
+
     async function refreshDevices() {
         if (devicesRefreshing) {
             devicesRefreshQueued = true;
@@ -457,7 +465,7 @@
         }
         devicesRefreshing = true;
         try {
-            const response = await fetch('/api/devices/connected', { cache: 'no-store' });
+            const response = await fetchConnectedDevices();
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const devices = await response.json();
             visibleDevices = devices;
