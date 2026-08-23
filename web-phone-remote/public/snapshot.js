@@ -14,6 +14,8 @@
     let objectUrl = '';
     let pointer = null;
     let lastTap = null;
+    let inputSequence = 0;
+    let settleTimer = 0;
 
     const showError = (message) => {
         status.textContent = message;
@@ -79,6 +81,8 @@
     }
 
     async function sendInput(action, label = '已操作') {
+        const sequence = ++inputSequence;
+        clearTimeout(settleTimer);
         parent.postMessage({ type: 'phone-operation-log', label }, location.origin);
         const response = await fetch('/api/devices/input?frame=1', {
             method: 'POST',
@@ -86,7 +90,9 @@
             body: JSON.stringify({ udid, ...action }),
         });
         if (!response.ok) throw new Error(`操作失败 HTTP ${response.status}`);
+        if (sequence !== inputSequence) return;
         await paintFrame(await response.blob(), response.headers.get('ETag') || '');
+        settleTimer = setTimeout(() => void refreshFrame(true), action.action === 'swipe' ? 450 : 240);
     }
 
     const pointFromEvent = (event) => {

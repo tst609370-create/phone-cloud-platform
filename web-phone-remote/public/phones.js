@@ -419,7 +419,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20260823d',
+                ui: '20260823e',
             });
             return `snapshot.html?${params}`;
         }
@@ -465,7 +465,7 @@
         if (layoutMode === 'carousel' || card.classList.contains('expanded') || card.classList.contains('closed') || !canvas.width || !canvas.height) return;
         const border = 2;
         const headerHeight = card.querySelector(':scope > header').offsetHeight;
-        const footerHeight = card.querySelector('.phone-nav').offsetHeight;
+        const footerHeight = card.querySelector('.phone-nav').offsetHeight + card.querySelector('.card-operation-log').offsetHeight;
         const toolbarWidth = toolbar?.ownerDocument?.body?.hasAttribute('data-embed-entry')
             ? 0
             : Math.ceil(toolbar?.getBoundingClientRect().width || 60);
@@ -495,14 +495,12 @@
     function alignNativeInputLayer(card, canvas) {
         if (!nativeMacShell || !canvas) return;
         const layer = card.querySelector('.native-input-layer');
-        const frame = card.querySelector('iframe');
         const cardRect = card.getBoundingClientRect();
-        const frameRect = frame.getBoundingClientRect();
         const canvasRect = canvas.getBoundingClientRect();
         if (!canvasRect.width || !canvasRect.height) return;
         const toolsWidth = card.classList.contains('tools-open') ? Math.min(140, canvasRect.width) : 0;
-        layer.style.left = `${frameRect.left - cardRect.left + canvasRect.left}px`;
-        layer.style.top = `${frameRect.top - cardRect.top + canvasRect.top}px`;
+        layer.style.left = `${canvasRect.left - cardRect.left}px`;
+        layer.style.top = `${canvasRect.top - cardRect.top}px`;
         layer.style.width = `${Math.max(0, canvasRect.width - toolsWidth)}px`;
         layer.style.height = `${canvasRect.height}px`;
     }
@@ -579,6 +577,10 @@
         if (title === '截图') {
             button.click();
             logOperation(card, '已截图');
+            return;
+        }
+        if (streamMode === 'snapshot') {
+            button.click();
             return;
         }
         for (const type of ['mousedown', 'mouseup']) {
