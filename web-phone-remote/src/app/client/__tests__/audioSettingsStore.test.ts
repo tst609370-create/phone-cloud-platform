@@ -1,0 +1,99 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Hoist the spy and the shared cache so they are available inside vi.mock()'s
+// factory (which is also hoisted). This is the standard vitest pattern for
+// accessing a vi.fn() from within a vi.mock() factory.
+const { _cache, mockSetDeviceAudio } = vi.hoisted(() => {
+    const cache = new Map<string, Record<string, unknown>>();
+    return {
+        _cache: cache,
+        mockSetDeviceAudio: vi.fn((udid: string, audio: Record<string, unknown>) => {
+            const cur = cache.get(udid) ?? {};
+            cur['audio'] = audio;
+            cache.set(udid, cur);
+        }),
+    };
+});
+
+// Stub the SettingsService singleton so AudioSettingsStore reads/writes go
+// through an in-test Map instead of fetch(). The stub mirrors the subset of
+// SettingsService used by AudioSettingsStore: getDeviceAudio, setDeviceAudio,
+// and hydrateDevice.
+//
+// setDeviceAudio is a vi.fn() spy (hoisted above) so the save() tests can
+// assert it routed through the write-through PATCH path.
+vi.mock('../SettingsService', () => ({
+    settingsService: {
+        getDeviceAudio(udid: string): Record<string, unknown> | undefined {
+            return _cache.get(udid)?.['audio'] as Record<string, unknown> | undefined;
+        },
+        setDeviceAudio: mockSetDeviceAudio,
+        hydrateDevice(_udid: string): Promise<void> {
+            // In tests that exercise read-after-hydrate: pre-seed _cache before
+            // calling hydrateDevice; this is a no-op (the real service fetches
+            // from the server, but the stub treats the cache as already populated).
+            return Promise.resolve();
+        },
+    },
+}));
+
+import { AudioSettingsStore, type StoredAudioSettings } from '../AudioSettingsStore';
+
+beforeEach(() => {
+    _cache.clear();
+    mockSetDeviceAudio.mockClear();
+});
+
+afterEach(() => {
+    _cache.clear();
+    mockSetDeviceAudio.mockClear();
+});
+
+describe('AudioSettingsStore.load', () => {
+    it('returns null when nothing has been saved for the udid', () => {
+        expect(AudioSettingsStore.load('192.168.1.50:5555')).toBeNull();
+    });
+
+    it('returns saved settings round-trip', () => {
+        const settings: StoredAudioSettings = { enabled: true, source: 'playback', codec: 'opus' };
+        AudioSettingsStore.save('dev1', settings);
+        expect(AudioSettingsStore.load('dev1')).toEqual(settings);
+    });
+
+    it('isolates settings per udid', () => {
+        AudioSettingsStore.save('phone', { enabled: true, source: 'playback', codec: 'opus' });
+        AudioSettingsStore.save('tv', { enabled: false, source: 'output', codec: 'aac' });
+        expect(AudioSettingsStore.load('phone')?.source).toBe('playback');
+        expect(AudioSettingsStore.load('tv')?.enabled).toBe(false);
+    });
+
+    it('returns null when stored value is missing required fields', () => {
+        // Seed the cache directly with a bad object (no JSON parse needed — cache holds parsed objects)
+        const cur = _cache.get('dev1') ?? {};
+        cur['audio'] = { source: 'playback' };
+        _cache.set('dev1', cur);
+        expect(AudioSettingsStore.load('dev1')).toBeNull();
+    });
+
+    it('returns null when stored enum values are invalid', () => {
+        const cur = _cache.get('dev1') ?? {};
+        cur['audio'] = { enabled: true, source: 'voice-call', codec: 'opus' };
+        _cache.set('dev1', cur);
+        expect(AudioSettingsStore.load('dev1')).toBeNull();
+    });
+
+    it('returns null when the cached audio value is not an object', () => {
+        const cur = _cache.get('dev1') ?? {};
+        cur['audio'] = 'not-an-object';
+        _cache.set('dev1', cur);
+        expect(AudioSettingsStore.load('dev1')).toBeNull();
+    });
+});
+
+describe('AudioSettingsStore.save', () => {
+    it('overwrites previous settings for the same udid', () => {
+        AudioSettingsStore.save('dev1', { enabled: true, source: 'playback', codec: 'opus' });
+        AudioSettingsStore.save('dev1', { enabled: false, source: 'output', codec: 'aac' });
+        expect(AudioSettingsStore.load('dev1')).toEqual({ enabled: false, source: 'output', codec: 'aac' });
+    });
+});

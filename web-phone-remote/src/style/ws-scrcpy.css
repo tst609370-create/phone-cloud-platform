@@ -1,0 +1,223 @@
+/* Stream + toolbar styles shared by the home-page bundle and the ws-scrcpy library bundle.
+ *
+ * This file is also loaded standalone by embed.html (which does NOT link app.css),
+ * so it must self-contain every theme variable the stream/toolbar styling depends on.
+ * Home-page callers (app.css) re-define the same variables — identical values, so
+ * the cascade harmless. Light-mode auto-detection uses prefers-color-scheme, but
+ * an explicit data-theme="light"/"dark" attribute on <html> wins.
+ */
+
+:root,
+[data-theme="dark"] {
+    --control-buttons-bg-color: #202832;
+    --svg-button-fill: #ffffff;
+    --svg-checkbox-bg-color: #3b91f5;
+    --control-bar-width: 2rem;
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+        --control-buttons-bg-color: #f5f7fa;
+        --svg-button-fill: #697586;
+        --svg-checkbox-bg-color: #3b91f5;
+    }
+}
+
+[data-theme="light"] {
+    --control-buttons-bg-color: #f5f7fa;
+    --svg-button-fill: #697586;
+    --svg-checkbox-bg-color: #3b91f5;
+}
+
+/* Stream layout: device-view is a flex row (video | toolbar). Video cell uses
+ * CSS grid so the video-layer and touch-layer stack in the same cell — this
+ * replaces legacy position:absolute layers which broke parent auto-sizing.
+ * DOM order is toolbar-first; the toolbar uses `order: 1` to appear right.
+ *
+ * Defaults deliberately DO NOT use flex:1 — that would force the container to
+ * stretch to max height in fit-content parents (like the ConnectModal frame),
+ * leaving dead space below a smaller canvas. Full-body embed contexts that
+ * need the stream to fill the viewport opt in via body[data-embed-entry]
+ * below. */
+.device-view {
+    display: flex;
+    flex-direction: row;
+    min-width: 0;
+    min-height: 0;
+}
+
+.video {
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+    place-items: center;
+    background-color: #000;
+    /* Grid layout + the canvas max-width/max-height caps control the displayed
+     * cell size with correct aspect; `.video` itself stays auto. The device
+     * resolution is exposed as the --video-width / --video-height custom props
+     * (set by the player's setScreenInfo) instead of an inline width/height, so
+     * no `!important` is needed to keep the cell auto-sized. (#106) */
+    width: auto;
+    height: auto;
+}
+
+/* Viewport-based max caps on the canvas layers. Canvas elements preserve
+ * intrinsic aspect ratio when both max-width and max-height are set, so these
+ * make the canvas shrink-to-fit the viewport while preserving the device
+ * aspect ratio. (The player's `calculateScreenInfoForBounds` never runs
+ * because `resizeVideoToBounds` is false on every subclass — so CSS alone
+ * has to do the sizing.) Modal context overrides these with narrower caps. */
+.video-layer {
+    grid-area: 1 / 1;
+    max-width: calc(100vw - var(--control-bar-width));
+    max-height: 100vh;
+}
+
+.control-wrapper > input[type="checkbox"] {
+    display: none;
+}
+
+.control-wrapper > label.control-button {
+    display: block;
+    margin: 0.15rem auto;
+}
+
+.control-wrapper > input[type="checkbox"].two-images:checked + label > svg.image-on {
+    display: block;
+}
+
+.control-wrapper > input[type="checkbox"].two-images:not(:checked) + label > svg.image-on {
+    display: none;
+}
+
+.control-wrapper > input[type="checkbox"].two-images:checked + label > svg.image-off {
+    display: none;
+}
+
+.control-wrapper > input[type="checkbox"].two-images:not(:checked) + label > svg.image-off {
+    display: block;
+}
+
+.control-wrapper > input[type="checkbox"]:checked + label > svg {
+    fill: var(--svg-checkbox-bg-color);
+}
+
+.touch-layer {
+    grid-area: 1 / 1;
+    max-width: calc(100vw - var(--control-bar-width));
+    max-height: 100vh;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.control-buttons-list {
+    flex-shrink: 0;
+    width: var(--control-bar-width);
+    background-color: var(--control-buttons-bg-color);
+    border-left: 1px solid rgba(130,145,165,.22);
+    order: 1; /* DOM order is toolbar-first, but we want video-left toolbar-right */
+}
+
+/* Embed page (embed.html) marks its body with data-embed-entry. The stream
+ * container fills the viewport, but the video cell itself stays content-sized
+ * so canvas + toolbar hug together as a pair — matches the legacy float:right
+ * look where the toolbar is flush against the mirror's right edge. Without
+ * justify-end the pair sits left and portrait devices leave the toolbar
+ * marooned at the far right. Modal contexts (fit-content frame) skip this. */
+body[data-embed-entry] .device-view {
+    flex: 1;
+    position: relative;
+    justify-content: center;
+}
+
+body[data-embed-entry] .video-layer,
+body[data-embed-entry] .touch-layer {
+    max-width: 100vw;
+}
+
+body[data-embed-entry] .control-buttons-list {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 5;
+    width: 2rem;
+    border: 0;
+    background: transparent;
+    pointer-events: none;
+}
+
+body[data-embed-entry] .control-buttons-list > * {
+    display: none;
+}
+
+body[data-embed-entry].tools-expanded .control-buttons-list {
+    width: 8.75rem;
+}
+
+body[data-embed-entry].tools-expanded .control-buttons-list > button:not([title="返回"]):not([title="主页"]):not([title="多任务"]):not([title="截图"]),
+body[data-embed-entry].tools-expanded .control-buttons-list > label.control-button {
+    position: static;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    width: 8.25rem;
+    height: 2rem;
+    margin: .25rem .25rem;
+    padding: 0 .55rem;
+    border: 1px solid rgba(126, 178, 244, .22);
+    border-radius: .45rem;
+    box-sizing: border-box;
+    color: #f3f7fc;
+    font: 500 .75rem/1.1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    text-align: left;
+    white-space: nowrap;
+    background: rgba(20, 30, 44, .94);
+    box-shadow: 0 3px 12px rgba(0, 0, 0, .2);
+    overflow: hidden;
+    pointer-events: auto;
+}
+
+body[data-embed-entry].tools-expanded .control-buttons-list > button:not([title="返回"]):not([title="主页"]):not([title="多任务"]):not([title="截图"])::after,
+body[data-embed-entry].tools-expanded .control-buttons-list > label.control-button::after {
+    content: attr(title);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+body[data-embed-entry].tools-expanded .control-buttons-list > button:not([title="返回"]):not([title="主页"]):not([title="多任务"]):not([title="截图"]) > svg,
+body[data-embed-entry].tools-expanded .control-buttons-list > label.control-button > svg {
+    flex: 0 0 1.05rem;
+    width: 1.05rem;
+    height: 1.05rem;
+}
+
+body[data-embed-entry] {
+    touch-action: none;
+    overscroll-behavior: none;
+}
+
+.control-button {
+    margin: 0.15rem auto;
+    padding: 0;
+    display: block;
+    width: 1.3rem;
+    height: 1.3rem;
+    border: none;
+    opacity: 0.72;
+    background-color: var(--control-buttons-bg-color);
+    overflow: hidden;
+    transition: opacity .16s ease, transform .16s ease, background-color .16s ease;
+}
+
+.control-button:hover {
+    opacity: 1;
+    transform: translateY(-1px);
+}
+
+/* biome-ignore lint/style/noDescendingSpecificity: intentional source order; reordering would change the cascade */
+.control-button > svg {
+    fill: var(--svg-button-fill);
+    width: 100%;
+    height: 100%;
+    display: block;
+}

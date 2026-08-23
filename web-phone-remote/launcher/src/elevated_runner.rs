@@ -1,0 +1,991 @@
+// Elevate-on-demand helper for service install / uninstall.
+//
+// The Node server runs unelevated (Velopack installs us per-user under
+// %LocalAppData%, no admin needed for normal operation). But Servy's CLI
+// needs admin to register a service with SCM, so when the user clicks
+// "yes install service" the Node server spawns this launcher binary in
+// `--request-uac` mode (see uac_requester.rs); that mode calls
+// `ShellExecuteExW(verb="runas")` on this same binary to fire the UAC
+// prompt and re-spawn elevated with `--elevate-and-run`. This handler
+// is the elevated-side receiver. It executes servy-cli + reg.exe + tray
+// spawn directly; it writes a result JSON to a known temp path; it
+// exits. (Pre-§30 the UAC prompt was fired by `powershell.exe
+// Start-Process -Verb RunAs`; §30 replaced PowerShell with the
+// launcher's own ShellExecuteExW call for Local-Dependencies-Only
+// compliance.)
+//
+// Argv shape:
+//   ws-scrcpy-web-launcher.exe --elevate-and-run <command> <args-json-path> <result-json-path>
+//
+// where:
+//   <command>           = "install-service" | "uninstall-service"
+//   <args-json-path>    = absolute path to a temp file containing
+//                         JSON-encoded args (caller wrote it, helper reads it)
+//   <result-json-path>  = absolute path the helper writes the structured
+//                         result to before exit
+//
+// Result JSON shape:
+//   {
+//     "ok": bool,
+//     "exitCode": int,         // overall helper exit code (0 on full success)
+//     "stdout": string,        // captured servy-cli stdout
+//     "stderr": string,        // captured servy-cli stderr
+//     "errorMessage": string?  // present when ok=false; user-friendly summary
+//   }
+//
+// Exit codes:
+//   0  = full success (servy-cli + post-actions all succeeded)
+//   2  = malformed argv (caller bug — should never happen in production)
+//   3  = could not read args JSON
+//   4  = servy-cli invocation failed (non-zero exit). Result JSON still
+//        written with stderr captured. Caller decides what to surface.
+//   5  = could not write result JSON (filesystem error in temp dir)
+//
+// A non-zero exit always still writes the result JSON if at all possible
+// — the caller reads the JSON for user-facing error messages, regardless
+// of exit code. The exit code is only consulted as a safety net when the
+// result JSON is missing entirely.
+
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use serde::{Deserialize, Serialize};
+
+use crate::log;
+#[cfg(windows)]
+use crate::user_session_spawn::{spawn_in_active_user_session, SpawnUserLauncherArgs};
+
+/// Args we accept from the Node caller. Each `command` has its own
+/// expected schema; we deserialize as a generic JSON value first and then
+/// branch.
+#[derive(Debug, Deserialize)]
+pub struct InstallServiceArgs {
+    pub servy_path: String,
+    pub name: String,
+    pub display_name: String,
+    pub description: String,
+    pub bin_path: String,
+    pub startup_dir: String,
+    pub startup_type: String,
+    pub max_restart_attempts: u32,
+    /// Already formatted as KEY=VAL;KEY2=VAL2 by the caller — we don't
+    /// parse + re-emit, since that's purely a Node-side concern.
+    pub env_vars: String,
+    pub log_path: String,
+    /// Optional tray-helper path. If present and the file exists, we
+    /// register the HKLM Run-key (machine-wide, so every user gets a
+    /// tray at logon) and spawn the tray detached for the installing
+    /// admin's session.
+    pub tray_helper_path: Option<String>,
+    /// Writable data root for the install (e.g., C:\ProgramData\WsScrcpyWeb).
+    /// Used to compute the post-stop bat file location (outside Velopack's
+    /// reach) — §32 Part 4 architecture. Optional only so legacy callers
+    /// don't error; modern installs MUST pass this to wire post-stop.
+    #[serde(default)]
+    pub data_root: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UninstallServiceArgs {
+    pub servy_path: String,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct ElevatedResult {
+    pub ok: bool,
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub error_message: Option<String>,
+}
+
+/// Public entry: if argv contains the elevate-and-run flag, handle it and
+/// return `Some(exit_code)`. Otherwise return None (caller proceeds to
+/// normal launch).
+pub fn handle(args: &[String]) -> Option<i32> {
+    let pos = args.iter().position(|a| a == "--elevate-and-run")?;
+    let command = args.get(pos + 1).map(String::as_str)?;
+    let args_path = args.get(pos + 2)?;
+    let result_path = args.get(pos + 3)?;
+
+    log::info(&format!(
+        "elevate-and-run: command={command} args_path={args_path} result_path={result_path}"
+    ));
+
+    let args_path = PathBuf::from(args_path);
+    let result_path = PathBuf::from(result_path);
+
+    let result = match command {
+        "install-service" => match read_args::<InstallServiceArgs>(&args_path) {
+            Ok(a) => install_service(&a),
+            Err(e) => fail(3, &format!("could not read args JSON: {e}")),
+        },
+        "uninstall-service" => match read_args::<UninstallServiceArgs>(&args_path) {
+            Ok(a) => uninstall_service(&a),
+            Err(e) => fail(3, &format!("could not read args JSON: {e}")),
+        },
+        // Cross-session user-session spawn for the v0.1.8 uninstall
+        // Path A flow. Caller is the SERVICE-instance Node process
+        // (running as Local System), which has SE_TCB_NAME and so can
+        // call WTSQueryUserToken. We bridge through this elevated-run
+        // command so the WTS-API code lives in one Rust module and
+        // the Node side has a uniform interface.
+        #[cfg(windows)]
+        "spawn-user-launcher" => match read_args::<SpawnUserLauncherArgs>(&args_path) {
+            Ok(a) => spawn_user_launcher_command(&a),
+            Err(e) => fail(3, &format!("could not read args JSON: {e}")),
+        },
+        unknown => fail(2, &format!("unknown elevate-and-run command: {unknown}")),
+    };
+
+    let final_code = result.exit_code;
+    let nonce = read_nonce(&args_path);
+    if let Err(e) = write_result(&result_path, &result, nonce.as_deref()) {
+        log::error(&format!("could not write result JSON to {result_path:?}: {e}"));
+        // Even a failed result-write doesn't change the exit code we
+        // return; the caller will see "no result file present" and infer
+        // that the helper itself died. Use exit code 5 only when result
+        // was OK but write failed.
+        if result.ok {
+            return Some(5);
+        }
+    }
+
+    Some(final_code)
+}
+
+fn read_args<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
+    let raw = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    serde_json::from_str::<T>(&raw).map_err(|e| e.to_string())
+}
+
+fn write_result(path: &Path, result: &ElevatedResult, nonce: Option<&str>) -> Result<(), String> {
+    // Echo the per-call nonce (read from args.json) back into the result so the
+    // Node side can reject a spoofed or stale result file (#28). Injected at the
+    // JSON layer to avoid threading a field through every ElevatedResult literal.
+    let mut value = serde_json::to_value(result).map_err(|e| e.to_string())?;
+    if let (Some(n), Some(obj)) = (nonce, value.as_object_mut()) {
+        obj.insert("nonce".to_string(), serde_json::Value::String(n.to_string()));
+    }
+    let json = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
+    let mut f = fs::File::create(path).map_err(|e| e.to_string())?;
+    f.write_all(json.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Read the per-call nonce the Node side embeds in args.json (#28). Parsed
+/// generically so the typed arg structs are unchanged; absent → None.
+fn read_nonce(path: &Path) -> Option<String> {
+    let raw = fs::read_to_string(path).ok()?;
+    let value = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
+    value.get("nonce")?.as_str().map(str::to_string)
+}
+
+fn fail(code: i32, msg: &str) -> ElevatedResult {
+    ElevatedResult {
+        ok: false,
+        exit_code: code,
+        stdout: String::new(),
+        stderr: String::new(),
+        error_message: Some(msg.to_string()),
+    }
+}
+
+/// Build the servy-cli `install` argv. Extracted for unit-testing the flag
+/// shape. `--enableSizeRotation` (presence) + `--rotationSize 10` +
+/// `--maxRotations 1` bound service.log natively (servy owns the append fd, so
+/// the app can't rename/truncate it — servy rotates it itself; size rotation
+/// takes precedence over date rotation per servy 8.2).
+fn build_servy_install_args(args: &InstallServiceArgs, post_stop_bat: Option<&PathBuf>) -> Vec<String> {
+    let mut servy_args = vec![
+        "install".to_string(),
+        "--name".to_string(),
+        args.name.clone(),
+        "--displayName".to_string(),
+        args.display_name.clone(),
+        "--description".to_string(),
+        args.description.clone(),
+        "--path".to_string(),
+        args.bin_path.clone(),
+        "--startupDir".to_string(),
+        args.startup_dir.clone(),
+        "--startupType".to_string(),
+        args.startup_type.clone(),
+        "--recoveryAction".to_string(),
+        "RestartProcess".to_string(),
+        "--maxRestartAttempts".to_string(),
+        args.max_restart_attempts.to_string(),
+        "--envVars".to_string(),
+        args.env_vars.clone(),
+        "--stdout".to_string(),
+        args.log_path.clone(),
+        "--stderr".to_string(),
+        args.log_path.clone(),
+        "--enableSizeRotation".to_string(),
+        "--rotationSize".to_string(),
+        "10".to_string(),
+        "--maxRotations".to_string(),
+        "1".to_string(),
+    ];
+    if let Some(bat_path) = post_stop_bat {
+        let bat_path_str = bat_path.to_string_lossy().into_owned();
+        servy_args.push("--postStopPath".to_string());
+        servy_args.push(r"C:\Windows\System32\cmd.exe".to_string());
+        servy_args.push("--postStopParams".to_string());
+        servy_args.push(format!("/c \"{bat_path_str}\""));
+        servy_args.push("--postStopStartupDir".to_string());
+        servy_args.push(
+            bat_path
+                .parent()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|| args.startup_dir.clone()),
+        );
+    }
+    servy_args
+}
+
+fn install_service(args: &InstallServiceArgs) -> ElevatedResult {
+    log::info(&format!("install-service: name={}", args.name));
+
+    // §32 Part 4 — post-stop handler lives at <dataRoot>/post-stop/post-stop.bat
+    // and is invoked via cmd.exe. Replaces the Part 3 launcher-binary-with-flag
+    // approach, which used `current/ws-scrcpy-web-launcher.exe` as the post-stop
+    // process — putting the recovery binary IN Velopack's swap zone. v0.1.25-beta.15
+    // smoke (2026-05-20) showed post-stop #1 dying mid-sleep at 19:28:32, almost
+    // certainly because Velopack's swap of `current/` between 19:28:32-33 left the
+    // post-stop process stranded.
+    //
+    // The new architecture:
+    //   - postStopPath: C:\Windows\System32\cmd.exe (OS-stable, never moves)
+    //   - postStopParams: /c "<dataRoot>\control\post-stop\post-stop.bat"
+    //   - bat lives in <dataRoot> (Velopack-untouchable)
+    //   - bat content: timeout 12 → check marker → del marker → sc start
+    //   - Servy is registered at C:\ProgramData\Servy\ (also Velopack-untouchable);
+    //     verified via `sc qc WsScrcpyWeb` on a beta.14 install.
+    //
+    // If data_root wasn't provided (legacy caller), fall back to NOT wiring post-stop
+    // and the synchronous --veloapp-updated hook bridge handles recovery.
+    let post_stop_bat: Option<std::path::PathBuf> = match args.data_root.as_deref() {
+        Some(dr) => match write_post_stop_bat(
+            std::path::Path::new(dr),
+            &args.name,
+            &args.servy_path,
+            &args.bin_path,
+        ) {
+            Ok(path) => {
+                log::info(&format!("install-service: wrote post-stop bat at {path:?}"));
+                Some(path)
+            }
+            Err(e) => {
+                log::error(&format!(
+                    "install-service: failed to write post-stop bat: {e} — proceeding without postStopPath (legacy bridge path will handle recovery)"
+                ));
+                None
+            }
+        },
+        None => {
+            log::info("install-service: data_root not provided — skipping post-stop wiring (legacy bridge path will handle recovery)");
+            None
+        }
+    };
+
+    let servy_args = build_servy_install_args(args, post_stop_bat.as_ref());
+
+    let install_out = match run_capture(&args.servy_path, &servy_args) {
+        Ok(out) => out,
+        Err(e) => return fail(4, &format!("servy-cli install spawn failed: {e}")),
+    };
+    if !install_out.success {
+        return ElevatedResult {
+            ok: false,
+            exit_code: 4,
+            stdout: install_out.stdout,
+            stderr: install_out.stderr,
+            error_message: Some(format!(
+                "servy-cli install exited with code {:?}",
+                install_out.code
+            )),
+        };
+    }
+
+    // Auto-start: same try-best-effort semantics as the Node-side ServyClient
+    // had in v0.1.6 — we capture but don't fail the overall install.
+    let start_out = run_capture(&args.servy_path, &["start", "--name", &args.name])
+        .unwrap_or_else(|e| CapturedOutput::error_only(&format!("servy-cli start spawn failed: {e}")));
+
+    // Spawn the tray detached so the installing admin immediately gets
+    // a tray icon for their session. The tray_supervisor polling thread
+    // will also start firing from the now-running service launcher;
+    // dedup via the per-session single-instance mutex.
+    if let Some(tray) = &args.tray_helper_path {
+        if std::path::Path::new(tray).exists() {
+            let _ = silent_command(tray).spawn();
+        }
+    }
+
+    let mut combined_stdout = install_out.stdout;
+    combined_stdout.push_str("\n--- start ---\n");
+    combined_stdout.push_str(&start_out.stdout);
+
+    let mut combined_stderr = install_out.stderr;
+    if !start_out.stderr.is_empty() {
+        combined_stderr.push_str("\n--- start ---\n");
+        combined_stderr.push_str(&start_out.stderr);
+    }
+
+    ElevatedResult {
+        ok: true,
+        exit_code: 0,
+        stdout: combined_stdout,
+        stderr: combined_stderr,
+        error_message: None,
+    }
+}
+
+#[cfg(windows)]
+fn spawn_user_launcher_command(args: &SpawnUserLauncherArgs) -> ElevatedResult {
+    let r = spawn_in_active_user_session(args);
+    if r.ok {
+        ElevatedResult {
+            ok: true,
+            exit_code: 0,
+            stdout: format!("spawned pid {} in session {}", r.pid, r.session_id),
+            stderr: String::new(),
+            error_message: None,
+        }
+    } else {
+        ElevatedResult {
+            ok: false,
+            exit_code: 4,
+            stdout: String::new(),
+            stderr: r.error_message.clone().unwrap_or_default(),
+            error_message: r.error_message,
+        }
+    }
+}
+
+fn uninstall_service(args: &UninstallServiceArgs) -> ElevatedResult {
+    log::info(&format!("uninstall-service: name={}", args.name));
+
+    // §33 beta.38 diagnostic logging — each servy-cli step's exit code +
+    // stdout/stderr summary is logged so we can pinpoint exactly which
+    // step the "ONE servy-cli window then Failed to fetch" symptom
+    // breaks at. Pre-§33-beta.38 the stop result was discarded silently
+    // and only failure cases logged.
+
+    // Stop first (best-effort — service may already be stopped).
+    log::info(&format!(
+        "uninstall-service: invoking servy-cli stop (servy_path={:?})",
+        args.servy_path
+    ));
+    match run_capture(&args.servy_path, &["stop", "--name", &args.name]) {
+        Ok(out) => log::info(&format!(
+            "uninstall-service: servy-cli stop result success={} code={:?} stdout_len={} stderr_len={}",
+            out.success, out.code, out.stdout.len(), out.stderr.len()
+        )),
+        Err(e) => log::error(&format!(
+            "uninstall-service: servy-cli stop spawn failed (continuing to uninstall anyway, stop is best-effort): {e}"
+        )),
+    }
+
+    log::info(&format!(
+        "uninstall-service: invoking servy-cli uninstall (servy_path={:?})",
+        args.servy_path
+    ));
+    let uninstall_out = match run_capture(&args.servy_path, &["uninstall", "--name", &args.name]) {
+        Ok(out) => {
+            log::info(&format!(
+                "uninstall-service: servy-cli uninstall result success={} code={:?} stdout_len={} stderr_len={}",
+                out.success, out.code, out.stdout.len(), out.stderr.len()
+            ));
+            out
+        }
+        Err(e) => {
+            log::error(&format!(
+                "uninstall-service: servy-cli uninstall spawn failed: {e}"
+            ));
+            return fail(4, &format!("servy-cli uninstall spawn failed: {e}"));
+        }
+    };
+    if !uninstall_out.success {
+        log::error(&format!(
+            "uninstall-service: servy-cli uninstall exited non-zero, returning failure (code={:?} stdout={:?} stderr={:?})",
+            uninstall_out.code, uninstall_out.stdout, uninstall_out.stderr
+        ));
+        return ElevatedResult {
+            ok: false,
+            exit_code: 4,
+            stdout: uninstall_out.stdout,
+            stderr: uninstall_out.stderr,
+            error_message: Some(format!(
+                "servy-cli uninstall exited with code {:?}",
+                uninstall_out.code
+            )),
+        };
+    }
+
+    // v0.1.8: also kill the running tray helper process if any. The
+    // the currently-running tray icon would otherwise sit there
+    // pointing at a service that no longer exists. taskkill /F /IM
+    // hits both elevated and non-elevated tray instances in the
+    // current session. Best-effort — no tray process means no kill,
+    // not an error.
+    log::info("uninstall-service: invoking taskkill /F /IM ws-scrcpy-web-tray.exe");
+    match silent_os_tool("taskkill")
+        .args(["/F", "/IM", "ws-scrcpy-web-tray.exe"])
+        .output()
+    {
+        Ok(out) => log::info(&format!(
+            "uninstall-service: taskkill result exit={:?} (128 = process-not-found, fine)",
+            out.status.code()
+        )),
+        Err(e) => log::error(&format!(
+            "uninstall-service: taskkill spawn failed (non-fatal): {e}"
+        )),
+    }
+
+    log::info("uninstall-service: returning success");
+    ElevatedResult {
+        ok: true,
+        exit_code: 0,
+        stdout: uninstall_out.stdout,
+        stderr: uninstall_out.stderr,
+        error_message: None,
+    }
+}
+
+struct CapturedOutput {
+    success: bool,
+    code: Option<i32>,
+    stdout: String,
+    stderr: String,
+}
+
+impl CapturedOutput {
+    fn error_only(msg: &str) -> Self {
+        Self {
+            success: false,
+            code: None,
+            stdout: String::new(),
+            stderr: msg.to_string(),
+        }
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn silent_command(exe: impl AsRef<std::ffi::OsStr>) -> Command {
+    use std::os::windows::process::CommandExt;
+    let mut cmd = Command::new(exe);
+    cmd.creation_flags(crate::win_util::CREATE_NO_WINDOW);
+    cmd
+}
+
+#[cfg(not(windows))]
+pub(crate) fn silent_command(exe: impl AsRef<std::ffi::OsStr>) -> Command {
+    Command::new(exe)
+}
+
+/// Build the absolute path of an OS-provided Windows tool under
+/// `<system_root>\System32` (with a `.exe` suffix). Pure core of
+/// `system32_tool`, split out so it is unit-testable without reading the
+/// environment.
+#[cfg(windows)]
+fn system32_path(system_root: &str, name: &str) -> String {
+    format!(r"{system_root}\System32\{name}.exe")
+}
+
+/// Resolve an OS-provided Windows tool (`taskkill`, `icacls` — never an app
+/// dependency, which lives under the local deps folder) to its absolute
+/// `%SystemRoot%\System32` path. Keys off `%SystemRoot%` like the TS-side
+/// `resolveSystemTool`, falling back to `C:\Windows`.
+#[cfg(windows)]
+fn system32_tool(name: &str) -> String {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+    system32_path(&root, name)
+}
+
+/// `silent_command` for an OS-provided tool, resolved to an absolute path on
+/// Windows so it cannot be hijacked via `%PATH%` (review #20 /
+/// Local-Dependencies-Only). Cross-platform: non-Windows callers
+/// (`uninstall_service`, `on_uninstall`) compile under `cross`, so the
+/// bare-name fallback exists only to keep those paths compiling — `taskkill` /
+/// `icacls` are Windows-only at run time.
+pub(crate) fn silent_os_tool(name: &str) -> Command {
+    #[cfg(windows)]
+    {
+        silent_command(system32_tool(name))
+    }
+    #[cfg(not(windows))]
+    {
+        silent_command(name)
+    }
+}
+
+fn run_capture(exe: &str, args: &[impl AsRef<std::ffi::OsStr>]) -> Result<CapturedOutput, String> {
+    let output = silent_command(exe)
+        .args(args)
+        .output()
+        .map_err(|e| e.to_string())?;
+    Ok(CapturedOutput {
+        success: output.status.success(),
+        code: output.status.code(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
+// §32 Part 5 / Phase 4: HKLM\Run + HKCU\Run tray registration removed
+// entirely. Tray lifecycle is now owned by the tray_supervisor background
+// poller. The following legacy cleanup functions were dropped:
+//   - register_tray_run_key, migrate_tray_run_key_for_service,
+//     is_hklm_already_migrated (dropped in §32 Part 5)
+//   - unregister_tray_run_key, cleanup_stale_hkcu_tray_run_key,
+//     reg_delete_value_best_effort, classify_reg_delete_outcome,
+//     TRAY_RUN_KEY, TRAY_RUN_VALUE, STALE_HKCU_TRAY_RUN_KEY
+//     (dropped in Phase 4 — 30+ betas with tray_supervisor means any
+//     stale Run-key entries have already been cleaned up)
+/// Reject any value that could break out of a `"..."` quoted batch token or
+/// inject a command when the generated .bat runs elevated (Servy `--postStopPath`
+/// / a SYSTEM scheduled task). cmd.exe does NOT treat double quotes as fully
+/// inert the way POSIX sh does — `%`/`!` still expand and a literal `"` ends the
+/// quoted run — so we refuse the metacharacters that matter in a batch context. (#13)
+pub(crate) fn assert_safe_bat_token(value: &str, what: &str) -> Result<(), String> {
+    const FORBIDDEN: &[char] = &['"', '&', '|', '<', '>', '^', '%', '!', '\r', '\n', '`'];
+    if let Some(c) = value.chars().find(|c| FORBIDDEN.contains(c)) {
+        return Err(format!("refusing to write bat: {what} contains an unsafe character {c:?}"));
+    }
+    Ok(())
+}
+
+/// A Servy/Windows service name is a server-derived constant, but it is
+/// interpolated UNQUOTED into `sc start <name>` / `--name <name>`, so pin it to
+/// a safe charset. (#13)
+pub(crate) fn assert_safe_service_name(name: &str) -> Result<(), String> {
+    if name.is_empty()
+        || !name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+    {
+        return Err(format!("refusing to write bat: invalid service name {name:?}"));
+    }
+    Ok(())
+}
+
+/// §32 Part 4 — write the post-stop bat file at `<data_root>/post-stop/post-stop.bat`.
+/// This bat is invoked by Servy via `--postStopPath` every time the supervised
+/// launcher exits. The bat:
+///   1. Sleeps DEFERRED_RESTART_DELAY_SECS to let Update.exe finish its swap.
+///   2. Checks for the apply-update-pending marker at <data_root>/control/.
+///   3. If present → del marker + sc start the service (Velopack apply path).
+///   4. If absent → exit (user-initiated stop, e.g., services.msc).
+///
+/// Why a bat instead of our own launcher binary: in Part 3 (PR #48) we used
+/// `<current>/ws-scrcpy-web-launcher.exe --post-stop-handler` as the post-stop
+/// process. That binary lives in Velopack's swap zone (`current/`), so the
+/// running post-stop got stranded mid-sleep when Velopack swapped `current/`
+/// during the upgrade (caught by v0.1.25-beta.15 smoke 2026-05-20). The bat
+/// file lives in `<data_root>` (Velopack-untouchable) and is invoked by
+/// `C:\Windows\System32\cmd.exe` (OS-stable). Paths are interpolated at
+/// install time — no arg-passing needed at run time.
+///
+/// Returns the full path of the written bat on success.
+pub(crate) fn write_post_stop_bat(
+    data_root: &std::path::Path,
+    service_name: &str,
+    servy_path: &str,
+    current_launcher_path: &str,
+) -> Result<std::path::PathBuf, String> {
+    use std::fs;
+
+    let post_stop_dir = data_root.join("control").join("post-stop");
+    fs::create_dir_all(&post_stop_dir).map_err(|e| {
+        format!("create_dir_all {post_stop_dir:?} failed: {e}")
+    })?;
+
+    let bat_path = post_stop_dir.join("post-stop.bat");
+    let apply_marker = data_root.join("control").join("apply-update-pending");
+    let apply_marker_str = apply_marker.to_string_lossy();
+    let uninstall_marker = data_root.join("control").join("uninstall-pending");
+    let uninstall_marker_str = uninstall_marker.to_string_lossy();
+    let helper_path = crate::operation_server::helper_path_for(data_root);
+    let helper_path_str = helper_path.to_string_lossy();
+
+    // 12 seconds: empirical buffer above the observed Update.exe lifetime.
+    // v0.1.25-beta.10 smoke A.2 logs showed Update.exe holding file handles
+    // ~5s into its post-apply window. 12s gives Update.exe time to exit and
+    // release handles before sc.exe asks SCM to start the service again.
+    const POST_STOP_SLEEP_SECS: u32 = 12;
+
+    // Three-state bat conditional (operation-server rearchitecture, Phase 2):
+    //   1. apply-update-pending → existing upgrade path (Velopack)
+    //   2. uninstall-pending    → operation-server uninstall path
+    //   3. neither              → no-op (user-initiated stop)
+    // Markers are mutually exclusive in normal flows. If both present
+    // (would indicate a bug), apply-update wins per branch order; the
+    // uninstall-pending marker survives for the next cycle.
+    //
+    // See spec: docs/superpowers/specs/2026-05-23-operation-server-rearchitecture-design.md
+
+    let log_dir = data_root.join("logs");
+    let log_dir_str = log_dir.to_string_lossy();
+
+    // Validate everything interpolated into the elevated .bat before writing it,
+    // so a hostile value (e.g. from the install-args file) cannot inject a batch
+    // command that runs as SYSTEM. (#13)
+    assert_safe_service_name(service_name)?;
+    for (val, what) in [
+        (servy_path, "servy_path"),
+        (current_launcher_path, "current_launcher_path"),
+        (apply_marker_str.as_ref(), "apply_marker"),
+        (uninstall_marker_str.as_ref(), "uninstall_marker"),
+        (helper_path_str.as_ref(), "helper_path"),
+        (log_dir_str.as_ref(), "log_dir"),
+    ] {
+        assert_safe_bat_token(val, what)?;
+    }
+
+    let bat = format!(
+        "@echo off\r\n\
+         REM ws-scrcpy-web post-stop handler (operation-server era).\r\n\
+         REM Generated by elevated_runner.rs:write_post_stop_bat at install_service time.\r\n\
+         REM Bat is in <dataRoot>/control/post-stop/ (Velopack-untouchable); invoked via cmd.exe (OS binary).\r\n\
+         REM Helper is in <dataRoot>/control/operation-server/ (Velopack-untouchable).\r\n\
+         REM See spec: docs/superpowers/specs/2026-05-23-operation-server-rearchitecture-design.md\r\n\
+         \r\n\
+         if not exist \"{log_dir}\" mkdir \"{log_dir}\"\r\n\
+         \r\n\
+         if exist \"{apply_marker}\" (\r\n\
+         \x20\x20\x20\x20echo %date% %time% [post-stop] apply-update-pending marker found, firing apply-update branch >> \"{log_dir}\\post-stop.log\"\r\n\
+         \x20\x20\x20\x20del \"{apply_marker}\"\r\n\
+         \x20\x20\x20\x20if exist \"{helper}\" (\r\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20start \"\" /b \"{helper}\" --operation-server\r\n\
+         \x20\x20\x20\x20)\r\n\
+         \x20\x20\x20\x20timeout /t {sleep} /nobreak >nul\r\n\
+         \x20\x20\x20\x20sc start {service}\r\n\
+         \x20\x20\x20\x20exit /b 0\r\n\
+         )\r\n\
+         \r\n\
+         if exist \"{uninstall_marker}\" (\r\n\
+         \x20\x20\x20\x20echo %date% %time% [post-stop] uninstall-pending marker found, firing uninstall branch >> \"{log_dir}\\post-stop.log\"\r\n\
+         \x20\x20\x20\x20del \"{uninstall_marker}\"\r\n\
+         \x20\x20\x20\x20if exist \"{helper}\" (\r\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20start \"\" /b \"{helper}\" --operation-server\r\n\
+         \x20\x20\x20\x20)\r\n\
+         \x20\x20\x20\x20\"{servy_path}\" uninstall --name {service}\r\n\
+         \x20\x20\x20\x20\"{helper}\" --spawn-user-launcher --launcher-path \"{current_launcher}\"\r\n\
+         \x20\x20\x20\x20exit /b 0\r\n\
+         )\r\n\
+         \r\n\
+         REM Neither marker — user-initiated stop (services.msc, sc stop). No-op.\r\n\
+         echo %date% %time% [post-stop] no marker found, user-initiated stop, exiting cleanly >> \"{log_dir}\\post-stop.log\"\r\n\
+         exit /b 0\r\n",
+        sleep = POST_STOP_SLEEP_SECS,
+        apply_marker = apply_marker_str,
+        uninstall_marker = uninstall_marker_str,
+        helper = helper_path_str,
+        service = service_name,
+        servy_path = servy_path,
+        current_launcher = current_launcher_path,
+        log_dir = log_dir_str,
+    );
+
+    fs::write(&bat_path, bat.as_bytes()).map_err(|e| {
+        format!("write {bat_path:?} failed: {e}")
+    })?;
+    Ok(bat_path)
+}
+
+#[cfg(test)]
+mod rotation_tests {
+    use super::*;
+
+    fn sample_args() -> InstallServiceArgs {
+        InstallServiceArgs {
+            servy_path: "servy-cli.exe".into(),
+            name: "WsScrcpyWeb".into(),
+            display_name: "ws-scrcpy-web".into(),
+            description: "desc".into(),
+            bin_path: "C:/app/launcher.exe".into(),
+            startup_dir: "C:/app".into(),
+            startup_type: "Automatic".into(),
+            max_restart_attempts: 3,
+            env_vars: "K=V".into(),
+            log_path: "C:/data/logs/service.log".into(),
+            tray_helper_path: None,
+            data_root: None,
+        }
+    }
+
+    #[test]
+    fn servy_install_args_enable_size_rotation_10mb_one_backup() {
+        let argv = build_servy_install_args(&sample_args(), None);
+        assert!(argv.iter().any(|a| a == "--enableSizeRotation"));
+        let pos = argv.iter().position(|a| a == "--rotationSize").expect("--rotationSize present");
+        assert_eq!(argv[pos + 1], "10");
+        let mpos = argv.iter().position(|a| a == "--maxRotations").expect("--maxRotations present");
+        assert_eq!(argv[mpos + 1], "1");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+    use tempfile::tempdir;
+
+    #[test]
+    fn handle_returns_none_when_flag_absent() {
+        let args = vec!["launcher.exe".to_string(), "--unrelated".to_string()];
+        assert!(handle(&args).is_none());
+    }
+
+    #[test]
+    fn assert_safe_bat_token_rejects_batch_metacharacters() {
+        for bad in [
+            "a\"b", "a&b", "a|b", "a<b", "a>b", "a^b", "a%b", "a!b", "a\rb", "a\nb", "a`b",
+        ] {
+            assert!(assert_safe_bat_token(bad, "x").is_err(), "expected {bad:?} rejected");
+        }
+        assert!(assert_safe_bat_token("C:/app/control/post-stop/post-stop.bat", "x").is_ok());
+    }
+
+    #[test]
+    fn assert_safe_service_name_pins_charset() {
+        assert!(assert_safe_service_name("WsScrcpyWeb").is_ok());
+        assert!(assert_safe_service_name("ws-scrcpy_web.1").is_ok());
+        assert!(assert_safe_service_name("a b").is_err());
+        assert!(assert_safe_service_name("a&start calc").is_err());
+        assert!(assert_safe_service_name("").is_err());
+    }
+
+    #[test]
+    fn write_post_stop_bat_rejects_an_injected_service_name() {
+        let dir = tempdir().unwrap();
+        let r = write_post_stop_bat(dir.path(), "Ws & calc", "C:/app/servy-cli.exe", "C:/app/launcher.exe");
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn write_post_stop_bat_writes_for_a_clean_service_name() {
+        let dir = tempdir().unwrap();
+        let r = write_post_stop_bat(dir.path(), "WsScrcpyWeb", "C:/app/servy-cli.exe", "C:/app/launcher.exe");
+        assert!(r.is_ok());
+    }
+
+    // OS tools (taskkill/icacls) must resolve under <SystemRoot>\System32 with
+    // a .exe suffix — never via %PATH% (#20 / Local-Dependencies-Only). Pure
+    // core split out from the env-reading `system32_tool` so it is testable.
+    #[cfg(windows)]
+    #[test]
+    fn system32_path_builds_absolute_system32_path() {
+        assert_eq!(
+            system32_path(r"C:\Windows", "taskkill"),
+            r"C:\Windows\System32\taskkill.exe"
+        );
+        // Honors a non-C: SystemRoot — the reason we key off %SystemRoot%
+        // rather than hardcoding C:\Windows.
+        assert_eq!(
+            system32_path(r"D:\Win", "icacls"),
+            r"D:\Win\System32\icacls.exe"
+        );
+    }
+
+    #[test]
+    fn handle_returns_exit_code_2_for_unknown_command() {
+        let dir = tempdir().unwrap();
+        let args_path = dir.path().join("args.json");
+        let result_path = dir.path().join("result.json");
+        fs::write(&args_path, "{}").unwrap();
+
+        let argv = vec![
+            "launcher.exe".to_string(),
+            "--elevate-and-run".to_string(),
+            "bogus-command".to_string(),
+            args_path.to_string_lossy().into_owned(),
+            result_path.to_string_lossy().into_owned(),
+        ];
+        let exit = handle(&argv).expect("flag matched");
+        assert_eq!(exit, 2);
+
+        let mut json = String::new();
+        fs::File::open(&result_path).unwrap().read_to_string(&mut json).unwrap();
+        assert!(json.contains("unknown elevate-and-run command"));
+        assert!(json.contains("\"ok\": false"));
+    }
+
+    #[test]
+    fn handle_echoes_the_args_nonce_into_the_result() {
+        // #28: Node embeds a per-call nonce in args.json; the elevated helper
+        // must echo it into result.json so Node can reject a spoofed/stale file.
+        let dir = tempdir().unwrap();
+        let args_path = dir.path().join("args.json");
+        let result_path = dir.path().join("result.json");
+        fs::write(&args_path, r#"{"nonce":"nonce-xyz"}"#).unwrap();
+
+        let argv = vec![
+            "launcher.exe".to_string(),
+            "--elevate-and-run".to_string(),
+            "bogus-command".to_string(),
+            args_path.to_string_lossy().into_owned(),
+            result_path.to_string_lossy().into_owned(),
+        ];
+        handle(&argv).expect("flag matched");
+
+        let mut json = String::new();
+        fs::File::open(&result_path).unwrap().read_to_string(&mut json).unwrap();
+        assert!(json.contains("\"nonce\""), "result missing nonce field: {json}");
+        assert!(json.contains("nonce-xyz"), "result missing nonce value: {json}");
+    }
+
+    #[test]
+    fn handle_returns_exit_code_3_when_args_json_missing() {
+        let dir = tempdir().unwrap();
+        let result_path = dir.path().join("result.json");
+
+        let argv = vec![
+            "launcher.exe".to_string(),
+            "--elevate-and-run".to_string(),
+            "install-service".to_string(),
+            dir.path().join("does-not-exist.json").to_string_lossy().into_owned(),
+            result_path.to_string_lossy().into_owned(),
+        ];
+        let exit = handle(&argv).expect("flag matched");
+        assert_eq!(exit, 3);
+
+        let mut json = String::new();
+        fs::File::open(&result_path).unwrap().read_to_string(&mut json).unwrap();
+        assert!(json.contains("could not read args JSON"));
+    }
+
+    #[test]
+    fn write_result_round_trips() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("r.json");
+        let r = ElevatedResult {
+            ok: true,
+            exit_code: 0,
+            stdout: "out".to_string(),
+            stderr: "err".to_string(),
+            error_message: None,
+        };
+        write_result(&path, &r, None).unwrap();
+
+        let mut s = String::new();
+        fs::File::open(&path).unwrap().read_to_string(&mut s).unwrap();
+        // Field name uses snake_case as serialized; consumers (Node) parse
+        // these explicitly.
+        assert!(s.contains("\"ok\": true"));
+        assert!(s.contains("\"stdout\": \"out\""));
+        assert!(s.contains("\"stderr\": \"err\""));
+    }
+
+    #[test]
+    fn write_post_stop_bat_uses_operation_server_flag() {
+        let tmp = tempdir().unwrap();
+        let bat_path = super::write_post_stop_bat(
+            tmp.path(),
+            "WsScrcpyWeb",
+            r"C:\dependencies\servy\servy-cli.exe",
+            r"C:\Program Files\WsScrcpyWeb\current\ws-scrcpy-web-launcher.exe",
+        ).expect("write");
+        let content = std::fs::read_to_string(&bat_path).expect("read");
+        assert!(
+            content.contains("--operation-server"),
+            "bat should use --operation-server flag: {content}"
+        );
+        assert!(
+            !content.contains("--upgrade-server"),
+            "bat should NOT use legacy --upgrade-server flag in newly-generated content: {content}"
+        );
+    }
+
+    #[test]
+    fn write_post_stop_bat_uses_operation_server_helper_path() {
+        let tmp = tempdir().unwrap();
+        let bat_path = super::write_post_stop_bat(
+            tmp.path(),
+            "WsScrcpyWeb",
+            r"C:\dependencies\servy\servy-cli.exe",
+            r"C:\Program Files\WsScrcpyWeb\current\ws-scrcpy-web-launcher.exe",
+        ).expect("write");
+        let content = std::fs::read_to_string(&bat_path).expect("read");
+        // The bat is Windows-only at runtime but the test runs on both
+        // Windows and Linux CI. Use the platform's separator so we match
+        // the actual bat content on each (helper_path_str is derived via
+        // PathBuf::to_string_lossy which yields `\` on Windows, `/` on Linux).
+        let expected_suffix = std::path::Path::new("control")
+            .join("operation-server")
+            .join("ws-scrcpy-web-launcher.exe");
+        let expected_suffix = expected_suffix.to_string_lossy();
+        assert!(
+            content.contains(expected_suffix.as_ref()),
+            "bat helper path should be under operation-server/ (expected suffix {expected_suffix:?}): {content}"
+        );
+    }
+
+    #[test]
+    fn write_post_stop_bat_contains_apply_update_branch() {
+        let tmp = tempdir().unwrap();
+        let bat_path = super::write_post_stop_bat(
+            tmp.path(),
+            "WsScrcpyWeb",
+            r"C:\dependencies\servy\servy-cli.exe",
+            r"C:\Program Files\WsScrcpyWeb\current\ws-scrcpy-web-launcher.exe",
+        ).expect("write");
+        let content = std::fs::read_to_string(&bat_path).expect("read");
+        assert!(content.contains("apply-update-pending"), "apply-update branch present: {content}");
+        assert!(content.contains("sc start WsScrcpyWeb"), "apply-update branch invokes sc start: {content}");
+    }
+
+    #[test]
+    fn write_post_stop_bat_contains_uninstall_branch() {
+        let tmp = tempdir().unwrap();
+        let bat_path = super::write_post_stop_bat(
+            tmp.path(),
+            "WsScrcpyWeb",
+            r"C:\dependencies\servy\servy-cli.exe",
+            r"C:\Program Files\WsScrcpyWeb\current\ws-scrcpy-web-launcher.exe",
+        ).expect("write");
+        let content = std::fs::read_to_string(&bat_path).expect("read");
+        assert!(content.contains("uninstall-pending"), "uninstall branch present: {content}");
+        assert!(content.contains(r"servy-cli.exe"), "uninstall branch references servy-cli: {content}");
+        assert!(content.contains("uninstall --name WsScrcpyWeb"), "uninstall branch invokes servy-cli uninstall: {content}");
+        assert!(content.contains("--spawn-user-launcher"), "uninstall branch spawns fresh user-session launcher: {content}");
+        assert!(content.contains(r"--launcher-path"), "uninstall branch passes --launcher-path: {content}");
+    }
+
+    #[test]
+    fn write_post_stop_bat_logs_each_branch_to_post_stop_log() {
+        let tmp = tempdir().unwrap();
+        let bat_path = super::write_post_stop_bat(
+            tmp.path(),
+            "WsScrcpyWeb",
+            r"C:\dependencies\servy\servy-cli.exe",
+            r"C:\Program Files\WsScrcpyWeb\current\ws-scrcpy-web-launcher.exe",
+        ).expect("write");
+        let content = std::fs::read_to_string(&bat_path).expect("read");
+        assert!(content.contains("post-stop.log"), "bat should log to post-stop.log: {content}");
+        assert!(content.contains("[post-stop] apply-update-pending marker found"), "apply-update branch logged: {content}");
+        assert!(content.contains("[post-stop] uninstall-pending marker found"), "uninstall branch logged: {content}");
+        assert!(content.contains("[post-stop] no marker found"), "no-op branch logged: {content}");
+    }
+
+    #[test]
+    fn write_post_stop_bat_apply_update_branch_comes_first() {
+        let tmp = tempdir().unwrap();
+        let bat_path = super::write_post_stop_bat(
+            tmp.path(),
+            "WsScrcpyWeb",
+            r"C:\dependencies\servy\servy-cli.exe",
+            r"C:\Program Files\WsScrcpyWeb\current\ws-scrcpy-web-launcher.exe",
+        ).expect("write");
+        let content = std::fs::read_to_string(&bat_path).expect("read");
+        let apply_idx = content.find("apply-update-pending").expect("apply-update token present");
+        let uninstall_idx = content.find("uninstall-pending").expect("uninstall token present");
+        assert!(
+            apply_idx < uninstall_idx,
+            "apply-update branch must come first (mutual-exclusion ordering)"
+        );
+    }
+}

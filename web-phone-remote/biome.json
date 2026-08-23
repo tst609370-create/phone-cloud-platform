@@ -1,0 +1,80 @@
+{
+    "$schema": "https://biomejs.dev/schemas/2.4.12/schema.json",
+    "assist": { "actions": { "source": { "organizeImports": "on" } } },
+    "formatter": {
+        "enabled": true,
+        "indentStyle": "space",
+        "indentWidth": 4,
+        "lineWidth": 120
+    },
+    "linter": {
+        "enabled": true,
+        "rules": {
+            "recommended": true,
+            "suspicious": {
+                "noExplicitAny": "off",
+                "noImplicitAnyLet": "off",
+                "noGlobalIsNan": "warn",
+                "noAssignInExpressions": "off",
+                "noDoubleEquals": "warn",
+                "noRedeclare": "warn",
+                "noConfusingVoidType": "warn",
+                "noEmptyBlock": "warn",
+                "noVar": "warn"
+            },
+            "complexity": {
+                "noForEach": "off",
+                "noStaticOnlyClass": "off",
+                "noThisInStatic": "off",
+                "useOptionalChain": "warn",
+                "useLiteralKeys": "off",
+                "noUselessConstructor": "warn",
+                "noArguments": "warn"
+            },
+            "style": {
+                "noNonNullAssertion": "off",
+                "useDefaultParameterLast": "off",
+                "noParameterAssign": "off",
+                "useNodejsImportProtocol": "off",
+                "useTemplate": "warn",
+                "noUnusedTemplateLiteral": "warn",
+                "noUselessElse": "warn",
+                "useSingleVarDeclarator": "warn"
+            },
+            "correctness": {
+                "noSwitchDeclarations": "warn",
+                "noInnerDeclarations": "warn",
+                "noVoidTypeReturn": "warn",
+                "noConstantCondition": "warn"
+            },
+            "performance": {
+                "noDelete": "off"
+            }
+        }
+    },
+    "javascript": {
+        "formatter": {
+            "quoteStyle": "single",
+            "trailingCommas": "all",
+            "semicolons": "always"
+        }
+    },
+    "files": {
+        "includes": ["src/**", "webpack/**"]
+    },
+    "overrides": [
+        {
+            "includes": ["src/public/images/**"],
+            "linter": {
+                "rules": {
+                    "a11y": {
+                        "noSvgWithoutTitle": "off"
+                    }
+                }
+            },
+            "formatter": {
+                "enabled": false
+            }
+        }
+    ]
+}

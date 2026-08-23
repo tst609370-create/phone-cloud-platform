@@ -1,0 +1,192 @@
+.dep-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.dep-header h2 {
+    margin: 0;
+}
+
+.dep-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 1rem;
+}
+
+.dep-table th {
+    text-align: left;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--button-border-color);
+    color: var(--text-color-light);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.dep-table td {
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid var(--button-border-color);
+    vertical-align: middle;
+}
+
+.dep-table tr:last-child td {
+    border-bottom: none;
+}
+
+.dep-version {
+    font-family: var(--font-mono);
+    font-size: 0.93rem;
+    white-space: nowrap;
+}
+
+.dep-description {
+    font-size: 0.93rem;
+    color: var(--text-color-light);
+    margin-top: 0.2rem;
+}
+
+.dep-paired {
+    font-size: 0.86rem;
+    color: var(--text-color-light);
+    margin-left: 0.35rem;
+}
+
+/* Buttons */
+.dep-btn {
+    padding: 0.3rem 0.75rem;
+    border: 0.5px solid var(--accent-color);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--accent-color);
+    font-family: var(--font-mono);
+    font-size: var(--font-size);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.15s;
+}
+
+.dep-btn:hover:not(:disabled) {
+    background-color: var(--device-list-hover-color);
+}
+
+.dep-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* "Check for updates" — semantic match with the "turn on" / success
+   sleep-wake button. Border + text in success-green. */
+.dep-btn.dep-check-all {
+    border-color: var(--success-color);
+    color: var(--success-color);
+}
+
+/* Network-discovery scan buttons — semantic match with caution / start-
+   an-action. Border + text in warning-orange (--warning-color is solidly
+   orange now: dark #fb923c, light #b45309). */
+.dep-btn.discovery-quick-scan-btn,
+.dep-btn.discovery-scan-btn,
+.dep-btn.discovery-manual-btn {
+    border-color: var(--warning-color);
+    color: var(--warning-color);
+}
+
+.dep-update {
+    border-color: #2a6a2a;
+    color: var(--success-color);
+    background-color: #1a3a1a;
+}
+
+.dep-update:hover:not(:disabled) {
+    background-color: #1f451f;
+    opacity: 1;
+}
+
+/* Status badges */
+.dep-badge {
+    display: inline-block;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    border: 0.5px solid currentColor;
+    background: transparent;
+    font-size: 0.86rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.dep-ok {
+    color: var(--success-color);
+}
+
+.dep-warn {
+    color: var(--warning-color);
+}
+
+.dep-info {
+    color: var(--info-color);
+}
+
+.dep-error {
+    color: var(--danger-color);
+    cursor: help;
+}
+
+.dep-unknown {
+    color: var(--text-color-light);
+}
+
+/* Restart prompt bar */
+.dep-restart-prompt {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 0.75rem;
+    background: #3a3a1a;
+    border: 1px solid #5a5a1a;
+    border-radius: 4px;
+    color: #fbbf24;
+    font-size: 1rem;
+}
+
+.dep-restart-prompt p {
+    margin: 0;
+    flex: 1;
+}
+
+.dep-restart-btn {
+    border-color: #7a5a00;
+    color: #fbbf24;
+    background-color: #4a3a00;
+}
+
+.dep-restart-btn:hover:not(:disabled) {
+    background-color: #5a4800;
+    opacity: 1;
+}
+
+/* Restarting overlay */
+.dep-restarting {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-color-light);
+}
+
+.dep-restarting h2 {
+    margin: 0 0 0.5rem;
+    color: var(--text-color);
+}
+
+.dep-restarting p {
+    margin: 0;
+    font-size: 1rem;
+}
+
+/* Error message row */
+.dep-error-msg {
+    text-align: center;
+    color: var(--danger-color);
+    padding: 1rem;
+    font-size: 1rem;
+}

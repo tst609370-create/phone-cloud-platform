@@ -1,0 +1,37 @@
+[package]
+name = "ws-scrcpy-web-launcher"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "ws-scrcpy-web-launcher"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+common = { path = "../common", package = "ws-scrcpy-web-common" }
+rustix = { version = "1", features = ["fs"] }
+ctrlc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+velopack.workspace = true
+windows.workspace = true
+zip.workspace = true
+
+# Linux-only: the in-app uninstall helper (src/linux_app_uninstall.rs) detects
+# whether the root system-service launched it via rustix::process::getuid (run
+# the privileged teardown directly) vs a non-root server (re-invoke under
+# pkexec). The `process` feature is scoped to Linux so the Windows build — which
+# never compiles that module — doesn't enable it.
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1", features = ["process"] }
+
+[build-dependencies]
+winresource.workspace = true
+
+[dev-dependencies]
+tempfile = "3.10"

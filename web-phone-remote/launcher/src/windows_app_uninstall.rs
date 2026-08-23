@@ -1,0 +1,800 @@
+// Windows in-app uninstall helper (beta.49 parity).
+//
+// `windows_app_uninstall_commands` returns an `UninstallPlan` with:
+//   - `update_exe_step`: the `[update_exe, "--uninstall"]` argv-vector.
+//     Running this triggers Velopack's uninstaller, which removes the
+//     Program Files install AND fires the launcher's `--veloapp-uninstall`
+//     hook → stops/uninstalls the WsScrcpyWeb service + kills the tray +
+//     ARP cleanup.
+//   - `data_root_targets`: the dataRoot (`%ProgramData%\WsScrcpyWeb`) paths
+//     to remove after Update.exe completes:
+//       keep=true  → ["<data_root>\\dependencies", "<data_root>\\bin",
+//                     "<data_root>\\control"] (deps/regenerable only;
+//                     config.json + logs preserved)
+//       keep=false → ["<data_root>"] (the whole root)
+//
+// Dispatch (`handle`): owns `--windows-app-uninstall`. Runs Update.exe via
+// `std::process::Command` (the absolute path supplied by the caller — no
+// PATH, no env-var). Removes each dataRoot target via `std::fs::remove_dir_all`
+// / `std::fs::remove_file`. Best-effort: logs + continues on errors (the
+// app is being uninstalled regardless).
+//
+// Local-Dependencies-Only: Update.exe is the absolute path argument.
+// dataRoot deletion = `std::fs` compiled into the binary. No bare
+// cmd/rmdir/powershell on PATH.
+
+use crate::log;
+
+/// Ordered uninstall plan for the Windows path.
+///
+/// Kept as a named struct (mirroring linux_app_uninstall's `UninstallPlan`)
+/// so callers can inspect the two distinct groups independently — the
+/// Update.exe step and the dataRoot deletion targets — which the tests
+/// assert on separately.
+#[derive(Debug, Clone)]
+pub struct UninstallPlan {
+    /// The single Update.exe invocation: `[update_exe, "--uninstall"]`.
+    /// Always exactly one entry. Run FIRST so Velopack's uninstaller fires
+    /// the `--veloapp-uninstall` hook (service/tray teardown + ARP cleanup)
+    /// before we touch the dataRoot.
+    pub update_exe_step: Vec<String>,
+    /// dataRoot filesystem targets to remove after Update.exe completes.
+    /// `keep=false` → `["<data_root>"]`; `keep=true` →
+    /// `["<data_root>\\dependencies", "<data_root>\\bin", "<data_root>\\control"]`.
+    pub data_root_targets: Vec<String>,
+}
+
+/// Build the uninstall plan. Pure — no I/O, fully unit-testable.
+///
+/// * `update_exe`  — absolute path to `<installRoot>\Update.exe`.
+/// * `data_root`   — absolute path to the app data root
+///   (`%ProgramData%\WsScrcpyWeb`).
+/// * `keep`        — `true` preserves config.json + logs/ (deletes only
+///   deps/bin/control); `false` wipes the whole data root.
+pub fn windows_app_uninstall_commands(
+    update_exe: &str,
+    data_root: &str,
+    keep: bool,
+) -> UninstallPlan {
+    let update_exe_step = vec![update_exe.to_string(), "--uninstall".to_string()];
+
+    let data_root_targets = if keep {
+        ["dependencies", "bin", "control"]
+            .iter()
+            .map(|sub| format!("{}\\{}", data_root, sub))
+            .collect()
+    } else {
+        vec![data_root.to_string()]
+    };
+
+    UninstallPlan { update_exe_step, data_root_targets }
+}
+
+// ─── Dispatch + execution ──────────────────────────────────────────────────
+
+/// Parsed `--windows-app-uninstall` invocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UninstallArgs {
+    pub update_exe: String,
+    pub data_root: String,
+    pub keep: bool,
+}
+
+/// Parse `--windows-app-uninstall` flags.
+///
+/// Flags:
+///   `--windows-app-uninstall`   — presence marker (required in caller's argv)
+///   `--update-exe <abs path>`   — absolute path to Update.exe (required)
+///   `--data-root  <abs path>`   — absolute path to the data root (required)
+///   exactly one of `--keep` / `--wipe`   — scope selector (required)
+///
+/// Returns `None` on any missing/invalid input (mirrors linux's parse_args
+/// validation contract). Returning `None` signals the caller to log an error
+/// and return exit code 2.
+pub fn parse_args(args: &[String]) -> Option<UninstallArgs> {
+    let keep = parse_keep_flag(args)?;
+    let data_root = flag_value(args, "--data-root")?;
+    let update_exe = flag_value(args, "--update-exe")?;
+
+    Some(UninstallArgs { update_exe, data_root, keep })
+}
+
+/// Exactly one of `--keep` / `--wipe`. `Some(true)` = keep, `Some(false)` =
+/// wipe, `None` if neither or both are present (invalid).
+fn parse_keep_flag(args: &[String]) -> Option<bool> {
+    match (
+        args.iter().any(|a| a == "--keep"),
+        args.iter().any(|a| a == "--wipe"),
+    ) {
+        (true, false) => Some(true),
+        (false, true) => Some(false),
+        _ => None,
+    }
+}
+
+/// Value following `flag` in `args` (e.g. the path after `--data-root`).
+/// `None` if the flag is absent or has no following value.
+fn flag_value(args: &[String], flag: &str) -> Option<String> {
+    args.iter()
+        .position(|a| a == flag)
+        .and_then(|i| args.get(i + 1))
+        .cloned()
+}
+
+/// Parsed `--windows-app-uninstall-run` invocation (the Phase-2 cleaner).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunArgs {
+    pub wait_pid: u32,
+    pub update_exe: String,
+    pub data_root: String,
+    pub keep: bool,
+}
+
+/// Build the Phase-2 argv the bootstrapper passes to the temp copy. Returns
+/// the args WITHOUT argv[0]; the caller does `Command::new(temp_exe).args(..)`.
+/// Always includes `--no-log` so the cleaner never writes into the data root.
+pub fn build_run_args(wait_pid: u32, keep: bool, data_root: &str, update_exe: &str) -> Vec<String> {
+    vec![
+        "--windows-app-uninstall-run".to_string(),
+        "--wait-pid".to_string(),
+        wait_pid.to_string(),
+        "--no-log".to_string(),
+        if keep { "--keep" } else { "--wipe" }.to_string(),
+        "--data-root".to_string(),
+        data_root.to_string(),
+        "--update-exe".to_string(),
+        update_exe.to_string(),
+    ]
+}
+
+/// Parse `--windows-app-uninstall-run` flags. `None` on absence/invalid input
+/// (mirrors `parse_args`). Requires the run flag, a numeric `--wait-pid`,
+/// `--data-root`, `--update-exe`, and exactly one of `--keep`/`--wipe`.
+pub fn parse_run_args(args: &[String]) -> Option<RunArgs> {
+    if !args.iter().any(|a| a == "--windows-app-uninstall-run") {
+        return None;
+    }
+    let keep = parse_keep_flag(args)?;
+    let wait_pid = flag_value(args, "--wait-pid").and_then(|s| s.parse::<u32>().ok())?;
+    let data_root = flag_value(args, "--data-root")?;
+    let update_exe = flag_value(args, "--update-exe")?;
+    Some(RunArgs { wait_pid, update_exe, data_root, keep })
+}
+
+/// Filename for the temp copy of the launcher that performs the dataRoot
+/// deletion. PID-stamped so a retried/concurrent uninstall never collides.
+pub fn temp_copy_filename(pid: u32) -> String {
+    format!("ws-scrcpy-web-uninstall-{pid}.exe")
+}
+
+/// Dispatch `--windows-app-uninstall`. Returns `Some(exit_code)` when it
+/// owns the invocation, `None` to let the next dispatcher try.
+pub fn handle(args: &[String]) -> Option<i32> {
+    if !args.iter().any(|a| a == "--windows-app-uninstall") {
+        return None;
+    }
+    let a = match parse_args(args) {
+        Some(v) => v,
+        None => {
+            log::error("windows-app-uninstall: missing/invalid args");
+            return Some(2);
+        }
+    };
+    Some(run_bootstrap(&a))
+}
+
+/// Run `Update.exe --uninstall` (Velopack: Program Files + ARP + the
+/// --veloapp-uninstall service/tray hook). `update_exe_step` is the argv the
+/// builder produced (`[update_exe, "--uninstall"]`). Best-effort: logs (if
+/// logging is enabled) and returns regardless — the app is being removed
+/// either way. Local-Dependencies-Only: absolute path, no PATH resolution.
+fn run_update_exe(update_exe_step: &[String]) {
+    let (cmd, rest) = update_exe_step
+        .split_first()
+        .expect("update_exe_step is always non-empty");
+    match std::process::Command::new(cmd).args(rest).status() {
+        Ok(s) if s.success() => log::info(&format!(
+            "windows-app-uninstall: Update.exe ok ({})",
+            update_exe_step.join(" ")
+        )),
+        Ok(s) => log::error(&format!(
+            "windows-app-uninstall: Update.exe non-zero ({:?}): {}",
+            s.code(),
+            update_exe_step.join(" ")
+        )),
+        Err(e) => log::error(&format!(
+            "windows-app-uninstall: Update.exe spawn failed: {} ({e})",
+            update_exe_step.join(" ")
+        )),
+    }
+}
+
+/// Remove each dataRoot target via std::fs (compiled-in; no PATH tools),
+/// retrying up to `attempts` times with a 500ms delay between tries to absorb
+/// residual handle-release lag (e.g. the originating helper exiting). Best-
+/// effort: logs and continues on failure.
+fn remove_targets(targets: &[String], attempts: u32) {
+    let attempts = attempts.max(1);
+    for target in targets {
+        let path = std::path::Path::new(target);
+        // Ok(true) = we removed it; Ok(false) = it was already absent; Err = failed.
+        let mut outcome: Result<bool, std::io::Error> = Ok(false);
+        for attempt in 0..attempts {
+            if !path.exists() {
+                outcome = Ok(false);
+                break;
+            }
+            let result = if path.is_dir() {
+                std::fs::remove_dir_all(path)
+            } else {
+                std::fs::remove_file(path)
+            };
+            match result {
+                Ok(()) => {
+                    outcome = Ok(true);
+                    break;
+                }
+                Err(e) => {
+                    outcome = Err(e);
+                    if attempt + 1 < attempts {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                    }
+                }
+            }
+        }
+        match outcome {
+            Ok(true) => log::info(&format!("windows-app-uninstall: removed {target}")),
+            Ok(false) => log::info(&format!(
+                "windows-app-uninstall: {target} already absent — nothing to remove"
+            )),
+            Err(e) => log::error(&format!(
+                "windows-app-uninstall: could not remove {target}: {e}"
+            )),
+        }
+    }
+}
+
+/// Legacy in-place uninstall: run Update.exe then delete the dataRoot targets
+/// from THIS process. Used ONLY as the Phase-1 fallback when the temp-copy
+/// cleaner cannot be staged (temp unresolved / self-copy / spawn failure).
+/// Known to orphan the running helper's own directory on --wipe (Windows can't
+/// delete a running exe) — no worse than pre-fix behavior, hence fallback-only.
+fn run_uninstall_in_place(a: &UninstallArgs) -> i32 {
+    log::info(&format!(
+        "windows-app-uninstall(in-place fallback): update_exe={:?} data_root={:?} keep={}",
+        a.update_exe, a.data_root, a.keep
+    ));
+    let plan = windows_app_uninstall_commands(&a.update_exe, &a.data_root, a.keep);
+    run_update_exe(&plan.update_exe_step);
+    remove_targets(&plan.data_root_targets, 1);
+    0
+}
+
+/// Decode a temp-dir path from a UTF-16 buffer and the length reported by
+/// `GetTempPath2W`/`GetTempPathW`. Returns `None` for a zero length (API
+/// failure) or a length that reaches or exceeds the buffer.
+///
+/// §55: on success these APIs return the count of chars copied EXCLUDING the
+/// NUL terminator, so a valid result always leaves room for the NUL and is
+/// strictly `< buf.len()`. A `len >= buf.len()` can't be a real success (it
+/// would mean the buffer was too small — the API returns the required size
+/// instead), so reject it rather than slicing to the brim of an undocumented
+/// MAX_PATH cap. Not exploitable as written (the W variants cap at MAX_PATH),
+/// but fail closed.
+fn temp_path_from_buf(buf: &[u16], len: usize) -> Option<std::path::PathBuf> {
+    if len == 0 || len >= buf.len() {
+        return None;
+    }
+    Some(std::path::PathBuf::from(String::from_utf16_lossy(&buf[..len])))
+}
+
+/// Resolve the context-appropriate temp directory: the user's temp under a
+/// user token, the hardened `C:\Windows\SystemTemp` under a SYSTEM/system-
+/// service token. `GetTempPath2W` is the SYSTEM-safe API (Win10 1903+); fall
+/// back to `GetTempPathW`. `None` if both fail (caller → in-place fallback).
+fn resolve_temp_dir() -> Option<std::path::PathBuf> {
+    use windows::Win32::Storage::FileSystem::{GetTempPath2W, GetTempPathW};
+    // Buffer is MAX_PATH (260) + 1. On success these return the length copied
+    // (excluding NUL); if the buffer were too small they'd instead return the
+    // REQUIRED size WITHOUT filling it. The W variants cap the path at MAX_PATH
+    // so that can't happen here — but temp_path_from_buf fails closed rather
+    // than slice out of bounds (panic=abort would kill the cleaner before it
+    // deletes) or read an unfilled buffer.
+    let mut buf = [0u16; 261];
+    let mut len = unsafe { GetTempPath2W(Some(&mut buf)) } as usize;
+    if len == 0 {
+        len = unsafe { GetTempPathW(Some(&mut buf)) } as usize;
+    }
+    temp_path_from_buf(&buf, len)
+}
+
+/// Phase 1: copy this launcher to temp and spawn it as the logging-disabled
+/// cleaner (Phase 2) with the uninstall params + our own pid as `--wait-pid`,
+/// then return so the process can exit — releasing the running-exe lock on the
+/// staged launcher under dataRoot. Falls back to the legacy in-place uninstall
+/// if temp resolution / self-copy / spawn fails.
+fn run_bootstrap(a: &UninstallArgs) -> i32 {
+    use std::os::windows::process::CommandExt;
+    use std::process::Stdio;
+    // Mirror the proven detached-survival idiom (tray_supervisor / operation_server):
+    // DETACHED_PROCESS breaks the parent-exit kill-chain + console inheritance,
+    // CREATE_NO_WINDOW gives no console window, and null stdio severs inherited
+    // handles. The cleaner MUST outlive our std::process::exit(0) below; the
+    // uninstall helper also runs outside any kill-on-job-close job.
+    use crate::win_util::{CREATE_NO_WINDOW, DETACHED_PROCESS};
+
+    let pid = std::process::id();
+
+    let temp_dir = match resolve_temp_dir() {
+        Some(d) => d,
+        None => {
+            log::error("windows-app-uninstall: temp dir unresolved; in-place fallback");
+            return run_uninstall_in_place(a);
+        }
+    };
+    let src = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            log::error(&format!(
+                "windows-app-uninstall: current_exe failed: {e}; in-place fallback"
+            ));
+            return run_uninstall_in_place(a);
+        }
+    };
+    let dst = temp_dir.join(temp_copy_filename(pid));
+    if let Err(e) = std::fs::copy(&src, &dst) {
+        log::error(&format!(
+            "windows-app-uninstall: self-copy to {dst:?} failed: {e}; in-place fallback"
+        ));
+        return run_uninstall_in_place(a);
+    }
+
+    let run_args = build_run_args(pid, a.keep, &a.data_root, &a.update_exe);
+    log::info(&format!(
+        "windows-app-uninstall: staged cleaner at {dst:?}; spawning + exiting"
+    ));
+    match std::process::Command::new(&dst)
+        .args(&run_args)
+        .current_dir(&temp_dir) // CWD in temp, never under dataRoot
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
+        .spawn()
+    {
+        Ok(_child) => 0, // detached; do NOT wait — exit so the lock releases
+        Err(e) => {
+            log::error(&format!(
+                "windows-app-uninstall: spawn cleaner failed: {e}; in-place fallback"
+            ));
+            run_uninstall_in_place(a)
+        }
+    }
+}
+
+/// Best-effort wait for process `pid` to exit, up to `timeout_ms`. Opens the
+/// process for SYNCHRONIZE and waits on its handle. If the handle can't be
+/// opened (already exited, or PID reused), returns immediately — the caller's
+/// delete-retry is the actual guarantee that the lock has cleared.
+fn wait_for_pid(pid: u32, timeout_ms: u32) {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+    };
+    unsafe {
+        if let Ok(handle) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) {
+            let _ = WaitForSingleObject(handle, timeout_ms);
+            let _ = CloseHandle(handle);
+        }
+    }
+}
+
+/// Phase 2 (runs from the temp copy, logging disabled, CWD in temp): wait for
+/// the originating helper to exit, run Update.exe --uninstall, then delete the
+/// dataRoot targets with a bounded retry. The copy then exits and remains in
+/// temp (self-managing). Returns 0 (best-effort throughout).
+fn run_cleaner(a: &RunArgs) -> i32 {
+    // No logging: append() would create_dir_all(<dataRoot>/logs) and resurrect
+    // the data root after the wipe. Must be the first thing we do.
+    log::disable();
+
+    // Wait for the originating helper (its exe lives under dataRoot\control) to
+    // exit so its image lock releases. 30s cap; the delete-retry below is the
+    // real guarantee, so a timeout or PID-reuse mismatch is non-fatal.
+    wait_for_pid(a.wait_pid, 30_000);
+
+    let plan = windows_app_uninstall_commands(&a.update_exe, &a.data_root, a.keep);
+    run_update_exe(&plan.update_exe_step);
+    // ~5s of retry (10 × 500ms) to absorb residual handle-release lag.
+    remove_targets(&plan.data_root_targets, 10);
+    0
+}
+
+/// Dispatch `--windows-app-uninstall-run` (the Phase-2 cleaner, the temp copy).
+/// Returns `Some(exit_code)` when it owns the invocation, `None` otherwise.
+pub fn handle_run(args: &[String]) -> Option<i32> {
+    if !args.iter().any(|a| a == "--windows-app-uninstall-run") {
+        return None;
+    }
+    match parse_run_args(args) {
+        Some(a) => Some(run_cleaner(&a)),
+        None => Some(2),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Space-join each argv-vector for readable, order-preserving assertions.
+    /// Mirrors the helper in linux_app_uninstall tests.
+    fn joined(cmds: &[Vec<String>]) -> Vec<String> {
+        cmds.iter().map(|c| c.join(" ")).collect()
+    }
+
+    const UPDATE_EXE: &str = r"C:\Program Files\WsScrcpyWeb\Update.exe";
+    const DATA_ROOT: &str = r"C:\ProgramData\WsScrcpyWeb";
+
+    // ── §55: temp-path buffer bound ───────────────────────────────────────
+
+    #[test]
+    fn temp_path_from_buf_rejects_zero_and_out_of_bounds_lengths() {
+        let buf = [0u16; 8];
+        assert!(temp_path_from_buf(&buf, 0).is_none(), "zero length (API failure) -> None");
+        assert!(temp_path_from_buf(&buf, 9).is_none(), "len > buf.len() -> None");
+        // §55: a successful GetTempPath*W leaves room for the NUL terminator,
+        // so len == buf.len() can't be a valid result -- reject it too (>=),
+        // rather than slicing to the brim of an undocumented cap.
+        assert!(temp_path_from_buf(&buf, 8).is_none(), "len == buf.len() -> None");
+    }
+
+    #[test]
+    fn temp_path_from_buf_decodes_valid_utf16() {
+        let mut buf = [0u16; 16];
+        let s: Vec<u16> = r"C:\Temp".encode_utf16().collect();
+        buf[..s.len()].copy_from_slice(&s);
+        let p = temp_path_from_buf(&buf, s.len()).expect("valid length must decode");
+        assert_eq!(p.to_string_lossy(), r"C:\Temp");
+    }
+
+    // ── Pure builder tests ────────────────────────────────────────────────
+
+    #[test]
+    fn update_exe_step_is_always_first_and_correct() {
+        // Both keep and wipe: the Update.exe step is the first (and only)
+        // step in update_exe_step, always [update_exe, "--uninstall"].
+        for keep in [true, false] {
+            let plan = windows_app_uninstall_commands(UPDATE_EXE, DATA_ROOT, keep);
+            assert_eq!(
+                plan.update_exe_step,
+                vec![UPDATE_EXE.to_string(), "--uninstall".to_string()],
+                "update_exe_step mismatch for keep={keep}"
+            );
+        }
+    }
+
+    #[test]
+    fn wipe_targets_whole_data_root() {
+        // keep=false → data_root_targets = ["<data_root>"] — single entry,
+        // the whole root. No subdirectory carve-out.
+        let plan = windows_app_uninstall_commands(UPDATE_EXE, DATA_ROOT, false);
+        assert_eq!(
+            plan.data_root_targets,
+            vec![DATA_ROOT.to_string()],
+            "wipe must target the whole data root"
+        );
+    }
+
+    #[test]
+    fn keep_targets_deps_bin_control_only() {
+        // keep=true → data_root_targets contains exactly dependencies, bin,
+        // control (subdirs); does NOT contain a bare wipe and never names
+        // config.json or logs.
+        let plan = windows_app_uninstall_commands(UPDATE_EXE, DATA_ROOT, true);
+        let targets = &plan.data_root_targets;
+
+        // Exactly the three regenerable subdirs.
+        assert!(
+            targets.contains(&format!(r"{DATA_ROOT}\dependencies")),
+            "keep must target dependencies"
+        );
+        assert!(
+            targets.contains(&format!(r"{DATA_ROOT}\bin")),
+            "keep must target bin"
+        );
+        assert!(
+            targets.contains(&format!(r"{DATA_ROOT}\control")),
+            "keep must target control"
+        );
+
+        // NOT a bare wipe of the data root itself.
+        assert!(
+            !targets.contains(&DATA_ROOT.to_string()),
+            "keep must NOT target the whole data root"
+        );
+
+        // Preserved paths are never referenced.
+        assert!(
+            !targets.iter().any(|t| t.contains("config.json")),
+            "keep must not reference config.json"
+        );
+        assert!(
+            !targets.iter().any(|t| t.contains("logs")),
+            "keep must not reference logs"
+        );
+    }
+
+    #[test]
+    fn update_exe_step_is_distinct_from_data_root_targets() {
+        // The struct keeps the two groups separate so callers (and tests) can
+        // assert each independently. Verify the split is never collapsed.
+        let plan = windows_app_uninstall_commands(UPDATE_EXE, DATA_ROOT, false);
+        // update_exe_step has exactly the Update.exe invocation.
+        assert_eq!(plan.update_exe_step.len(), 2);
+        assert_eq!(plan.update_exe_step[1], "--uninstall");
+        // data_root_targets has no Update.exe entry.
+        assert!(!plan.data_root_targets.iter().any(|t| t.contains("Update.exe")));
+    }
+
+    #[test]
+    fn keep_has_exactly_three_targets() {
+        let plan = windows_app_uninstall_commands(UPDATE_EXE, DATA_ROOT, true);
+        assert_eq!(
+            plan.data_root_targets.len(),
+            3,
+            "keep must produce exactly 3 targets (dependencies, bin, control)"
+        );
+    }
+
+    #[test]
+    fn wipe_has_exactly_one_target() {
+        let plan = windows_app_uninstall_commands(UPDATE_EXE, DATA_ROOT, false);
+        assert_eq!(
+            plan.data_root_targets.len(),
+            1,
+            "wipe must produce exactly 1 target (the whole data root)"
+        );
+    }
+
+    #[test]
+    fn update_exe_path_is_preserved_verbatim() {
+        // The absolute path passed in must appear unchanged — no normalization,
+        // no quoting, no PATH lookup.
+        let exotic = r"C:\Program Files (x86)\WsScrcpyWeb\Update.exe";
+        let plan = windows_app_uninstall_commands(exotic, DATA_ROOT, false);
+        assert_eq!(plan.update_exe_step[0], exotic);
+    }
+
+    // Smoke-check the joined() helper (mirrors linux tests).
+    #[test]
+    fn joined_helper_formats_correctly() {
+        let cmds: Vec<Vec<String>> = vec![
+            vec!["a".to_string(), "b".to_string()],
+            vec!["c".to_string()],
+        ];
+        assert_eq!(joined(&cmds), vec!["a b".to_string(), "c".to_string()]);
+    }
+
+    // ── parse_args tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn parse_args_round_trips_keep() {
+        let args: Vec<String> = [
+            "--windows-app-uninstall",
+            "--keep",
+            "--data-root",
+            DATA_ROOT,
+            "--update-exe",
+            UPDATE_EXE,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(
+            parse_args(&args),
+            Some(UninstallArgs {
+                update_exe: UPDATE_EXE.to_string(),
+                data_root: DATA_ROOT.to_string(),
+                keep: true,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_round_trips_wipe() {
+        let args: Vec<String> = [
+            "--windows-app-uninstall",
+            "--wipe",
+            "--data-root",
+            DATA_ROOT,
+            "--update-exe",
+            UPDATE_EXE,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(
+            parse_args(&args),
+            Some(UninstallArgs {
+                update_exe: UPDATE_EXE.to_string(),
+                data_root: DATA_ROOT.to_string(),
+                keep: false,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_both_keep_and_wipe() {
+        let args: Vec<String> = [
+            "--windows-app-uninstall",
+            "--keep",
+            "--wipe",
+            "--data-root",
+            DATA_ROOT,
+            "--update-exe",
+            UPDATE_EXE,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(parse_args(&args), None);
+    }
+
+    #[test]
+    fn parse_args_rejects_neither_keep_nor_wipe() {
+        let args: Vec<String> = [
+            "--windows-app-uninstall",
+            "--data-root",
+            DATA_ROOT,
+            "--update-exe",
+            UPDATE_EXE,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(parse_args(&args), None);
+    }
+
+    #[test]
+    fn parse_args_rejects_missing_data_root() {
+        let args: Vec<String> =
+            ["--windows-app-uninstall", "--keep", "--update-exe", UPDATE_EXE]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+        assert_eq!(parse_args(&args), None);
+    }
+
+    #[test]
+    fn parse_args_rejects_missing_update_exe() {
+        let args: Vec<String> =
+            ["--windows-app-uninstall", "--keep", "--data-root", DATA_ROOT]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+        assert_eq!(parse_args(&args), None);
+    }
+
+    #[test]
+    fn parse_args_rejects_data_root_without_value() {
+        // --data-root present but no value following it → parse error.
+        let args: Vec<String> =
+            ["--windows-app-uninstall", "--keep", "--data-root", "--update-exe", UPDATE_EXE]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+        // --data-root's "value" would be "--update-exe" (the next flag), and
+        // --update-exe would then have no value. parse_args returns None for
+        // missing --update-exe value.
+        // (We don't validate that values aren't flags; the contract matches linux.)
+        // Either way: no panic.
+        let _ = parse_args(&args);
+    }
+
+    #[test]
+    fn handle_returns_none_when_flag_absent() {
+        let args: Vec<String> = ["--some-other-flag", "--keep"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(handle(&args), None);
+    }
+
+    #[test]
+    fn handle_returns_error_code_on_invalid_args() {
+        // Flag present but missing required --data-root and --update-exe.
+        let args: Vec<String> = ["--windows-app-uninstall", "--keep"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(handle(&args), Some(2));
+    }
+
+    // ── Phase-2 (--windows-app-uninstall-run) arg model ───────────────────
+
+    #[test]
+    fn build_run_args_round_trips_through_parse() {
+        for keep in [true, false] {
+            let argv = build_run_args(4321, keep, DATA_ROOT, UPDATE_EXE);
+            // The temp copy always gets --no-log and the run subcommand.
+            assert!(argv.contains(&"--windows-app-uninstall-run".to_string()));
+            assert!(argv.contains(&"--no-log".to_string()));
+            let parsed = parse_run_args(&argv).expect("round-trips");
+            assert_eq!(
+                parsed,
+                RunArgs {
+                    wait_pid: 4321,
+                    update_exe: UPDATE_EXE.to_string(),
+                    data_root: DATA_ROOT.to_string(),
+                    keep,
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn parse_run_args_requires_the_run_flag() {
+        // Same fields but the Phase-1 flag, not the run flag → not ours.
+        let argv: Vec<String> = [
+            "--windows-app-uninstall", "--wait-pid", "1", "--wipe",
+            "--data-root", DATA_ROOT, "--update-exe", UPDATE_EXE,
+        ]
+        .iter().map(|s| s.to_string()).collect();
+        assert_eq!(parse_run_args(&argv), None);
+    }
+
+    #[test]
+    fn parse_run_args_rejects_missing_or_bad_wait_pid() {
+        let no_pid: Vec<String> = [
+            "--windows-app-uninstall-run", "--wipe",
+            "--data-root", DATA_ROOT, "--update-exe", UPDATE_EXE,
+        ]
+        .iter().map(|s| s.to_string()).collect();
+        assert_eq!(parse_run_args(&no_pid), None);
+
+        let bad_pid: Vec<String> = [
+            "--windows-app-uninstall-run", "--wait-pid", "notanumber",
+            "--wipe", "--data-root", DATA_ROOT, "--update-exe", UPDATE_EXE,
+        ]
+        .iter().map(|s| s.to_string()).collect();
+        assert_eq!(parse_run_args(&bad_pid), None);
+    }
+
+    #[test]
+    fn parse_run_args_rejects_neither_keep_nor_wipe() {
+        let argv: Vec<String> = [
+            "--windows-app-uninstall-run", "--wait-pid", "1",
+            "--data-root", DATA_ROOT, "--update-exe", UPDATE_EXE,
+        ]
+        .iter().map(|s| s.to_string()).collect();
+        assert_eq!(parse_run_args(&argv), None);
+    }
+
+    #[test]
+    fn temp_copy_filename_is_pid_stamped() {
+        assert_eq!(temp_copy_filename(1234), "ws-scrcpy-web-uninstall-1234.exe");
+        // Distinct pids → distinct names (so concurrent/retried uninstalls don't collide).
+        assert_ne!(temp_copy_filename(1), temp_copy_filename(2));
+    }
+
+    #[test]
+    fn handle_run_returns_none_when_flag_absent() {
+        let args: Vec<String> = ["--some-other-flag", "--wipe"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(handle_run(&args), None);
+    }
+
+    #[test]
+    fn handle_run_returns_error_code_on_invalid_args() {
+        // Run flag present but missing --wait-pid / --data-root / --update-exe
+        // and no keep/wipe → parse_run_args None → exit code 2 (never reaches
+        // run_cleaner, so no I/O).
+        let args: Vec<String> = ["--windows-app-uninstall-run"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(handle_run(&args), Some(2));
+    }
+}

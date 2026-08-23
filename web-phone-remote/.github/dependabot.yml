@@ -1,0 +1,64 @@
+version: 2
+
+# Dependabot version updates for ws-scrcpy-web.
+#
+# Security updates (CVE-driven) are managed separately via the repo-level
+# "Dependabot security updates" toggle — they fire whenever an advisory
+# lands on a dependency we use, regardless of this schedule.
+#
+# Version updates (non-security upgrades) fire on the schedule below.
+# Tuned for low noise: weekly, batched in Monday morning ET, capped at
+# 5 open PRs per ecosystem.
+
+updates:
+  # npm: tracks package.json + package-lock.json (root only).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    # TypeScript 7 is the native compiler with no programmatic API until 7.1, so the
+    # webpack build (dts-bundle-generator; historically ts-loader/ts-node) can't build
+    # against it yet. The 6->7 migration is staged deliberately -- see
+    # docs/superpowers/specs/2026-07-18-ws-scrcpy-web-ts7-migration-design.md. Block the
+    # major so Dependabot stops re-proposing the un-buildable jump.
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+    # Batch all minor + patch bumps into ONE weekly PR. Interlocking families
+    # (@xterm/* addons must match the xterm core; webpack + its loaders; the
+    # typescript / swc-loader / tsx toolchain) break when bumped singly.
+    # Grouping keeps them in lockstep; majors still open individually for review.
+    groups:
+      npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # github-actions: tracks SHA-pinned action references in .github/workflows/.
+  # Dependabot keys on the `# vX.Y.Z` comment after each SHA to detect
+  # upstream tag movement.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(actions)"
+    # Batch all action bumps into one PR — keeps the codeql-action init/analyze/
+    # upload-sarif refs in lockstep (a split bump mismatches CodeQL versions) and
+    # avoids weekly action-PR pile-ups.
+    groups:
+      actions:
+        patterns:
+          - "*"

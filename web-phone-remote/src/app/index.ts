@@ -1,0 +1,358 @@
+import '../style/app.css';
+import '../style/dependencies.css';
+import '../style/first-run-banner.css';
+import '../style/home.css';
+import type { AppConfigEnvelope } from '../common/ConfigEvents';
+import type { ServiceStatusResponse } from '../common/ServiceEvents';
+import { shouldShowBookmark } from './client/bookmarkGate';
+import { DependencyPanel } from './client/DependencyPanel';
+import { FirstRunBanner } from './client/FirstRunBanner';
+import { HostTracker } from './client/HostTracker';
+import { NetworkDiscoveryPanel } from './client/NetworkDiscoveryPanel';
+import { createSettingsHeader } from './client/SettingsHeader';
+import { applyStoredTheme, createThemeToggle, initTheme } from './client/ThemeToggle';
+import type { Tool } from './client/Tool';
+import { createUpdateButton } from './client/UpdateButton';
+import { WelcomeModal } from './client/WelcomeModal';
+import { StreamClientScrcpy } from './googDevice/client/StreamClientScrcpy';
+import { installThemeEmbedListener, notifyThemeReady } from './public/themeEmbed';
+import { onPageTeardown } from './util/onPageTeardown';
+
+function isResumingUninstall(): boolean {
+    const params = new URLSearchParams(location.search);
+    return params.get('resume') === 'uninstall-service' && Boolean(params.get('token'));
+}
+
+function maybeResumeUninstall(): void {
+    const params = new URLSearchParams(location.search);
+    if (params.get('resume') !== 'uninstall-service') return;
+    const token = params.get('token') ?? '';
+    if (!token) return;
+
+    // Strip the resume params from the URL bar so a refresh doesn't
+    // re-fire the action (the server-side token is single-use, but
+    // the visual URL would still be confusing).
+    const cleanUrl = `${location.origin}${location.pathname}${location.hash}`;
+    history.replaceState(null, '', cleanUrl);
+
+    // Show a status overlay while the uninstall runs.
+    const overlay = document.createElement('div');
+    overlay.style.cssText =
+        'position:fixed;inset:0;background:rgba(0,0,0,0.85);color:#fff;' +
+        'display:flex;align-items:center;justify-content:center;z-index:99999;' +
+        'font-family:system-ui,sans-serif;font-size:1.1rem;padding:2rem;text-align:center;';
+    overlay.textContent = 'finishing service uninstall…';
+    document.body.appendChild(overlay);
+
+    fetch('/api/service/uninstall', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Resume-Token': token },
+    })
+        .then(async (r) => {
+            const data = (await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+            if (!r.ok || !data?.ok) {
+                overlay.textContent = `uninstall failed: ${data?.error ?? `HTTP ${r.status}`}`;
+                setTimeout(() => overlay.remove(), 4000);
+                return;
+            }
+            // v0.1.23 §1c bug 1.b fix: full-page reload after uninstall
+            // succeeds so the post-uninstall page re-evaluates from
+            // scratch with the now-canonical installMode='user'. Pre-fix,
+            // the ServiceFirstRunModal had been mounted by
+            // maybeShowWelcomeModal racing against this fetch (see
+            // bug 1.a fix below) — even with that race fixed, we still
+            // want a clean slate so the WelcomeModal / port reminder
+            // logic runs on the now-correct config.
+            overlay.textContent =
+                `service uninstalled. ws-scrcpy-web is running in user mode now (port ${location.port || '80'}). ` +
+                'reloading…';
+            setTimeout(() => location.reload(), 3000);
+        })
+        .catch((err) => {
+            overlay.textContent = `uninstall failed: ${(err as Error).message}`;
+            setTimeout(() => overlay.remove(), 4000);
+        });
+}
+
+function maybeShowWelcomeModal(): void {
+    // v0.1.23 §1c bug 1.a fix: skip modal display entirely while the
+    // resume-uninstall flow is in flight. Pre-fix, this would race
+    // against maybeResumeUninstall: /api/config still reflected the
+    // OUTGOING service mode at this moment (the resume flow flips
+    // installMode AFTER the uninstall succeeds), so the racing fetch
+    // would mount ServiceFirstRunModal which then covered the
+    // uninstall progress overlay. maybeResumeUninstall reloads the
+    // page on success, which re-runs maybeShowWelcomeModal cleanly
+    // against the now-canonical post-uninstall state.
+    if (isResumingUninstall()) return;
+
+    // Dual-source: /api/config for runtime + installMode + firstRunComplete;
+    // /api/settings for the three per-user prompt-dismissal flags which are
+    // no longer part of AppConfig. Both are already warm from the boot sequence
+    // above (loadGlobal() was awaited before onload reached here).
+    const configFetch = fetch('/api/config').then((r) =>
+        r.ok ? (r.json() as Promise<Partial<AppConfigEnvelope>>) : null,
+    );
+
+    import('./client/SettingsService')
+        .then(({ settingsService }) => Promise.all([configFetch, settingsService.loadGlobal()]))
+        .then(async ([data, prefs]) => {
+            const runtime = data?.runtime;
+            const config = data?.config;
+            if (!runtime || !config) return;
+
+            const isServiceInstance = config.installMode === 'user-service' || config.installMode === 'system-service';
+
+            // Gate on server-side flags, sourced per-flag:
+            //   installMode / firstRunComplete → /api/config (boot-trio, unchanged)
+            //   serviceFirstRunSeen / bookmarkDismissed* → /api/settings (per-user)
+            // The modals PATCH their respective endpoint when dismissed.
+            const serviceFirstRunSeen = Boolean(prefs['serviceFirstRunSeen']);
+            const bookmarkDismissedGlobally = Boolean(prefs['bookmarkDismissedGlobally']);
+            const bookmarkDismissedForPort =
+                typeof prefs['bookmarkDismissedForPort'] === 'number'
+                    ? (prefs['bookmarkDismissedForPort'] as number)
+                    : null;
+
+            if (isServiceInstance) {
+                if (!serviceFirstRunSeen) {
+                    void import('./client/ServiceFirstRunModal').then(({ ServiceFirstRunModal }) => {
+                        new ServiceFirstRunModal({ webPort: runtime.webPort });
+                    });
+                    return;
+                }
+                maybeShowPortChangeModal(bookmarkDismissedGlobally, bookmarkDismissedForPort, runtime.webPort);
+                return;
+            }
+
+            if (!config.firstRunComplete) {
+                new WelcomeModal({
+                    webPort: runtime.webPort,
+                    portWasAutoShifted: runtime.portWasAutoShifted,
+                    onDecision: () => {
+                        // WelcomeModal owns persistence (install or PATCH) for P3+.
+                    },
+                });
+                return;
+            }
+
+            maybeShowPortChangeModal(bookmarkDismissedGlobally, bookmarkDismissedForPort, runtime.webPort);
+        })
+        .catch(() => {
+            // /api/config or /api/settings absent (e.g., dev server without P2/P3
+            // wiring) — silently bail.
+        });
+}
+
+/**
+ * Show a sticky banner notice with a single action button. Used for the
+ * system-wide update offer — a status-driven banner that lives above the
+ * main content (same as FirstRunBanner), not a full-screen modal.
+ *
+ * Returns the container element so the caller can append it to the page.
+ */
+function showStatusBanner(text: string, actionLabel: string, onAction: () => void): HTMLElement {
+    const banner = document.createElement('div');
+    banner.style.cssText =
+        'position:fixed;top:0;left:0;right:0;z-index:9000;background:var(--bg-color,#1e1e2e);' +
+        'color:var(--text-color,#cdd6f4);border-bottom:1px solid var(--border-color,#45475a);' +
+        'padding:0.6rem 1rem;display:flex;align-items:center;gap:1rem;font-size:0.9rem;';
+    const msg = document.createElement('span');
+    msg.textContent = text;
+    banner.appendChild(msg);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = actionLabel;
+    btn.style.cssText =
+        'padding:0.3rem 0.8rem;border-radius:4px;border:1px solid currentColor;' +
+        'background:transparent;color:inherit;cursor:pointer;white-space:nowrap;';
+    btn.addEventListener('click', onAction);
+    banner.appendChild(btn);
+    document.body.insertBefore(banner, document.body.firstChild);
+    return banner;
+}
+
+/**
+ * First-run entry point. On Linux, ahead of the local WelcomeModal, offer to
+ * install the app to /opt for all users when (a) it isn't already installed
+ * machine-wide and (b) the user hasn't previously declined — both surfaced via
+ * /api/service/status. Installing reloads the page (the launcher bootstrapper
+ * then execs the /opt binary); declining records the choice server-side and
+ * falls through to the normal first-run flow. Every non-applicable case (not
+ * Linux, already installed, previously declined, or the status endpoint
+ * unreachable) proceeds straight to maybeShowWelcomeModal.
+ *
+ * Also handles a status-driven offer introduced in P3c-2:
+ * - optUpdateAvailable → system-wide update banner (POST install-system-wide → reload)
+ */
+function maybeShowFirstRunModal(): void {
+    // Never cover the uninstall-progress overlay (mirrors maybeShowWelcomeModal).
+    if (isResumingUninstall()) return;
+    fetch('/api/service/status')
+        .then((r) => (r.ok ? (r.json() as Promise<ServiceStatusResponse>) : null))
+        .then((status) => {
+            if (status != null && status.platform === 'linux') {
+                // System-wide update offer (P3c-2): a newer home AppImage is running
+                // over an older /opt copy → offer to update the system-wide install.
+                if (status.optUpdateAvailable === true) {
+                    showStatusBanner('update the system-wide install?', 'update', () => {
+                        void fetch('/api/service/install-system-wide', { method: 'POST' })
+                            .then((r) => {
+                                if (r.ok) window.location.reload();
+                            })
+                            .catch(() => {});
+                    });
+                    // Fall through — still show the normal first-run flow below.
+                }
+            }
+
+            const offerMachineWide =
+                status != null &&
+                status.platform === 'linux' &&
+                status.machineWideInstalled === false &&
+                status.systemInstallDeclined === false;
+            if (!offerMachineWide) {
+                maybeShowWelcomeModal();
+                return;
+            }
+            void import('./client/SystemWideInstallModal').then(({ SystemWideInstallModal }) => {
+                new SystemWideInstallModal({
+                    onInstall: () => {
+                        void fetch('/api/service/install-system-wide', { method: 'POST' })
+                            .then((r) => {
+                                if (r.ok) {
+                                    // Reload so the launcher bootstrapper execs the /opt binary.
+                                    window.location.reload();
+                                } else {
+                                    // Install didn't take (e.g. the admin prompt was
+                                    // dismissed) — continue the normal first-run flow.
+                                    maybeShowWelcomeModal();
+                                }
+                            })
+                            .catch(() => maybeShowWelcomeModal());
+                    },
+                    onDecline: () => {
+                        // Record the decline (server marker) so we don't re-ask, then
+                        // let the normal first-run flow continue.
+                        void fetch('/api/service/decline-system-wide', { method: 'POST' }).catch(() => {});
+                        maybeShowWelcomeModal();
+                    },
+                });
+            });
+        })
+        .catch(() => {
+            // /api/service/status unreachable — fall back to the normal flow.
+            maybeShowWelcomeModal();
+        });
+}
+
+function maybeShowPortChangeModal(globallyDismissed: boolean, dismissedFor: number | null, currentPort: number): void {
+    if (!shouldShowBookmark({ globallyDismissed, dismissedForPort: dismissedFor, currentPort })) return;
+    void import('./client/PortChangeModal').then(({ PortChangeModal }) => {
+        new PortChangeModal({ webPort: currentPort });
+    });
+}
+
+// Initialize theme immediately to prevent flash of wrong colors
+initTheme();
+installThemeEmbedListener();
+notifyThemeReady();
+
+window.onload = async (): Promise<void> => {
+    const hash = location.hash.replace(/^#!/, '');
+    const parsedQuery = new URLSearchParams(hash);
+    const action = parsedQuery.get('action');
+
+    // Apply the stored theme + warm the global settings cache (iconSize,
+    // scanSubnets the settings modals read). Placed ABOVE the deep-link early-
+    // returns so shell / file-listing sessions warm it on first load too.
+    // applyStoredTheme awaits loadGlobal internally; initTheme already did the
+    // synchronous OS first paint at module-eval, and the .catch keeps a boot-time
+    // /api/settings failure from rejecting onload.
+    await applyStoredTheme().catch((e) => console.error('[boot] applyStoredTheme failed', e));
+
+    // WebCodecs player must be registered so ConnectModal can find it
+    const { WebCodecsPlayer } = await import('./player/WebCodecsPlayer');
+    StreamClientScrcpy.registerPlayer(WebCodecsPlayer);
+
+    const tools: Tool[] = [];
+
+    const { ShellClient } = await import('./googDevice/client/ShellClient');
+    if (action === ShellClient.ACTION && typeof parsedQuery.get('udid') === 'string') {
+        ShellClient.start(ShellClient.parseParameters(parsedQuery));
+        return;
+    }
+    tools.push(ShellClient);
+
+    const { FileListingClient } = await import('./googDevice/client/FileListingClient');
+    if (action === FileListingClient.ACTION) {
+        FileListingClient.start(FileListingClient.parseParameters(parsedQuery));
+        return;
+    }
+    tools.push(FileListingClient);
+
+    if (tools.length) {
+        const { DeviceTracker } = await import('./googDevice/client/DeviceTracker');
+        tools.forEach((tool) => {
+            DeviceTracker.registerTool(tool);
+        });
+    }
+
+    document.body.appendChild(createSettingsHeader());
+    document.body.appendChild(createThemeToggle());
+    document.body.appendChild(createUpdateButton());
+
+    const pageContainer = document.createElement('div');
+    pageContainer.className = 'page-container';
+    document.body.appendChild(pageContainer);
+
+    // §36: capture the page-lifetime singletons so their polling intervals can
+    // be released on page teardown (see onPageTeardown below).
+    let firstRunBanner: FirstRunBanner | undefined;
+    let dependencyPanel: DependencyPanel | undefined;
+
+    FirstRunBanner.create().then((banner) => {
+        firstRunBanner = banner;
+        pageContainer.insertBefore(banner.getElement(), pageContainer.firstChild);
+    });
+
+    maybeShowFirstRunModal();
+
+    // v0.1.8 uninstall handoff: if we arrived with
+    // ?resume=uninstall-service&token=..., the previous (service)
+    // instance is asking us to auto-fire the uninstall. Validate the
+    // token server-side via the existing uninstall endpoint
+    // (server consumes the token; the API call only succeeds if it
+    // matches a recently-issued one). On success, the user is
+    // dropped on a clean home page.
+    maybeResumeUninstall();
+
+    const devicesDiv = document.createElement('div');
+    devicesDiv.id = 'devices';
+    devicesDiv.className = 'table-wrapper';
+    pageContainer.appendChild(devicesDiv);
+
+    const discoveryPanel = new NetworkDiscoveryPanel();
+    pageContainer.appendChild(discoveryPanel.getElement());
+
+    DependencyPanel.create().then((depPanel) => {
+        dependencyPanel = depPanel;
+        pageContainer.appendChild(depPanel.getElement());
+    });
+
+    // §36: DependencyPanel + FirstRunBanner poll on intervals for the page
+    // lifetime; release them on teardown so the intervals don't keep firing into
+    // bfcache/unload. destroy() (= stopPolling) is idempotent.
+    onPageTeardown(() => {
+        firstRunBanner?.destroy();
+        dependencyPanel?.destroy();
+    });
+
+    HostTracker.start();
+    // §32 Part 5: the browser-side reachability overlay was replaced by
+    // the launcher's --upgrade-server subcommand, which serves a static
+    // "updating, please wait..." page on the same port during the upgrade
+    // window. See launcher/src/upgrade_server.rs. The launcher-served
+    // page survives ANY browser navigation (refresh, new tab, fresh
+    // visit during upgrade), which the in-page overlay couldn't.
+};

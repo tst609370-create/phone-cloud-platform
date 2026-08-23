@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>ws-scrcpy-web stream</title>
+    <link rel="stylesheet" href="ws-scrcpy.css?v=20260821s">
+    <style>
+        html, body {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background: transparent;
+            overflow: hidden;
+        }
+        /* Body is the flex parent for .device-view so the stream fills the viewport. */
+        body { display: flex; }
+        #status {
+            position: fixed; top: 8px; left: 8px;
+            font: 12px monospace;
+            color: #ddd;
+            background: rgba(0,0,0,0.5);
+            padding: 4px 8px;
+            border-radius: 4px;
+            pointer-events: none;
+            z-index: 1000;
+        }
+        #status.hidden { display: none; }
+    </style>
+</head>
+<body data-embed-entry>
+    <div id="status">connecting...</div>
+    <script src="ws-scrcpy.umd.js?v=20260822x"></script>
+    <script src="embed.js?v=20260821j"></script>
+</body>
+</html>

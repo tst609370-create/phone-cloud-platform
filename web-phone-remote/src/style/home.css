@@ -1,0 +1,401 @@
+/* src/style/home.css */
+
+/* Theme toggle */
+.theme-toggle {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 100;
+    background: var(--device-list-default-color);
+    border: 1px solid var(--device-border-color);
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-color);
+    transition: background-color 0.15s;
+}
+
+.theme-toggle:hover {
+    background: var(--device-list-hover-color);
+}
+
+/* Settings (gear) header button — sits to the LEFT of the theme toggle.
+   Mirrors .theme-toggle dimensions/glassmorphism for visual consistency. */
+.settings-header {
+    position: fixed;
+    top: 12px;
+    right: 56px; /* 12px (theme-toggle right) + 36px (theme-toggle width) + 8px gap */
+    z-index: 100;
+    background: var(--device-list-default-color);
+    border: 1px solid var(--device-border-color);
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-color);
+    transition: background-color 0.15s;
+    padding: 0;
+}
+
+.settings-header:hover {
+    background: var(--device-list-hover-color);
+}
+
+/* Page container — centers content, caps at 5 device cards.
+   padding-top reserves space at the top for the fixed-position controls
+   cluster (settings + theme + update button, all at top:12px with 36px
+   height = 48px bottom edge), so the connected-devices section's outer
+   top border sits ~8px below the controls instead of being crowded by
+   them. */
+.page-container {
+    max-width: 1800px;
+    margin: 0 auto;
+    padding: 56px 0 0 0;
+}
+
+/* Page sections */
+.home-section {
+    padding: 20px;
+    margin-bottom: 35px;
+    font-family: var(--font-mono);
+    border: 1.5px solid var(--section-border-color, #5a5a5a);
+    border-radius: 8px;
+}
+
+.home-section h2 {
+    margin: 0 0 16px 0;
+    font-size: 18px;
+    color: var(--text-color);
+    font-weight: 600;
+}
+
+.section-divider {
+    border: none;
+    border-top: 1px solid var(--device-border-color);
+    margin: 0;
+}
+
+/* Subtle outline card for section content */
+.section-card {
+    border: 1px solid var(--device-border-color);
+    border-radius: 8px;
+    padding: 16px;
+    background: var(--device-list-default-color);
+}
+
+/* Empty state card — used when no results to show */
+.empty-state-card {
+    border: 1px solid var(--device-border-color);
+    border-radius: 8px;
+    padding: 16px;
+    background: var(--device-list-default-color);
+    color: var(--text-color-light);
+    font-size: 14px;
+    text-align: center;
+}
+
+/* Network Discovery */
+.discovery-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.discovery-header h2 {
+    margin: 0;
+}
+
+.discovery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 10px;
+}
+
+.discovery-results:not(:empty) {
+    margin-bottom: 15px;
+}
+
+.discovery-card {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border: 1px solid var(--device-border-color);
+    border-radius: 8px;
+    background: var(--device-list-default-color);
+}
+
+.discovery-card-info {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.discovery-card-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.discovery-card-name:empty {
+    display: none;
+}
+
+.discovery-card-address {
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-color-light);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.discovery-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 8px;
+}
+
+.discovery-name-input {
+    flex-basis: 100%;
+    background: var(--stream-bg-color);
+    border: 1px solid var(--device-border-color);
+    border-radius: 6px;
+    color: var(--text-color);
+    font-size: 13px;
+    padding: 6px 10px;
+}
+
+.discovery-name-input:focus,
+.discovery-manual-form input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+.discovery-name-input::placeholder {
+    color: var(--text-color-light);
+}
+
+.discovery-header-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.discovery-manual-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 12px;
+    border: 1px solid var(--device-border-color);
+    border-radius: 8px;
+    background: var(--device-list-default-color);
+}
+
+.discovery-manual-form[hidden] {
+    display: none;
+}
+
+.discovery-manual-form input[type="text"] {
+    background: var(--stream-bg-color);
+    border: 1px solid var(--device-border-color);
+    border-radius: 6px;
+    color: var(--text-color);
+    font-size: 13px;
+    padding: 6px 10px;
+}
+
+.discovery-manual-form input[type="text"]::placeholder {
+    color: var(--text-color-light);
+}
+
+.discovery-manual-form input.discovery-manual-address {
+    flex: 1;
+    min-width: 140px;
+    font-family: var(--font-mono);
+}
+
+.discovery-manual-form input.discovery-manual-port {
+    width: 70px;
+    font-family: var(--font-mono);
+}
+
+.discovery-manual-form input.discovery-manual-label {
+    flex: 1;
+    min-width: 140px;
+}
+
+.discovery-manual-close {
+    background: transparent;
+    border: none;
+    color: var(--text-color-light);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.discovery-manual-close:hover {
+    color: var(--text-color);
+}
+
+.discovery-manual-result,
+.discovery-card-result {
+    flex-basis: 100%;
+    font-size: 13px;
+    margin-top: 4px;
+    font-family: var(--font-mono);
+    word-break: break-word;
+}
+
+.discovery-manual-result.error,
+.discovery-card-result.error {
+    color: var(--danger-color);
+}
+
+.discovery-manual-result.success,
+.discovery-card-result.success {
+    color: var(--success-color);
+}
+
+/* Discovery action buttons recolor the .dep-btn base (blue) to success-green /
+   danger-red. Qualified with the base class so they win by specificity rather
+   than !important. (The unreferenced .dep-ok-btn rule that lived here was dead
+   CSS and was removed.) */
+.dep-btn.discovery-connect-btn {
+    border-color: var(--success-color);
+    color: var(--success-color);
+    background: transparent;
+}
+
+.dep-btn.discovery-connect-btn:hover:not(:disabled) {
+    background: var(--success-hover-bg);
+}
+
+.dep-btn.discovery-dismiss-btn {
+    border-color: var(--danger-color);
+    color: var(--danger-color);
+    background: transparent;
+}
+
+.dep-btn.discovery-dismiss-btn:hover:not(:disabled) {
+    background: var(--danger-hover-bg);
+}
+
+/* ── Update button (top-right, third from edge) ──
+   Layout: [update-button] ← [settings-header] ← [theme-toggle] ← right edge.
+   Theme toggle sits at right:12px (36px wide), settings-header at right:56px
+   (36px wide + 8px gap), so update-button starts at right:100px and grows
+   leftward (it's a pill, not a circle). Mirrors their glassmorphism. */
+.update-button-container {
+    position: fixed;
+    top: 12px;
+    right: 100px;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 12px;
+    background: var(--device-list-default-color);
+    border: 1px solid var(--device-border-color);
+    border-radius: 18px;
+    color: var(--text-color);
+    font-size: 13px;
+    font-family: var(--font-mono);
+    transition:
+        background-color 0.15s,
+        border-color 0.15s,
+        color 0.15s;
+}
+
+.update-button-container .update-button-label {
+    white-space: nowrap;
+}
+
+.update-button-container .update-button-action,
+.update-button-container .update-button-retry {
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-family: var(--font-mono);
+    font-size: inherit;
+    cursor: pointer;
+    padding: 0;
+    white-space: nowrap;
+}
+
+.update-button-container .update-button-action:disabled,
+.update-button-container .update-button-retry:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.update-button-container .update-button-retry {
+    margin-left: 4px;
+    text-decoration: underline;
+}
+
+/* Spinner — pure CSS (no SVG). */
+.update-button-container .update-button-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: update-button-spin 0.8s linear infinite;
+}
+
+@keyframes update-button-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* State colors — map to existing CSS vars where they exist; fall back to
+   sensible literals matching the rest of the app's palette. */
+.update-button-container.state-checking {
+    color: var(--text-color-light);
+    border-color: var(--device-border-color);
+}
+
+.update-button-container.state-downloading {
+    color: var(--accent-color); /* deep blue — matches .settings-btn-primary */
+    border-color: var(--accent-color);
+}
+
+.update-button-container.state-downloading:hover {
+    background: var(--device-list-hover-color);
+}
+
+.update-button-container.state-ready {
+    color: var(--success-color);
+    border-color: var(--success-color);
+    cursor: pointer;
+}
+
+.update-button-container.state-ready:hover {
+    background: var(--success-hover-bg);
+}
+
+.update-button-container.state-error {
+    color: var(--danger-color);
+    border-color: var(--danger-color);
+}

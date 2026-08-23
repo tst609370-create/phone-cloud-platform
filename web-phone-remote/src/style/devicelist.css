@@ -1,0 +1,439 @@
+/* Dark theme (default) */
+:root,
+[data-theme="dark"] {
+    --device-border-color: #444444;
+    --device-list-default-color: #252525;
+    --device-list-hover-color: hsl(218, 17%, 18%);
+    --section-border-color: #5a5a5a;
+}
+
+/* Light theme */
+[data-theme="light"] {
+    --device-border-color: #c0c6cc;
+    --device-list-default-color: #ffffff;
+    --device-list-hover-color: hsl(218, 67%, 95%);
+    --section-border-color: #8f959d;
+}
+
+body.list {
+    position: static;
+    height: auto;
+    width: auto;
+    overflow: auto;
+}
+
+#devices {
+    padding: 20px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+body.list #devices {
+    border: 1.5px solid var(--section-border-color, #5a5a5a);
+    border-radius: 8px;
+    margin-top: 35px;
+    margin-bottom: 35px;
+}
+
+body.stream #devices {
+    background-color: var(--device-list-default-color);
+    opacity: 0.8;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 3;
+    height: 100%;
+    width: 100%;
+}
+
+body.list #device_list_menu {
+    display: none;
+}
+
+/* biome-ignore lint/style/noDescendingSpecificity: intentional source order; reordering would change the cascade */
+#device_list_menu {
+    display: block;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    z-index: 4;
+}
+
+/* Device list container */
+#devices .device-list {
+    font-family: var(--font-mono);
+    font-size: var(--font-size);
+}
+
+#devices .device-list button {
+    font-family: var(--font-mono);
+    font-size: var(--font-size);
+    color: var(--button-text-color);
+}
+
+/* Device card */
+#devices .device-list div.device {
+    border: 1px solid var(--device-border-color);
+    border-radius: 8px;
+    /* Symmetric horizontal padding so the dark-grey content area sits
+       equidistant from the left and right card borders. (The active
+       device's 3px green / not-active 3px red left border is outside
+       this padding and replaces the 1px default left border — that
+       asymmetry is intentional, not part of the content padding.) */
+    padding: 8px 14px;
+    background: var(--device-list-default-color);
+    transition:
+        border-color 0.15s,
+        box-shadow 0.15s;
+}
+
+#devices .device-list div.device:hover {
+    border-color: var(--device-list-hover-color);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+#devices .device-list div.device.active {
+    border-left: 3px solid var(--success-color);
+}
+
+#devices .device-list div.device.not-active {
+    border-left: 3px solid var(--danger-color);
+    opacity: 0.7;
+}
+
+/* Device info table */
+#devices table.device-info {
+    margin-bottom: 0;
+    border-collapse: collapse;
+    font-size: 13px;
+    width: 100%;
+}
+
+#devices .device-info td {
+    padding: 2px 0;
+    vertical-align: top;
+}
+
+#devices .device-info td.device-label {
+    color: var(--text-color-light, #888);
+    padding-right: 24px;
+    white-space: nowrap;
+    width: 1%;
+}
+
+#devices .device-info tr:first-child td:last-child {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+#devices .device-serial {
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+/* Device action buttons (disconnect + sleep/wake) — sibling row to the
+   device-info table. 2-column grid with outer borders on all four sides;
+   border-top is the row divider shared with the services grid above.
+   Inner vertical divider is drawn as a border-right on the first
+   .action-cell (an element edge → integer pixel → crisp rendering, no
+   sub-pixel AA artifacts). */
+#devices .device-list div.device .device-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto;
+    gap: 0;
+    border-top: 1px solid var(--device-border-color);
+    border-left: 1px solid var(--device-border-color);
+    border-right: 1px solid var(--device-border-color);
+    border-bottom: 1px solid var(--device-border-color);
+    padding: 0;
+}
+
+/* Each action button lives inside an .action-cell that stretches to
+   fill its grid cell. The cell's right border (first cell only) is
+   the inner vertical divider. */
+#devices .device-list div.device .device-actions > .action-cell {
+    justify-self: stretch;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0 8px;
+    height: 36px;
+    box-sizing: border-box;
+}
+
+#devices .device-list div.device .device-actions > .action-cell:nth-child(1) {
+    border-right: 1px solid var(--device-border-color);
+}
+
+#devices .device-list div.device .device-actions:empty {
+    display: none;
+}
+
+#devices .device-list .disconnect-btn {
+    border: 0.5px solid var(--danger-color);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--danger-color);
+    padding: 2px 8px;
+    font-size: var(--font-size);
+    cursor: pointer;
+    white-space: nowrap;
+    min-width: 95px;
+    text-align: center;
+}
+
+#devices .device-list .disconnect-btn:hover:not(:disabled) {
+    background: var(--danger-hover-bg);
+}
+
+#devices .device-list .disconnect-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Sleep/wake button */
+#devices .device-list .sleep-wake-btn {
+    border-radius: 6px;
+    background: transparent;
+    padding: 2px 8px;
+    font-size: var(--font-size);
+    cursor: pointer;
+    white-space: nowrap;
+    min-width: 70px;
+    text-align: center;
+}
+
+#devices .device-list .sleep-wake-btn.state-off {
+    border: 0.5px solid var(--success-color);
+    color: var(--success-color);
+}
+
+#devices .device-list .sleep-wake-btn.state-on {
+    border: 0.5px solid var(--danger-color);
+    color: var(--danger-color);
+}
+
+#devices .device-list .sleep-wake-btn.state-unknown {
+    border: 0.5px solid var(--text-color-light, #888);
+    color: var(--text-color-light, #888);
+}
+
+#devices .device-list .sleep-wake-btn.state-off:hover:not(:disabled) {
+    background: var(--success-hover-bg);
+}
+
+#devices .device-list .sleep-wake-btn.state-on:hover:not(:disabled) {
+    background: var(--danger-hover-bg);
+}
+
+#devices .device-list .sleep-wake-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Modal-launch buttons — 2x2 grid filled column-first:
+   left col = [shell][list files], right col = [connect][configure stream].
+   Outer borders on left/right; border-top is the row divider shared with
+   the device-info table above. Inner cross dividers are drawn as
+   border-right / border-bottom on the cells (the .desc-block items
+   themselves stretch to fill their cell). Borders sit at element edges
+   (integer pixels) so they render crisply, unlike 1px grid-track
+   dividers which can land on sub-pixel positions and anti-alias. */
+#devices .device-list div.device .services {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto;
+    grid-auto-flow: column;
+    gap: 0;
+    border-top: 1px solid var(--device-border-color);
+    border-left: 1px solid var(--device-border-color);
+    border-right: 1px solid var(--device-border-color);
+    padding: 0;
+}
+
+/* Each .desc-block (modal-launch cell) stretches to fill its grid cell.
+   Padding gives breathing room around the inner button (which carries
+   the blue border — moved off .desc-block so .desc-block can act as
+   the gray-bordered cell). */
+#devices .device-list div.device .services > .desc-block {
+    justify-self: stretch;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0 8px;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    overflow: visible;
+    height: 36px;
+    box-sizing: border-box;
+}
+
+/* Cross dividers via cell borders. With grid-auto-flow: column over 2
+   rows: nth-child(1)=top-left, (2)=bottom-left, (3)=top-right,
+   (4)=bottom-right. Top-left gets right + bottom; bottom-left gets
+   right; top-right gets bottom; bottom-right gets none. For inactive
+   devices (3 buttons, no `connect`), nth-child(3) is `config stream`
+   sitting at top-right with border-bottom — that's fine; the line
+   ends at the cell boundary regardless of whether anything below
+   occupies the empty bottom-right cell. */
+#devices .device-list div.device .services > .desc-block:nth-child(1) {
+    border-right: 1px solid var(--device-border-color);
+    border-bottom: 1px solid var(--device-border-color);
+}
+#devices .device-list div.device .services > .desc-block:nth-child(2) {
+    border-right: 1px solid var(--device-border-color);
+}
+#devices .device-list div.device .services > .desc-block:nth-child(3) {
+    border-bottom: 1px solid var(--device-border-color);
+}
+
+#devices .device-list div.device .services:last-child {
+    padding-bottom: 0;
+}
+
+#devices .device-list div.device .services:first-of-type {
+    margin-top: 8px;
+}
+
+/* .desc-block default styles for places OUTSIDE the services grid
+   (kept for any other consumer). Inside the services grid, .desc-block
+   acts as a cell; the blue border is moved to the inner button/link. */
+#devices .device-list div.desc-block {
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 6px;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+#devices .device-list div.desc-block.hidden {
+    display: none;
+}
+
+/* Inactive device styling */
+#devices .device-list .device.not-active div.desc-block button > svg > path {
+    fill: var(--text-color-light);
+}
+
+#devices .device-list .device.not-active {
+    color: var(--text-color-light);
+}
+
+#devices .device-list .device.not-active a {
+    color: var(--link-color-light);
+}
+
+#devices .device-list .device.not-active a:visited {
+    color: var(--link-color-visited-light);
+}
+
+/* Action buttons and links styled as buttons. Blue border moved here
+   from .desc-block so the parent .desc-block can act as a grid cell
+   (with gray cell borders) without an outer blue border around it. */
+/* biome-ignore-start lint/style/noDescendingSpecificity: intentional source order; reordering would change the cascade */
+#devices .device-list div.desc-block .action-button,
+#devices .device-list div.desc-block a {
+    border: 0.5px solid var(--accent-color);
+    border-radius: 6px;
+    background-color: transparent;
+    color: var(--accent-color);
+    text-decoration: none;
+    padding: 0.15rem 0.5rem;
+    font-family: var(--font-mono);
+    font-size: var(--font-size);
+    cursor: pointer;
+    display: inline-block;
+}
+/* biome-ignore-end lint/style/noDescendingSpecificity: end desc-block action selectors */
+
+#devices .device-list div.desc-block .action-button:hover,
+#devices .device-list div.desc-block a:hover {
+    background-color: var(--device-list-hover-color);
+}
+
+/* Tracker block — inherits grid layout so device cards flow correctly */
+#devices .device-list > div {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 12px;
+}
+
+/* Tracker name header */
+#devices .tracker-name {
+    padding: 0 0 8px 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-color, #eee);
+    grid-column: 1 / -1;
+}
+
+/* Empty-state card inside the tracker block spans the full row instead of
+ * sitting in a single grid cell — matches the look of the scan-network
+ * info box below Available Network Devices. */
+#devices .empty-state-card {
+    grid-column: 1 / -1;
+}
+
+/* Device name row — inline label editor */
+#devices .device-name-cell {
+    position: relative;
+    /* biome-ignore lint/complexity/noImportantStyles: targeted override of the row's base padding for the inline name-editor affordance */
+    padding-right: 28px !important;
+}
+
+#devices .device-name-text {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+#devices .device-name-text.unnamed {
+    font-style: italic;
+    opacity: 0.5;
+    font-weight: 400;
+}
+
+#devices .device-name-edit-btn {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--text-color-light, #888);
+    padding: 2px;
+    line-height: 1;
+    opacity: 0.6;
+}
+
+#devices .device-name-edit-btn:hover {
+    opacity: 1;
+    color: var(--text-color, #ddd);
+}
+
+#devices .device-name-input {
+    width: calc(100% - 24px);
+    background: var(--stream-bg-color, #333);
+    border: 1px solid var(--text-color-light, #888);
+    border-radius: 4px;
+    color: var(--text-color, #ddd);
+    font-size: 14px;
+    padding: 2px 6px;
+}
+
+#devices .device-name-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+a.link-stream .kind-icon {
+    margin-left: 6px;
+    width: 14px;
+    height: 14px;
+    vertical-align: middle;
+}

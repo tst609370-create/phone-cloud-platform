@@ -1,0 +1,47 @@
+.first-run-banner {
+    /* Fixed amber + near-black for theme-independent high contrast (~11:1, exceeds WCAG AA). */
+    margin: 1rem auto;
+    max-width: 960px;
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    background-color: #ffb74d;
+    color: #1a1a1a;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+}
+
+.first-run-banner-inner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.first-run-banner-icon {
+    font-size: 18px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.first-run-banner-text {
+    flex: 1;
+}
+
+.first-run-banner-retry {
+    flex-shrink: 0;
+    padding: 0.35rem 0.85rem;
+    border-radius: 4px;
+    border: 1px solid rgba(0, 0, 0, 0.35);
+    background: transparent;
+    color: inherit;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.first-run-banner-retry:hover:not(:disabled) {
+    background-color: rgba(0, 0, 0, 0.08);
+}
+
+.first-run-banner-retry:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}

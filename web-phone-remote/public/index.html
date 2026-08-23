@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>手机远程控制</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="stylesheet" href="phones.css?v=20260822i">
+</head>
+<body>
+    <div class="app">
+        <aside class="sidebar">
+            <div class="brand">
+                <span class="brand-icon">控</span>
+                <div class="sidebar-label"><strong>手机控制台</strong><small id="device-count">0 台设备</small></div>
+                <button id="collapse" class="icon-button" type="button" title="收起侧栏">‹</button>
+            </div>
+            <section class="controls">
+                <button id="reconnect-all" type="button"><span>↻</span><b class="sidebar-label">全部重连</b></button>
+                <button id="expand-first" type="button"><span>⛶</span><b class="sidebar-label">首台放大</b></button>
+                <button id="refresh-page" type="button" hidden><span>⟳</span><b class="sidebar-label">刷新页面</b></button>
+                <button id="install-app" type="button" title="安装到当前云机"><span>⇧</span><b class="sidebar-label">安装软件</b></button>
+                <button id="sync-toggle" type="button" aria-pressed="false"><span>◎</span><b class="sidebar-label">同步关闭</b></button>
+                <button id="screen-off-all" type="button"><span>◐</span><b class="sidebar-label">全部熄屏</b></button>
+                <button id="screen-on-all" type="button"><span>●</span><b class="sidebar-label">全部亮屏</b></button>
+                <button id="close-all" type="button"><span>×</span><b class="sidebar-label">关闭全部</b></button>
+            </section>
+            <input id="app-package" type="file" accept=".apk,application/vnd.android.package-archive" hidden>
+            <section class="settings sidebar-label">
+                <label>窗口大小 <output id="size-value">300</output></label>
+                <input id="tile-size" type="range" min="260" max="620" step="20" value="300">
+                <label for="quality">画质</label>
+                <select id="quality"><option value="480" selected>极速 480p</option><option value="720">流畅 720p</option><option value="1080">清晰 1080p</option></select>
+                <label for="fps">帧率</label>
+                <select id="fps"><option value="1">省流 1 FPS</option><option value="15">操作 15 FPS</option><option value="30" selected>流畅 30 FPS</option></select>
+            </section>
+            <nav class="device-nav sidebar-label" aria-label="设备"><h2>我的设备</h2></nav>
+            <a class="admin sidebar-label" href="admin.html?v=20260822g" hidden>管理员设置</a>
+        </aside>
+        <main class="workspace">
+            <header class="topbar">
+                <strong>设备窗口</strong><span>普通模式可拖动，旋转模式点击侧边设备切换</span>
+                <div class="layout-switch" role="group" aria-label="设备墙样式">
+                    <button id="layout-flat" type="button">▦ 普通</button>
+                    <button id="layout-carousel" type="button">◫ 旋转</button>
+                </div>
+                <button id="tile-all" type="button">▦ 自动平铺</button><select id="mobile-device-picker" aria-label="切换设备"></select>
+            </header>
+            <section id="phone-grid" class="phone-grid" aria-label="手机控制窗口"></section>
+            <div class="carousel-nav" aria-label="旋转设备墙导航">
+                <button id="carousel-prev" type="button" title="向左旋转">‹</button>
+                <button id="carousel-next" type="button" title="向右旋转">›</button>
+            </div>
+        </main>
+    </div>
+    <div id="viewer-backdrop" aria-hidden="true"></div>
+    <script src="phones.js?v=20260822k"></script>
+</body>
+</html>

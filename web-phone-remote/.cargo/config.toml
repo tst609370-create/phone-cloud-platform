@@ -1,0 +1,16 @@
+# Statically link the MSVC C runtime into the produced .exe so the
+# launcher and tray binaries do not depend on VCRUNTIME140.dll /
+# MSVCP140.dll being present on the target machine. A clean Win11
+# install does NOT ship the Visual C++ Redistributable, and
+# dynamic-linked Rust binaries fail to start there with
+# "VCRUNTIME140.dll was not found".
+#
+# Static-CRT only affects MSVC targets (Windows). Linux/macOS builds
+# are unaffected — the cfg selector below skips them.
+#
+# Trade-off: each binary grows ~150-300 KB. The CRT version becomes
+# frozen at build time (no Windows Update flow-through), which is the
+# universal Rust-on-Windows pattern (rustup, ripgrep, gh, bun, etc.
+# all ship this way).
+[target.'cfg(target_env = "msvc")']
+rustflags = ["-C", "target-feature=+crt-static"]

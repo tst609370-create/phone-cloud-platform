@@ -1,0 +1,787 @@
+/* ── Native <dialog> modal system ── */
+
+/* The <dialog> itself is an invisible full-screen positioning layer.
+   padding:0 is critical: clicks on ::backdrop bubble to the <dialog> element,
+   and we detect backdrop clicks by checking event.target === dialog.
+   All visible content lives inside .modal-frame. */
+dialog.modal {
+    padding: 0;
+    border: none;
+    background: transparent;
+    max-width: 100vw;
+    max-height: 100vh;
+    overflow: visible;
+}
+
+/* ── Backdrop ── */
+dialog.modal::backdrop {
+    background: rgba(0, 0, 0, 0.45);
+}
+
+/* ── Glassmorphism frame ── */
+dialog.modal .modal-frame {
+    font-family: var(--font-mono);
+    color: var(--text-color, #ddd);
+    width: clamp(400px, 50vw, 700px);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    background: rgba(42, 42, 42, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+}
+
+[data-theme="light"] dialog.modal .modal-frame {
+    background: rgba(245, 248, 252, 0.87);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+/* Nested-modal readability: when a second modal opens on top, the top one uses
+   a fully opaque frame so its content is crisp over the lower modal's glass. */
+body:has(dialog.modal[open] ~ dialog.modal[open]) dialog.modal[open]:last-of-type .modal-frame {
+    background: rgb(42, 42, 42);
+}
+
+[data-theme="light"] body:has(dialog.modal[open] ~ dialog.modal[open]) dialog.modal[open]:last-of-type .modal-frame {
+    background: rgb(245, 248, 252);
+}
+
+dialog.modal .modal-frame button,
+dialog.modal .modal-frame select,
+dialog.modal .modal-frame input {
+    font-family: var(--font-mono);
+    font-size: var(--font-size);
+}
+
+dialog.modal .modal-frame select {
+    text-overflow: ellipsis;
+}
+
+/* ── Open/close transitions via @starting-style ──
+   How this works:
+   - Base state (no [open]) = exit-end values (invisible)
+   - [open] state = visible values
+   - @starting-style = entry-start values (invisible, same as base)
+   - allow-discrete on display/overlay keeps dialog rendered during exit transition
+*/
+
+/* Dialog element: transparent container, stays rendered during exit */
+dialog.modal {
+    opacity: 0;
+    transition:
+        opacity 0.2s ease-out,
+        display 0.2s ease-out allow-discrete,
+        overlay 0.2s ease-out allow-discrete;
+}
+
+dialog.modal[open] {
+    opacity: 1;
+}
+
+/* Frame: exit-end state (invisible, scaled down) */
+dialog.modal .modal-frame {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+    transition:
+        opacity 0.2s ease-out,
+        transform 0.2s ease-out;
+}
+
+/* Frame: visible state when open */
+dialog.modal[open] .modal-frame {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+}
+
+/* Backdrop: exit-end state */
+dialog.modal::backdrop {
+    background: rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    transition:
+        opacity 0.2s ease-out,
+        display 0.2s ease-out allow-discrete;
+}
+
+/* Backdrop: visible state when open */
+dialog.modal[open]::backdrop {
+    opacity: 1;
+}
+
+/* Entry animation: these are the "from" values when [open] is first applied */
+@starting-style {
+    dialog.modal[open] {
+        opacity: 0;
+    }
+    dialog.modal[open] .modal-frame {
+        opacity: 0;
+        transform: scale(0.96) translateY(8px);
+    }
+    dialog.modal[open]::backdrop {
+        opacity: 0;
+    }
+}
+
+/* ── Header ── */
+dialog.modal .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--modal-divider);
+    flex-shrink: 0;
+}
+
+dialog.modal .modal-title {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+dialog.modal .modal-header-controls {
+    display: flex;
+    align-items: center;
+    gap: 40px;
+}
+
+/* Reset home-page theme-toggle fixed positioning when it's reused inside a modal */
+dialog.modal .modal-header-controls .theme-toggle {
+    position: static;
+    top: auto;
+    right: auto;
+    z-index: auto;
+    width: auto;
+    height: auto;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+}
+
+dialog.modal .modal-close {
+    background: transparent;
+    border: none;
+    color: var(--text-color-light, #888);
+    cursor: pointer;
+    padding: 4px;
+    line-height: 1;
+    font-size: 18px;
+}
+
+dialog.modal .modal-close:hover {
+    color: var(--text-color, #ddd);
+}
+
+/* ── Body (scrollable) ── */
+dialog.modal .modal-body {
+    padding: 1rem;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+/* ── Footer ── */
+dialog.modal .modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--modal-divider);
+    flex-shrink: 0;
+}
+
+/* ── Controls grid (used by ConfigureScrcpy) ── */
+dialog.modal .modal-controls {
+    display: grid;
+    grid-template-columns: [labels] 35% [controls] 1fr;
+    gap: 0.5rem 0.75rem;
+    align-items: center;
+    padding-right: 0.5rem;
+    min-width: 0;
+}
+
+dialog.modal .modal-controls select,
+dialog.modal .modal-controls input {
+    max-width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
+}
+
+dialog.modal .modal-controls .label {
+    grid-column: labels;
+    color: var(--text-color-light, #888);
+    font-size: 13px;
+}
+
+dialog.modal .modal-controls .input,
+dialog.modal .modal-controls select,
+dialog.modal .modal-controls input:not([type="checkbox"]) {
+    grid-column: controls;
+    box-sizing: border-box;
+    background: var(--stream-bg-color, #1a1a2e);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: var(--text-color, #ddd);
+    padding: 4px 8px;
+}
+
+[data-theme="light"] dialog.modal .modal-controls select,
+[data-theme="light"] dialog.modal .modal-controls input:not([type="checkbox"]) {
+    background: #fff;
+    border-color: rgba(0, 0, 0, 0.15);
+    color: #333;
+}
+
+dialog.modal .modal-controls select:focus,
+dialog.modal .modal-controls input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+dialog.modal .modal-controls input:disabled,
+dialog.modal .modal-controls select:disabled,
+dialog.modal .modal-advanced input:disabled,
+dialog.modal .modal-advanced select:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="light"] dialog.modal .modal-controls input:disabled,
+[data-theme="light"] dialog.modal .modal-controls select:disabled,
+[data-theme="light"] dialog.modal .modal-advanced input:disabled,
+[data-theme="light"] dialog.modal .modal-advanced select:disabled {
+    background: #eee;
+}
+
+/* ── Slider ── */
+dialog.modal .modal-controls input[type="range"] {
+    grid-column: controls;
+    width: 100%;
+    cursor: pointer;
+    accent-color: var(--accent-color);
+}
+
+/* ── Advanced toggle ── */
+dialog.modal .modal-advanced-separator {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--modal-divider);
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+}
+
+dialog.modal .modal-advanced-toggle {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    padding: 0.25rem 0;
+    color: var(--text-color-light, #888);
+    font-size: 13px;
+    user-select: none;
+    background: transparent;
+    border: none;
+    width: 100%;
+    font-family: var(--font-mono);
+}
+
+dialog.modal .modal-advanced-toggle:hover {
+    color: var(--text-color, #ddd);
+}
+
+dialog.modal .modal-advanced-toggle .chevron {
+    transition: transform 0.3s ease;
+    font-size: 12px;
+}
+
+dialog.modal .modal-advanced-toggle .chevron.expanded {
+    transform: rotate(180deg);
+}
+
+/* ── Advanced section (animated reveal) ── */
+dialog.modal .modal-advanced {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: [labels] 35% [controls] 1fr;
+    gap: 0.5rem 0.75rem;
+    align-items: center;
+    padding-right: 0.5rem;
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition:
+        max-height 0.3s ease,
+        opacity 0.3s ease,
+        margin 0.3s ease;
+    margin-top: 0;
+}
+
+dialog.modal .modal-advanced.expanded {
+    max-height: 300px;
+    opacity: 1;
+    margin-top: 0.5rem;
+}
+
+dialog.modal .modal-advanced .label {
+    grid-column: labels;
+    color: var(--text-color-light, #888);
+    font-size: 13px;
+}
+
+dialog.modal .modal-advanced .input,
+dialog.modal .modal-advanced select,
+dialog.modal .modal-advanced input:not([type="checkbox"]) {
+    grid-column: controls;
+    box-sizing: border-box;
+    width: 100%;
+    background: var(--stream-bg-color, #1a1a2e);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: var(--text-color, #ddd);
+    padding: 4px 8px;
+}
+
+dialog.modal .modal-controls input[type="checkbox"],
+dialog.modal .modal-advanced input[type="checkbox"] {
+    grid-column: controls;
+    justify-self: start;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--accent-color);
+}
+
+[data-theme="light"] dialog.modal .modal-advanced select,
+[data-theme="light"] dialog.modal .modal-advanced input:not([type="checkbox"]) {
+    background: #fff;
+    border-color: rgba(0, 0, 0, 0.15);
+    color: #333;
+}
+
+/* ── Settings buttons ── */
+dialog.modal .modal-settings {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--modal-divider);
+}
+
+dialog.modal .modal-settings button {
+    border: 0.5px solid var(--text-color, #ddd);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--accent-color);
+    padding: 6px 16px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+dialog.modal .modal-settings button:hover {
+    background: var(--device-list-hover-color, hsl(218, 17%, 18%));
+}
+
+/* Shared "got it" / confirm button for the bookmark (PortChangeModal) +
+   service-first-run (ServiceFirstRunModal) modals. Matches the welcome modal's
+   outline buttons — white outline + white text, transparent, mono font —
+   replacing the browser-default look (the class previously had no CSS). */
+.modal-button {
+    border: 0.5px solid var(--text-color, #ddd);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-color, #ddd);
+    padding: 8px 16px;
+    cursor: pointer;
+    font: inherit;
+}
+
+.modal-button:hover {
+    background: var(--device-list-hover-color, hsl(218, 17%, 18%));
+}
+
+/* ── Status text (footer) ── */
+dialog.modal .status-text {
+    font-size: 13px;
+}
+
+dialog.modal .status-text.status-probing {
+    color: var(--danger-color);
+}
+
+dialog.modal .status-text.status-ready {
+    color: var(--success-color);
+}
+
+dialog.modal .status-text.status-error {
+    color: var(--danger-color);
+}
+
+/* ── Connect button (footer) ── */
+dialog.modal .connect-btn {
+    border: 0.5px solid var(--text-color, #ddd);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--accent-color);
+    padding: 6px 20px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+dialog.modal .connect-btn:hover:not(:disabled) {
+    background: var(--device-list-hover-color, hsl(218, 17%, 18%));
+}
+
+dialog.modal .connect-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ── Shell modal overrides ── */
+dialog.modal.shell-modal .modal-frame {
+    width: clamp(500px, 90vw, 1600px);
+    max-height: 90vh;
+}
+
+dialog.modal .shell-warning {
+    padding: 4px 1rem;
+    font-size: 11px;
+    color: var(--danger-color);
+    border-bottom: 1px solid var(--modal-divider);
+    flex-shrink: 0;
+}
+
+dialog.modal.shell-modal .modal-body {
+    padding: 0;
+    background: #000;
+    min-height: 600px;
+    position: relative;
+    overflow: hidden;
+}
+
+dialog.modal .terminal-container {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+}
+
+/* ── Connect modal overrides ── */
+dialog.connect-modal .modal-frame {
+    max-height: 90vh;
+    width: fit-content;
+    max-width: 95vw;
+}
+
+dialog.connect-modal .modal-body {
+    padding: 0;
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
+    background: #000;
+}
+
+/* Stream layout (.device-view, .video, .control-buttons-list) lives in
+ * ws-scrcpy.css and is shared with embed.html. The modal-body above is the
+ * flex parent that gives .device-view its box.
+ *
+ * The modal still needs to cap the canvas layers: StreamClientScrcpy.getMaxSize()
+ * bounds the canvas to window.innerWidth/Height, but the modal-frame is
+ * constrained to max 95vw × 90vh. Without these caps, the canvas overflows the
+ * frame and gets clipped by the modal-body's `overflow: hidden`. */
+dialog.connect-modal .video-layer,
+dialog.connect-modal .touch-layer {
+    max-width: calc(95vw - 3.715rem);
+    max-height: calc(90vh - 2.5rem);
+}
+
+/* ── List files modal overrides ── */
+dialog.list-files-modal .modal-frame {
+    width: clamp(500px, 70vw, 900px);
+    max-height: 85vh;
+}
+
+dialog.list-files-modal .modal-body {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ── Settings modal ── */
+/* Wider than the base modal: the Settings modal has accreted enough sections
+   (service scope, updates, App-section) that long info/error text
+   wrapped into many lines and pushed the content past max-height -> a vertical
+   scrollbar. The extra horizontal room lets that text breathe (fewer wrapped
+   lines -> shorter content). Scoped to .settings-modal so the small confirm
+   modals (AdminConfirmModal etc.) stay narrow. */
+dialog.settings-modal .modal-frame {
+    width: clamp(460px, 66vw, 820px);
+    /* 95vh (not the base 80vh / prior 85vh): the App + Updates + Service
+       sections together are tall enough that 85vh forced an inner scrollbar on
+       smaller viewports. 95vh leaves a ~2.5% margin top/bottom so the frame
+       doesn't kiss the screen edges; long sections still scroll inside. */
+    max-height: 95vh;
+}
+
+dialog.settings-modal .settings-section {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--modal-divider);
+}
+
+dialog.settings-modal .settings-section:last-child {
+    border-bottom: none;
+}
+
+dialog.settings-modal .settings-section-heading {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+}
+
+/*
+ * v0.1.23-stable Settings layout: two-column CSS grid mirroring
+ * .modal-controls in ConfigureScrcpy. Labels live on the left, every
+ * control sits on the right at the same x-coordinate across all rows
+ * and all sections. Section action buttons (save / check now / install)
+ * live in .settings-section-footer which spans both columns.
+ */
+dialog.settings-modal .settings-section-body {
+    display: grid;
+    /* Labels fixed at 20rem so the controls boundary doesn't shift when
+       dynamic label text changes (status messages, version strings) or
+       when button text changes (install/uninstall states). Controls
+       take 1fr (was 16rem + [end] 1fr buffer pre-2026-05-28). The fixed
+       16rem controls column was sized against Windows font rendering
+       ("not installed — install?" ≈ 231px at 13px monospace, fit) but
+       wrapped on Linux 1920x1080 unscaled where the same monospace
+       string renders ~10% wider. Flexing controls to 1fr gives Linux
+       the breathing room without affecting Windows (controls hug left
+       via .settings-control justify-content: flex-start, so the extra
+       width on Windows is just empty space to the right of each control). */
+    grid-template-columns: [labels] 20rem [controls] 1fr;
+    align-items: center;
+    gap: 0.5rem 1rem;
+}
+
+dialog.settings-modal .settings-row {
+    display: contents;
+}
+
+/*
+ * Error rows stretch out. The error message is rendered on the row's label,
+ * which normally lives in the fixed 20rem [labels] column — too narrow for the
+ * longer service/update errors. When a row's label carries .settings-status-error,
+ * lift the whole row out of `display: contents` into a full-width block spanning
+ * both columns so the error wraps across the full width; the retry/save button
+ * drops beneath it. (Status notes already span via grid-column:1/-1 on a <p>.)
+ */
+dialog.settings-modal .settings-row:has(.settings-status-error) {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    grid-column: 1 / -1;
+}
+
+dialog.settings-modal .settings-label {
+    grid-column: labels;
+    color: var(--text-color-light, #888);
+    font-size: 13px;
+    /* Equal row heights across the whole modal — sets the visual rhythm.
+       Long labels (status messages, descriptive notes) wrap within the
+       40% column rather than pushing the modal wide. */
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    line-height: 1.4;
+    word-break: break-word;
+    padding-right: 0.75rem;
+}
+
+/*
+ * Right-column wrapper. Multi-control rows (radios, checkbox+text)
+ * use this to lay them out in a flex row inside the grid cell.
+ * min-height matches .settings-label so rows stay flush at 32px.
+ * justify-content stays at flex-start (default) so controls hug the
+ * left edge of the right column — buttons align with inputs above
+ * them across all rows.
+ */
+dialog.settings-modal .settings-control {
+    grid-column: controls;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    min-height: 32px;
+}
+
+dialog.settings-modal .settings-control .settings-radio-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-color, #ddd);
+    font-size: 13px;
+    cursor: pointer;
+    margin: 0;
+}
+
+/* Bright accent so the radio's selected dot stays visible even when the label
+ * is muted (locked scope). Matches the app's checkboxes/range controls. The
+ * radio is never `disabled` (Chromium desaturates accent-color on :disabled),
+ * so this dot renders at full saturation in both the active and locked state. */
+dialog.settings-modal .settings-control .settings-radio-label input[type="radio"] {
+    accent-color: var(--accent-color);
+}
+
+/*
+ * Locked radio (service scope while a service is installed): mute the whole
+ * label so the read-only state reads at a glance, and block interaction with
+ * pointer-events. We do NOT use the `disabled` attribute — Chromium
+ * desaturates accent-color on :disabled controls, which hid the selected dot
+ * (item 42). The radio stays enabled (accent-color renders) and is locked via
+ * this class (set by lockScopeRadioControl) plus tabindex=-1 on the input.
+ */
+dialog.settings-modal .settings-control .settings-radio-label.settings-radio-locked {
+    opacity: 0.65;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/*
+ * Apply-update button styling — green outline + green text — mirroring
+ * the home-page UpdateButton chip's "ready" state. Higher specificity
+ * than .settings-btn-primary so it overrides when both classes are
+ * present (used in the Updates section's dual-purpose button).
+ */
+dialog.modal .settings-btn.settings-btn-ready {
+    color: var(--success-color);
+    border-color: var(--success-color);
+}
+
+dialog.modal .settings-btn.settings-btn-ready:hover {
+    background: rgba(var(--success-rgb), 0.08);
+}
+
+dialog.settings-modal .settings-input {
+    box-sizing: border-box;
+    background: var(--stream-bg-color, #1a1a2e);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: var(--text-color, #ddd);
+    padding: 4px 8px;
+    width: 100%;
+    max-width: 240px;
+    font: inherit;
+}
+
+dialog.settings-modal .settings-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+[data-theme="light"] dialog.settings-modal .settings-input {
+    background: #fff;
+    border-color: rgba(0, 0, 0, 0.15);
+}
+
+dialog.modal .settings-btn {
+    border: 0.5px solid var(--text-color, #ddd);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-color, #ddd);
+    padding: 6px 14px;
+    cursor: pointer;
+    font: inherit;
+}
+
+dialog.modal .settings-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+dialog.modal .settings-btn-primary {
+    color: var(--accent-color);
+    border-color: var(--accent-color);
+}
+
+dialog.modal .settings-btn-danger {
+    color: var(--danger-color);
+    border-color: var(--danger-color);
+}
+
+dialog.modal .settings-btn-danger-outline {
+    color: var(--danger-color);
+    border-color: var(--danger-color);
+    background: transparent;
+}
+
+dialog.settings-modal .settings-status {
+    margin: 0.25rem 0 0;
+    /* Notes + status read as sub-text of the setting they annotate: indented +
+       bold-italic to set them apart. Errors add red via .settings-status-error
+       (layered on top, so they inherit this indent/weight/style). */
+    padding-left: 1.25rem;
+    color: var(--text-color-light, #888);
+    font-size: 13px;
+    min-height: 1em;
+    font-style: italic;
+    font-weight: 600;
+}
+
+dialog.settings-modal .settings-status-error {
+    color: var(--danger-color);
+}
+
+/*
+ * Status text turns green when an update is ready to apply, mirroring
+ * the .settings-btn-ready button color (var(--success-color)) so the description
+ * and action visually pair — "update: vX.Y.Z" + green "apply update"
+ * button reinforce one another.
+ */
+dialog.settings-modal .settings-status-ready {
+    color: var(--success-color);
+}
+
+dialog.settings-modal .settings-stub-note {
+    margin: 0;
+    padding-left: 1.25rem;
+    color: var(--text-color-light, #888);
+    font-size: 13px;
+    font-style: italic;
+    font-weight: 600;
+}
+
+/*
+ * v0.1.23-stable: per-section legacy layout overrides removed.
+ * All sections now use the unified .settings-section-body grid above.
+ * Section-specific input widths handled inline (max-width on the
+ * .settings-input itself).
+ */
+
+/* --- Service operation modal (Phase 3) --- */
+
+dialog.service-operation-modal .modal-header-controls {
+    display: none;
+}
+
+dialog.service-operation-modal .modal-body {
+    text-align: center;
+    padding: 1rem 0;
+}
+
+.service-operation-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--border-muted);
+    border-top-color: var(--accent-color);
+    border-radius: 50%;
+    margin: 0 auto 1rem;
+    animation: service-op-spin 0.8s linear infinite;
+}
+
+@keyframes service-op-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}

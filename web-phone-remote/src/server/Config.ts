@@ -1,0 +1,840 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import * as process from 'process';
+import {
+    APP_CONFIG_DEFAULTS,
+    type AppConfig,
+    type FirstRunStatus,
+    type InstallMode,
+    VALID_CHANNELS,
+    VALID_INSTALL_MODES,
+} from '../common/ConfigEvents';
+import type { ServerItem } from '../types/Configuration';
+import { GLOBAL_KEYS } from './db/constants';
+import { Db, dbDir } from './db/Db';
+import { EnvName } from './EnvName';
+import { Logger } from './Logger';
+
+const DEFAULT_SCAN_CONCURRENCY = 64;
+const DEFAULT_SCAN_TCP_TIMEOUT_MS = 300;
+const DEFAULT_SCAN_ADB_CONNECT_TIMEOUT_MS = 5000;
+const DEFAULT_SCAN_PROGRESS_INTERVAL = 10;
+
+/**
+ * Minimal flat config supported by config.json:
+ *   { "webPort": 8000, "adbPath": "adb" }
+ *
+ * The full ServerItem array form is also accepted for advanced SSL setups:
+ *   { "server": [{ "secure": true, "port": 443, "options": { ... } }] }
+ */
+export interface FlatConfig {
+    // Pre-existing flat options
+    adbPath?: string;
+    dependenciesPath?: string;
+    scanConcurrency?: number;
+    scanTcpTimeoutMs?: number;
+    scanAdbConnectTimeoutMs?: number;
+    scanProgressInterval?: number;
+    server?: ServerItem[];
+
+    // SP3 lifecycle fields
+    webPort?: number;
+    installMode?: InstallMode | null;
+    firstRunComplete?: boolean;
+    autoUpdate?: boolean;
+    updateCheckIntervalMinutes?: number;
+    channel?: 'stable' | 'beta';
+    githubOwner?: string;
+
+    // Security: extra Host header hostnames accepted beyond localhost / IP
+    // literals (reverse-proxy / domain deployments). Server-only and read at
+    // boot — deliberately NOT part of AppConfig, so it is never exposed or
+    // mutable via the frontend-facing GET/PATCH /api/config surface.
+    allowedHosts?: string[];
+}
+
+/**
+ * Pure resolver: produces the absolute dependencies-folder path the app should
+ * manage. Priority: DEPS_PATH env → config.json → platform-specific fallback.
+ *
+ * On Windows, fallback is <dataRoot>/dependencies/ (default
+ * %PROGRAMDATA%\WsScrcpyWeb\dependencies\) — matching launcher/src/paths.rs:65-68
+ * so dev mode running `node dist/index.js` from the repo reads the same
+ * dependencies folder an MSI install does. There is no dev-tell gate on
+ * Windows; ProgramData IS the dependencies home regardless of dev vs install.
+ *
+ * On non-Windows, fallback is <entryDir>/../dependencies/ gated on a
+ * package.json sibling "dev tell" — the same behavior as pre-Phase-1.
+ * paths.rs:62 collapses data_root onto install_root for Linux, so there's
+ * no migration target yet; a v0.5.0 follow-up tracks the Linux design.
+ */
+export function resolveDependenciesPath(
+    env: NodeJS.ProcessEnv,
+    fileConfig: FlatConfig,
+    entryScript: string,
+    exists: (p: string) => boolean = fs.existsSync,
+    platform: NodeJS.Platform = process.platform,
+): string {
+    if (env['DEPS_PATH']) return env['DEPS_PATH'];
+    if (fileConfig.dependenciesPath) return fileConfig.dependenciesPath;
+
+    if (platform === 'win32') {
+        const dataRoot = resolveDataRoot(env, platform);
+        if (dataRoot) return path.win32.join(dataRoot, 'dependencies');
+        // resolveDataRoot returns non-null on Windows by contract; this is
+        // a defensive fallthrough for tests that mock resolveDataRoot.
+    }
+
+    const entryDir = path.dirname(entryScript);
+    const devCandidate = path.resolve(entryDir, '..', 'dependencies');
+    const devTell = path.resolve(entryDir, '..', 'package.json');
+    if (exists(devTell)) return devCandidate;
+
+    throw new Error(
+        'DEPS_PATH is not set and no dependencies path is configured. ' +
+            'On Windows, dependencies are expected at <dataRoot>/dependencies ' +
+            '(default %PROGRAMDATA%\\WsScrcpyWeb\\dependencies). ' +
+            'On Linux, set DEPS_PATH or place a `dependencies/` folder next to ' +
+            'a `package.json` sibling of the entry script.',
+    );
+}
+
+/**
+ * Pure resolver: produces the absolute path the server should use when
+ * spawning adb. Per the "Local Dependencies Only" architecture, this MUST
+ * resolve to the app's local dependencies folder. There is no system-PATH
+ * fallback and no host env-var resolution — if adb isn't there, the app
+ * fetches it via `DependencyManager`. Until autoInstall populates it,
+ * adb-dependent operations (scan, device probe, etc.) will fail visibly
+ * via `AdbExecError('spawn', ...)` and surface as `scan.error` — they will
+ * not silently fall through to whatever adb the OS happens to expose.
+ *
+ * Priority chain:
+ *   1. `fileConfig.adbPath` — user-explicit override in config.json. The
+ *      user is responsible for pointing this at a real local binary; we
+ *      do not validate. Useful for shared-deps install layouts.
+ *   2. `<dependenciesPath>/adb/adb.exe` (Windows) or `<dependenciesPath>/adb/adb`
+ *      (POSIX) — the canonical local binary. **Returned unconditionally**:
+ *      the file may not yet exist on first run before `autoInstallMissing`
+ *      completes. AdbClient will throw `AdbExecError('spawn', ...)` cleanly
+ *      in that window and the scanner's catch will surface the reason.
+ */
+export function resolveAdbPath(
+    fileConfig: FlatConfig,
+    dependenciesPath: string,
+    platform: NodeJS.Platform = process.platform,
+): { path: string; source: 'config' | 'bundled' } {
+    if (fileConfig.adbPath) return { path: fileConfig.adbPath, source: 'config' };
+    const exeName = platform === 'win32' ? 'adb.exe' : 'adb';
+    // Use the target-platform's path joiner so cross-platform tests don't
+    // produce host-platform-shaped paths (e.g. backslashes on a Win host
+    // when computing a Linux install layout).
+    const joiner = platform === 'win32' ? path.win32 : path.posix;
+    return { path: joiner.join(dependenciesPath, 'adb', exeName), source: 'bundled' };
+}
+
+/**
+ * Pure resolver for the writable-state root. On Windows this is
+ * `<PROGRAMDATA>\WsScrcpyWeb` — a machine-wide, all-users-writable location
+ * distinct from the install root (where Velopack manages binaries).
+ *
+ * On non-Windows the resolution order is:
+ *   1. `DATA_ROOT` env var — set by the Rust launcher as a bridge so the
+ *      Node child always knows its data root without platform detection.
+ *   2. `XDG_DATA_HOME/WsScrcpyWeb` — respects the XDG Base Directory spec.
+ *   3. `~/.local/share/WsScrcpyWeb` — XDG default fallback.
+ *   4. `null` — only when HOME is also missing (extreme edge case).
+ *
+ * Defaulting `PROGRAMDATA` to `C:\ProgramData` matches Microsoft's
+ * documented value for the system ProgramData folder when the env var is
+ * unexpectedly missing — an extremely rare edge but worth covering rather
+ * than crashing.
+ */
+export function resolveDataRoot(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string | null {
+    if (platform === 'win32') {
+        const programData =
+            env['PROGRAMDATA'] && env['PROGRAMDATA'].length > 0 ? env['PROGRAMDATA'] : 'C:\\ProgramData';
+        return path.win32.join(programData, 'WsScrcpyWeb');
+    }
+    // Non-Windows: DATA_ROOT (launcher bridge) > XDG_DATA_HOME > ~/.local/share
+    if (env['DATA_ROOT'] && env['DATA_ROOT'].length > 0) {
+        return env['DATA_ROOT'];
+    }
+    if (env['XDG_DATA_HOME'] && env['XDG_DATA_HOME'].length > 0) {
+        return path.join(env['XDG_DATA_HOME'], 'WsScrcpyWeb');
+    }
+    if (env['HOME'] && env['HOME'].length > 0) {
+        return path.join(env['HOME'], '.local', 'share', 'WsScrcpyWeb');
+    }
+    return null;
+}
+
+/**
+ * Resolve the path used for reading/writing config.json when no override is
+ * supplied via EnvName.CONFIG_PATH. Order:
+ *   1. <dataRoot>/config.json when `dataRoot` is provided (production path
+ *      after Phase 1 — the writable state root that the launcher and the
+ *      Node server agree on).
+ *   2. <repoRoot>/config.json — dev fallback when no dataRoot is supplied.
+ *      Computed as the parent of the entry script's directory, matching the
+ *      pre-Phase-1 behavior where config.json sat next to dist/.
+ */
+export function resolveConfigPath(
+    entryScript: string,
+    exists: (p: string) => boolean = fs.existsSync,
+    dataRoot: string | null = null,
+): string {
+    if (dataRoot) {
+        return path.join(dataRoot, 'config.json');
+    }
+    const entryDir = path.dirname(entryScript);
+    const repoRoot = path.resolve(entryDir, '..');
+    if (exists(path.join(repoRoot, 'package.json'))) {
+        return path.join(repoRoot, 'config.json');
+    }
+    return path.join(repoRoot, 'config.json');
+}
+
+function isInteger(n: unknown): n is number {
+    return typeof n === 'number' && Number.isInteger(n);
+}
+
+/**
+ * Validate a single AppConfig field. Returns either the accepted value
+ * (possibly coerced) or a string error message describing the failure.
+ */
+type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
+
+/**
+ * The config keys that may be set via `updateAppConfig` — exactly the AppConfig
+ * fields that carry a default. Anything else (an unknown key, or a
+ * prototype-pollution key like `__proto__`) is rejected rather than persisted. (#21)
+ */
+const KNOWN_CONFIG_KEYS: ReadonlySet<string> = new Set(Object.keys(APP_CONFIG_DEFAULTS));
+
+function validateField<K extends keyof AppConfig>(key: K, value: unknown): ValidationResult<AppConfig[K]> {
+    switch (key) {
+        case 'webPort': {
+            if (!isInteger(value) || (value as number) < 1024 || (value as number) > 65535) {
+                return { ok: false, error: 'webPort must be an integer between 1024 and 65535' };
+            }
+            return { ok: true, value: value as AppConfig[K] };
+        }
+        case 'updateCheckIntervalMinutes': {
+            if (!isInteger(value) || (value as number) < 5 || (value as number) > 1440) {
+                return { ok: false, error: 'updateCheckIntervalMinutes must be an integer between 5 and 1440' };
+            }
+            return { ok: true, value: value as AppConfig[K] };
+        }
+        case 'channel': {
+            if (typeof value !== 'string' || !VALID_CHANNELS.includes(value as 'stable' | 'beta')) {
+                return { ok: false, error: `channel must be one of: ${VALID_CHANNELS.join(', ')}` };
+            }
+            return { ok: true, value: value as AppConfig[K] };
+        }
+        case 'installMode': {
+            if (value === null) return { ok: true, value: null as AppConfig[K] };
+            if (typeof value !== 'string' || !VALID_INSTALL_MODES.includes(value as InstallMode)) {
+                return { ok: false, error: `installMode must be null or one of: ${VALID_INSTALL_MODES.join(', ')}` };
+            }
+            return { ok: true, value: value as AppConfig[K] };
+        }
+        case 'firstRunComplete':
+        case 'autoUpdate': {
+            if (typeof value !== 'boolean') {
+                return { ok: false, error: `${key} must be a boolean` };
+            }
+            return { ok: true, value: value as AppConfig[K] };
+        }
+        case 'githubOwner': {
+            if (typeof value !== 'string' || value.length === 0) {
+                return { ok: false, error: 'githubOwner must be a non-empty string' };
+            }
+            return { ok: true, value: value as AppConfig[K] };
+        }
+        default:
+            return { ok: true, value: value as AppConfig[K] };
+    }
+}
+
+/**
+ * Reduce a (possibly malformed) FlatConfig into a sanitized AppConfig.
+ * Validation failures on specific fields fall back to defaults with a warning;
+ * this matches Contract 1's "do not throw on load" semantics.
+ */
+function sanitizeAppConfig(raw: FlatConfig, warn: (msg: string) => void): AppConfig {
+    const out: AppConfig = { ...APP_CONFIG_DEFAULTS };
+
+    const candidateWebPort = raw.webPort;
+    if (candidateWebPort !== undefined) {
+        const r = validateField('webPort', candidateWebPort);
+        if (r.ok) out.webPort = r.value;
+        else warn(`config.json: ${r.error}; using default ${APP_CONFIG_DEFAULTS.webPort}`);
+    }
+
+    if (raw.installMode !== undefined) {
+        const r = validateField('installMode', raw.installMode);
+        if (r.ok) out.installMode = r.value;
+        else warn(`config.json: ${r.error}; using default null`);
+    }
+    if (raw.firstRunComplete !== undefined) {
+        const r = validateField('firstRunComplete', raw.firstRunComplete);
+        if (r.ok) out.firstRunComplete = r.value;
+        else warn(`config.json: ${r.error}; using default false`);
+    }
+    if (raw.autoUpdate !== undefined) {
+        const r = validateField('autoUpdate', raw.autoUpdate);
+        if (r.ok) out.autoUpdate = r.value;
+        else warn(`config.json: ${r.error}; using default true`);
+    }
+    if (raw.updateCheckIntervalMinutes !== undefined) {
+        const r = validateField('updateCheckIntervalMinutes', raw.updateCheckIntervalMinutes);
+        if (r.ok) out.updateCheckIntervalMinutes = r.value;
+        else warn(`config.json: ${r.error}; using default 60`);
+    }
+    if (raw.channel !== undefined) {
+        const r = validateField('channel', raw.channel);
+        if (r.ok) out.channel = r.value;
+        else warn(`config.json: ${r.error}; using default stable`);
+    }
+    if (raw.githubOwner !== undefined) {
+        const r = validateField('githubOwner', raw.githubOwner);
+        if (r.ok) out.githubOwner = r.value;
+        else warn(`config.json: ${r.error}; using default ${APP_CONFIG_DEFAULTS.githubOwner}`);
+    }
+
+    // Pass-through scan / paths fields (not validated for SP3 — pre-existing tuning fields).
+    if (raw.dependenciesPath !== undefined) out.dependenciesPath = raw.dependenciesPath;
+    if (raw.adbPath !== undefined) out.adbPath = raw.adbPath;
+    if (raw.scanConcurrency !== undefined) out.scanConcurrency = raw.scanConcurrency;
+    if (raw.scanTcpTimeoutMs !== undefined) out.scanTcpTimeoutMs = raw.scanTcpTimeoutMs;
+    if (raw.scanAdbConnectTimeoutMs !== undefined) out.scanAdbConnectTimeoutMs = raw.scanAdbConnectTimeoutMs;
+    if (raw.scanProgressInterval !== undefined) out.scanProgressInterval = raw.scanProgressInterval;
+
+    return out;
+}
+
+/** The boot-trio keys that stay in config.json; everything else lives in the DB. */
+const TRIO_KEYS: ReadonlySet<string> = new Set(['installMode', 'webPort', 'firstRunComplete']);
+
+/**
+ * Overlay store-backed values (app_settings globals or the implicit admin's
+ * prompt flags) onto a composed AppConfig, validating each. Only the provided
+ * key list is consulted, so non-AppConfig store rows (e.g. authEnabled) are
+ * ignored. Invalid stored values fall back to whatever the compose-so-far
+ * already holds (defaults), matching sanitizeAppConfig semantics.
+ */
+function overlayStore(
+    out: AppConfig,
+    store: Record<string, unknown>,
+    keys: readonly string[],
+    warn: (msg: string) => void,
+): void {
+    for (const key of keys) {
+        const value = store[key];
+        if (value === undefined) continue;
+        const r = validateField(key as keyof AppConfig, value);
+        if (r.ok) (out as unknown as Record<string, unknown>)[key] = r.value;
+        else warn(`stored ${key}: ${r.error}; ignoring`);
+    }
+}
+
+/**
+ * Compose the effective AppConfig from the trimmed config.json boot trio
+ * (`fileConfig`) plus the store-backed globals (`app_settings`).
+ * Prompt-dismissal flags (`bookmarkDismissedForPort`, `bookmarkDismissedGlobally`,
+ * `serviceFirstRunSeen`) are no longer part of AppConfig — they live exclusively
+ * in `user_settings` and are read by the frontend via `GET /api/settings`.
+ */
+function composeAppConfig(
+    fileConfig: FlatConfig,
+    globals: Record<string, unknown>,
+    warn: (msg: string) => void,
+): AppConfig {
+    const out = sanitizeAppConfig(fileConfig, warn);
+    overlayStore(out, globals, GLOBAL_KEYS, warn);
+    return out;
+}
+
+/**
+ * Validate the optional `allowedHosts` escape-hatch from config.json into a
+ * clean string[]. Non-arrays and non-string / blank entries are dropped with a
+ * warning rather than throwing (Contract 1: do not throw on load). Hostnames
+ * are trimmed + lowercased so they compare directly against the parsed Host.
+ */
+export function sanitizeAllowedHosts(raw: unknown, warn: (msg: string) => void): string[] {
+    if (raw === undefined) return [];
+    if (!Array.isArray(raw)) {
+        warn('config.json: allowedHosts must be an array of hostname strings; ignoring');
+        return [];
+    }
+    const out: string[] = [];
+    for (const entry of raw) {
+        if (typeof entry !== 'string' || entry.trim().length === 0) {
+            warn(`config.json: allowedHosts entry ${JSON.stringify(entry)} is not a non-empty string; skipping`);
+            continue;
+        }
+        out.push(entry.trim().toLowerCase());
+    }
+    return out;
+}
+
+export class Config {
+    private static instance?: Config | undefined;
+
+    private _appConfig: AppConfig;
+    private _configFilePath: string;
+    private _firstRunStatus: FirstRunStatus;
+
+    private static loadFile(configPath: string): FlatConfig {
+        const isAbsolute = configPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(configPath);
+        const absolutePath = isAbsolute ? configPath : path.resolve(process.cwd(), configPath);
+        if (!fs.existsSync(absolutePath)) {
+            throw Error(`Config file not found: "${absolutePath}"`);
+        }
+        const raw = fs.readFileSync(absolutePath, 'utf-8');
+        return JSON.parse(raw) as FlatConfig;
+    }
+
+    private static tryLoadFile(configPath: string, warn: (msg: string) => void): FlatConfig {
+        if (!fs.existsSync(configPath)) return {};
+        try {
+            const raw = fs.readFileSync(configPath, 'utf-8');
+            return JSON.parse(raw) as FlatConfig;
+        } catch (err) {
+            warn(`config.json at ${configPath} could not be parsed (${(err as Error).message}); using defaults`);
+            return {};
+        }
+    }
+
+    private static buildServers(fileConfig: FlatConfig, webPort: number): ServerItem[] {
+        // Env var PORT takes highest priority
+        const envPort = process.env['PORT'];
+        const port = envPort ? Number.parseInt(envPort, 10) : webPort;
+
+        if (fileConfig.server && fileConfig.server.length > 0) {
+            // Advanced multi-server config: still honour PORT env override on first server
+            const servers = fileConfig.server.map((item) => Config.parseServerItem(item));
+            if (envPort) {
+                servers[0]!.port = port;
+            }
+            return servers;
+        }
+
+        // Simple flat config: single HTTP server
+        return [{ secure: false, port }];
+    }
+
+    private static parseServerItem(config: Partial<ServerItem> = {}): ServerItem {
+        const secure = config.secure || false;
+        const port = config.port || (secure ? 443 : 80);
+        const options = config.options;
+        const redirectToSecure = config.redirectToSecure || false;
+        if (secure && !options) {
+            throw Error('Must provide "options" for secure server configuration');
+        }
+        if (options?.certPath) {
+            if (options.cert) {
+                throw Error(`Can't use "cert" and "certPath" together`);
+            }
+            options.cert = fs.readFileSync(options.certPath, 'utf-8');
+        }
+        if (options?.keyPath) {
+            if (options.key) {
+                throw Error(`Can't use "key" and "keyPath" together`);
+            }
+            options.key = fs.readFileSync(options.keyPath, 'utf-8');
+        }
+        const serverItem: ServerItem = { secure, port, redirectToSecure };
+        if (typeof options !== 'undefined') {
+            serverItem.options = options;
+        }
+        return serverItem;
+    }
+
+    public static getInstance(): Config {
+        if (!this.instance) {
+            const envConfigPath = process.env[EnvName.CONFIG_PATH];
+            const log = Logger.for('Config');
+            const warn = (msg: string) => log.warn(msg);
+
+            // Phase 1: writable state lives at <dataRoot> (ProgramData on
+            // Windows). Compute it once here and thread it through both the
+            // config-path and dependencies-path resolvers below.
+            const dataRoot = resolveDataRoot(process.env);
+
+            // Resolve the config file path. EnvName.CONFIG_PATH override wins;
+            // otherwise prefer <dataRoot>/config.json on Windows, falling back
+            // to the dev-mode entry-script-relative resolution on non-Windows.
+            const configFilePath = envConfigPath
+                ? path.isAbsolute(envConfigPath)
+                    ? envConfigPath
+                    : path.resolve(process.cwd(), envConfigPath)
+                : resolveConfigPath(process.argv[1] ?? '.', fs.existsSync, dataRoot);
+
+            // Load file if it exists; otherwise empty defaults. We do NOT throw
+            // when the file is absent (Contract 1: defaults applied on read).
+            let fileConfig: FlatConfig;
+            if (envConfigPath) {
+                // Explicit override: existing behavior was to throw if missing —
+                // preserve that for callers that depend on it.
+                fileConfig = Config.loadFile(envConfigPath);
+            } else {
+                fileConfig = Config.tryLoadFile(configFilePath, warn);
+            }
+
+            // Resolve the dependencies path BEFORE opening the DB: the DB's
+            // directory must never depend on a value stored INSIDE the DB (no
+            // load-order cycle). DEPS_PATH env / config.json / platform default.
+            const bootDependenciesPath = resolveDependenciesPath(process.env, fileConfig, process.argv[1] ?? '.');
+
+            // Open (or recover) the SQLite store. The DB lives beside config.json
+            // (so a CONFIG_PATH override — tests, custom deploys — co-locates it).
+            const db = Db.getInstance(dbDir(configFilePath));
+            const globals = db.appSettings.getAll();
+
+            // Compose the effective AppConfig from the trio + store-backed globals.
+            // Prompt-dismissal flags are no longer part of AppConfig — they live
+            // in user_settings and are read by the frontend via GET /api/settings.
+            const appConfig = composeAppConfig(fileConfig, globals, warn);
+            const servers = Config.buildServers(fileConfig, appConfig.webPort);
+
+            // An app_settings override of dependenciesPath/adbPath is overlaid for
+            // downstream consumers (the adb spawn path) AFTER the DB opens — it
+            // does NOT relocate the DB or the boot deps folder.
+            const dependenciesPath = (globals['dependenciesPath'] as string | undefined) ?? bootDependenciesPath;
+
+            // ADB resolution must come AFTER dependenciesPath. Always returns a path
+            // inside <dependenciesPath>/adb/ unless an override is configured. No
+            // system-PATH fallback by design.
+            const adbOverride = (globals['adbPath'] ?? fileConfig.adbPath) as string | undefined;
+            const adbResolution = resolveAdbPath(adbOverride ? { adbPath: adbOverride } : {}, dependenciesPath);
+            const adbPath = adbResolution.path;
+            log.info(`adbPath=${adbPath} (source=${adbResolution.source})`);
+
+            const scanConcurrency =
+                Number.parseInt(process.env['SCAN_CONCURRENCY'] ?? '', 10) ||
+                (globals['scanConcurrency'] as number | undefined) ||
+                DEFAULT_SCAN_CONCURRENCY;
+            const scanTcpTimeoutMs =
+                Number.parseInt(process.env['SCAN_TCP_TIMEOUT_MS'] ?? '', 10) ||
+                (globals['scanTcpTimeoutMs'] as number | undefined) ||
+                DEFAULT_SCAN_TCP_TIMEOUT_MS;
+            const scanAdbConnectTimeoutMs =
+                Number.parseInt(process.env['SCAN_ADB_CONNECT_TIMEOUT_MS'] ?? '', 10) ||
+                (globals['scanAdbConnectTimeoutMs'] as number | undefined) ||
+                DEFAULT_SCAN_ADB_CONNECT_TIMEOUT_MS;
+            const scanProgressInterval =
+                Number.parseInt(process.env['SCAN_PROGRESS_INTERVAL'] ?? '', 10) ||
+                (globals['scanProgressInterval'] as number | undefined) ||
+                DEFAULT_SCAN_PROGRESS_INTERVAL;
+
+            const allowedHosts = sanitizeAllowedHosts(fileConfig.allowedHosts, warn);
+
+            this.instance = new Config(
+                servers,
+                adbPath,
+                dependenciesPath,
+                scanConcurrency,
+                scanTcpTimeoutMs,
+                scanAdbConnectTimeoutMs,
+                scanProgressInterval,
+                appConfig,
+                configFilePath,
+                dataRoot,
+                allowedHosts,
+                db,
+            );
+        }
+        return this.instance;
+    }
+
+    /** Test-only: clear the cached singleton (and the DB it owns). */
+    public static _resetForTest(): void {
+        this.instance = undefined;
+        Db._resetForTest();
+    }
+
+    constructor(
+        private readonly _servers: ServerItem[],
+        private readonly _adbPath: string,
+        private readonly _dependenciesPath: string,
+        private readonly _scanConcurrency: number,
+        private readonly _scanTcpTimeoutMs: number,
+        private readonly _scanAdbConnectTimeoutMs: number,
+        private readonly _scanProgressInterval: number,
+        appConfig: AppConfig,
+        configFilePath: string,
+        private readonly _dataRoot: string | null,
+        private readonly _allowedHosts: string[],
+        private readonly _db: Db,
+    ) {
+        this._appConfig = appConfig;
+        this._configFilePath = configFilePath;
+        this._firstRunStatus = {
+            firstRunComplete: appConfig.firstRunComplete,
+            portWasAutoShifted: false,
+            webPort: appConfig.webPort,
+        };
+    }
+
+    public get servers(): ServerItem[] {
+        return this._servers;
+    }
+
+    public get adbPath(): string {
+        return this._adbPath;
+    }
+
+    public get dependenciesPath(): string {
+        return this._dependenciesPath;
+    }
+
+    /**
+     * Writable-state root computed by `resolveDataRoot`. On Windows this is
+     * `<PROGRAMDATA>\WsScrcpyWeb` (Phase 1 migration target). On non-Windows
+     * this is `null` until the Linux Phase-1-equivalent design lands
+     * (`todo_ws_scrcpy_web.md` §19).
+     */
+    public get dataRoot(): string | null {
+        return this._dataRoot;
+    }
+
+    /** The SQLite store opened for this config's data directory (Phase 1). */
+    public get db(): Db {
+        return this._db;
+    }
+
+    /**
+     * Operator-configured extra Host hostnames (config.json `allowedHosts`)
+     * accepted beyond localhost / IP literals. Read once at boot and applied to
+     * the security layer via setAllowedHosts(); never frontend-mutable.
+     */
+    public get allowedHosts(): string[] {
+        return this._allowedHosts;
+    }
+
+    /**
+     * Canonical path for the `.restart` marker file the supervisor (launcher
+     * in install, scripts/dev-supervisor.mjs in dev) reads to decide whether
+     * to restart Node after exit. Matches `launcher/src/paths.rs:70` —
+     * `<dataRoot>/.restart` on Windows. On non-Windows (and any host with a
+     * null dataRoot) we fall back to `<parent-of-depsPath>/.restart`, which
+     * matches the launcher's `paths.rs:62` "collapse data_root onto
+     * install_root" rule (deps live at install_root/dependencies, so the
+     * marker sits next to that directory).
+     *
+     * Pre-Phase-1 the server wrote to `<depsPath>/.restart` while the
+     * launcher read from `<install_root>/.restart` — the marker mechanism
+     * was silently dead code because the two paths never matched. The
+     * getter is the single source of truth for that path now; both
+     * `DependencyManager.requestRestart` and `ConfigApi`'s port-change
+     * handler consume it via `Config.getInstance().restartMarkerPath`.
+     */
+    public get restartMarkerPath(): string {
+        if (this._dataRoot !== null) {
+            return path.join(this._dataRoot, '.restart');
+        }
+        return path.join(path.dirname(this._dependenciesPath), '.restart');
+    }
+
+    /**
+     * Canonical path for the `apply-update-pending` marker. UpdateService.applyUpdate
+     * writes this file before triggering process.exit; the launcher's post-stop
+     * handler (registered as Servy's --postStopPath) reads it after every supervised
+     * launcher exit to decide whether the exit was a user-initiated stop (marker
+     * absent → no-op) or a Velopack apply (marker present → sleep + sc start).
+     *
+     * Matches `launcher/src/post_stop_handler.rs::marker_path` —
+     * `<dataRoot>/control/apply-update-pending`. Lives under the `control/` subdir
+     * alongside the existing uninstall-handoff marker (see `common/src/control_marker.rs`).
+     */
+    public get applyUpdatePendingMarkerPath(): string {
+        const base = this._dataRoot !== null ? this._dataRoot : path.dirname(this._dependenciesPath);
+        return path.join(base, 'control', 'apply-update-pending');
+    }
+
+    /**
+     * Canonical path for the §49 apply-update-verify manifest. UpdateService
+     * writes it (Windows local mode) right before spawning the operation-server;
+     * the launcher reads it (operation_server.rs::read_apply_verify_manifest) to
+     * SHA-256-verify the downloaded nupkg against Velopack's authenticated
+     * UpdateInfo BEFORE extracting + executing it — the nupkg sits in the
+     * user-writable `packages/` dir, so this re-check is the trust anchor.
+     * Lives under `control/` alongside the apply-update-pending marker.
+     */
+    public get applyUpdateVerifyManifestPath(): string {
+        const base = this._dataRoot !== null ? this._dataRoot : path.dirname(this._dependenciesPath);
+        return path.join(base, 'control', 'apply-update-verify.json');
+    }
+
+    /**
+     * Canonical path for the consume-once `suppress-browser-open` marker.
+     * UpdateService.applyUpdate writes it before the app goes down to apply an
+     * update; the relaunched server already carries the user's tab (reconnect /
+     * redirect / reload), so it must NOT auto-open a new one. Node consumes
+     * (deletes) it at startup and honors it only when fresh. Lives under
+     * `control/` alongside the apply-update-pending marker. (D4 — needed on
+     * Windows local mode, where Velopack owns the relaunch and we can't set
+     * WS_SCRCPY_NO_BROWSER on it the way Linux's linux_apply does.)
+     */
+    public get suppressBrowserOpenMarkerPath(): string {
+        const base = this._dataRoot !== null ? this._dataRoot : path.dirname(this._dependenciesPath);
+        return path.join(base, 'control', 'suppress-browser-open');
+    }
+
+    public get operationServerPortFilePath(): string {
+        const base = this._dataRoot !== null ? this._dataRoot : path.dirname(this._dependenciesPath);
+        return path.join(base, 'control', 'operation-server-port');
+    }
+
+    public get uninstallPendingMarkerPath(): string {
+        const base = this._dataRoot !== null ? this._dataRoot : path.dirname(this._dependenciesPath);
+        return path.join(base, 'control', 'uninstall-pending');
+    }
+
+    public get scanConcurrency(): number {
+        return this._scanConcurrency;
+    }
+    public get scanTcpTimeoutMs(): number {
+        return this._scanTcpTimeoutMs;
+    }
+    public get scanAdbConnectTimeoutMs(): number {
+        return this._scanAdbConnectTimeoutMs;
+    }
+    public get scanProgressInterval(): number {
+        return this._scanProgressInterval;
+    }
+
+    /** Always true in the simplified config — local goog tracker always runs. */
+    public get runLocalGoogTracker(): boolean {
+        return true;
+    }
+
+    /** Always true in the simplified config — local tracker is always announced. */
+    public get announceLocalGoogTracker(): boolean {
+        return true;
+    }
+
+    /** No remote host list in the simplified config. */
+    public getHostList(): [] {
+        return [];
+    }
+
+    /** Returns the resolved AppConfig (with defaults filled in). */
+    public getAppConfig(): AppConfig {
+        return { ...this._appConfig };
+    }
+
+    /** Path on disk where config.json lives (or will live on first save). */
+    public getConfigFilePath(): string {
+        return this._configFilePath;
+    }
+
+    /**
+     * Apply a partial AppConfig. Validates each provided field; on failure throws
+     * a ConfigValidationError that ConfigApi turns into a 400 response. On success,
+     * writes config.json synchronously and returns the merged config.
+     */
+    public updateAppConfig(partial: Partial<AppConfig>): { config: AppConfig; restartRequired: boolean } {
+        const merged: AppConfig = { ...this._appConfig };
+        for (const key of Object.keys(partial) as (keyof AppConfig)[]) {
+            // Reject prototype-pollution keys and anything not a known AppConfig
+            // field rather than persisting arbitrary keys to config.json (#21).
+            const k = key as string;
+            if (k === '__proto__' || k === 'constructor' || k === 'prototype') {
+                throw new ConfigValidationError('illegal config key', k);
+            }
+            if (!KNOWN_CONFIG_KEYS.has(k)) {
+                throw new ConfigValidationError(`unknown config key: ${k}`, k);
+            }
+            const value = partial[key];
+            if (value === undefined) continue;
+            const r = validateField(key, value);
+            if (!r.ok) {
+                throw new ConfigValidationError(r.error, key as string);
+            }
+            (merged as unknown as Record<string, unknown>)[k] = r.value;
+            // Route each field to its backing store: the boot trio stays in
+            // config.json (written by saveToDisk below); globals go to
+            // app_settings. Prompt-dismissal flags are no longer part of
+            // AppConfig and are no longer accepted here — they are written
+            // directly via PATCH /api/settings by the frontend.
+            if (TRIO_KEYS.has(k)) {
+                // persisted by saveToDisk()
+            } else if ((GLOBAL_KEYS as readonly string[]).includes(k)) {
+                this._db.appSettings.set(k, r.value);
+            }
+        }
+        const restartRequired = merged.webPort !== this._appConfig.webPort;
+        this._appConfig = merged;
+        this._firstRunStatus = {
+            ...this._firstRunStatus,
+            firstRunComplete: merged.firstRunComplete,
+        };
+        this.saveToDisk();
+        return { config: { ...merged }, restartRequired };
+    }
+
+    /**
+     * Persist the current AppConfig to disk. Sync writes; pretty-printed JSON
+     * with 2-space indent and trailing newline (Contract 1).
+     */
+    public saveToDisk(): void {
+        // config.json holds ONLY the boot trio now. Preserve the server-only boot
+        // fields (`server` SSL array, `allowedHosts`) that live in the file but
+        // aren't part of AppConfig — re-read them so a save never drops them.
+        const preserved: Record<string, unknown> = {};
+        try {
+            const existing = JSON.parse(fs.readFileSync(this._configFilePath, 'utf-8')) as Record<string, unknown>;
+            for (const k of ['server', 'allowedHosts']) {
+                if (existing[k] !== undefined) preserved[k] = existing[k];
+            }
+        } catch {
+            /* no existing file / unparseable — nothing to preserve */
+        }
+        const trio = {
+            installMode: this._appConfig.installMode,
+            webPort: this._appConfig.webPort,
+            firstRunComplete: this._appConfig.firstRunComplete,
+        };
+        const out = `${JSON.stringify({ ...trio, ...preserved }, null, 2)}\n`;
+        const dir = path.dirname(this._configFilePath);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+        fs.writeFileSync(this._configFilePath, out, 'utf-8');
+    }
+
+    public getFirstRunStatus(): FirstRunStatus {
+        return { ...this._firstRunStatus };
+    }
+
+    /**
+     * Called by server startup once the actual bound port is known. If the
+     * resolver had to shift away from `webPort`, this flips the flag and
+     * persists the new port to disk.
+     */
+    public setActualWebPort(actualPort: number): void {
+        const shifted = actualPort !== this._appConfig.webPort;
+        if (shifted) {
+            this._appConfig = { ...this._appConfig, webPort: actualPort };
+            this.saveToDisk();
+        }
+        this._firstRunStatus = {
+            firstRunComplete: this._appConfig.firstRunComplete,
+            portWasAutoShifted: shifted,
+            webPort: actualPort,
+        };
+    }
+}
+
+export class ConfigValidationError extends Error {
+    constructor(
+        message: string,
+        public readonly field: string,
+    ) {
+        super(message);
+        this.name = 'ConfigValidationError';
+    }
+}

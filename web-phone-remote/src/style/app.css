@@ -1,0 +1,142 @@
+@import url("./ws-scrcpy.css");
+
+:root {
+    --font-size: 14px;
+    --font-mono: Consolas, "Segoe UI Mono", "SF Mono", Menlo, "Liberation Mono", "DejaVu Sans Mono", monospace;
+}
+
+/* Dark theme (default) */
+:root,
+[data-theme="dark"] {
+    --main-bg-color: #2a2a2a;
+    --stream-bg-color: #333333;
+    --shell-bg-color: #000000;
+    --text-shadow-color: hsl(218, 17%, 18%);
+    --header-bg-color: #333333;
+    --controls-bg-color: rgba(45, 55, 65, 0.8);
+    --text-color: #e0e0e0;
+    --text-color-light: #a8a8a8;
+    --success-color: #4ade80;
+    --success-hover-bg: rgba(74, 222, 128, 0.1);
+    --danger-color: #f06c75;
+    --danger-hover-bg: rgba(240, 108, 117, 0.1);
+    --warning-color: #fb923c;
+    --info-color: #60a5fa;
+    --link-color: hsl(218, 63%, 70%);
+    --link-color-light: hsl(218, 63%, 50%);
+    --link-color-visited: hsl(267, 31%, 47%);
+    --link-color-visited-light: hsl(267, 31%, 27%);
+    --kill-button-hover-color: #f06c75;
+    --url-color: #888888;
+    --button-text-color: hsl(214, 82%, 76%);
+    --button-border-color: #444444;
+    --progress-background-color: rgba(50, 100, 255, 0.2);
+    --progress-background-error-color: rgba(255, 50, 50, 0.2);
+    --accent-color: #5b9aff;
+    --accent-rgb: 91, 154, 255;
+    --danger-rgb: 240, 108, 117;
+    --success-rgb: 74, 222, 128;
+    --modal-divider: rgba(255, 255, 255, 0.08);
+    --border-muted: rgba(255, 255, 255, 0.2);
+}
+
+/* Light theme */
+[data-theme="light"] {
+    --main-bg-color: #ffffff;
+    --stream-bg-color: #f0f2f5;
+    --shell-bg-color: #000000;
+    --text-shadow-color: hsl(218, 67%, 95%);
+    --header-bg-color: #f8f9fa;
+    --controls-bg-color: rgba(248, 249, 250, 0.8);
+    --text-color: #212529;
+    --text-color-light: #495057;
+    --success-color: #15803d;
+    --success-hover-bg: rgba(21, 128, 61, 0.1);
+    --danger-color: #b91c1c;
+    --danger-hover-bg: rgba(185, 28, 28, 0.1);
+    --warning-color: #b45309;
+    --info-color: #0969da;
+    --link-color: hsl(218, 85%, 43%);
+    --link-color-light: hsl(218, 85%, 73%);
+    --link-color-visited: hsl(271, 68%, 32%);
+    --link-color-visited-light: hsl(271, 68%, 72%);
+    --kill-button-hover-color: #dc3545;
+    --url-color: #6c757d;
+    --button-text-color: #0d6efd;
+    --button-border-color: #c0c6cc;
+    --progress-background-color: rgba(50, 100, 255, 0.2);
+    --progress-background-error-color: rgba(255, 50, 50, 0.2);
+    /* Darker than the dark-theme accent so it clears WCAG AA contrast (at least
+     * 4.5:1) as a focus ring / accent text color on the light background —
+     * #0969da is ~5.2:1 on white; reuses the light --info-color blue. */
+    --accent-color: #0969da;
+    --accent-rgb: 9, 105, 218;
+    --danger-rgb: 185, 28, 28;
+    --success-rgb: 21, 128, 61;
+    --modal-divider: rgba(0, 0, 0, 0.08);
+    --border-muted: rgba(0, 0, 0, 0.2);
+}
+
+html {
+    font-size: var(--font-size);
+}
+
+/* Respect the OS "reduce motion" preference (WCAG 2.3.3): collapse animations
+ * and transitions to near-instant rather than removing them, so state changes
+ * stay legible. `!important` is the idiomatic override for this global reset. (#103) */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        /* biome-ignore-start lint/complexity/noImportantStyles: WCAG prefers-reduced-motion global reset — !important is the idiomatic override (#103) */
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+        /* biome-ignore-end lint/complexity/noImportantStyles: end reduced-motion reset */
+    }
+}
+
+a {
+    color: var(--link-color);
+}
+
+a:visited {
+    color: var(--link-color-visited);
+}
+
+body {
+    color: var(--text-color);
+    background-color: var(--main-bg-color);
+    position: absolute;
+    margin: 0;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+}
+
+body.shell {
+    background-color: var(--shell-bg-color);
+}
+
+body.stream {
+    background-color: var(--stream-bg-color);
+}
+
+.terminal-container {
+    width: 100%;
+    height: 100%;
+    padding: 5px;
+}
+
+/* Keyboard focus indicator (WCAG 2.4.7). Inputs that swap to a border highlight
+   opt out via their own more-specific :focus rule; everything else shows this
+   outline on keyboard navigation only (not on mouse click). */
+:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
+.wait {
+    cursor: wait;
+}

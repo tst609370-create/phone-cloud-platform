@@ -1,0 +1,6 @@
+{
+  "installMode": "local",
+  "webPort": 8002,
+  "firstRunComplete": true,
+  "allowedHosts": ["phone.anyuekf.cn"]
+}

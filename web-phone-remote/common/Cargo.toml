@@ -1,0 +1,34 @@
+[package]
+name = "ws-scrcpy-web-common"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "common"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+chrono = { version = "0.4", features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+
+# Windows-only: the real tray icon implementation lives in `#[cfg(windows)]`
+# blocks of `src/tray.rs`, built directly on `Shell_NotifyIconW` from the
+# `windows` crate. On Linux we ship a stub (P4b decision: path (b) — defer the
+# Linux tray; web UI Stop Server button covers the gap). Keeping `windows`
+# conditional avoids pulling Win32 bindings into Linux builds.
+#
+# Historical note: P4a originally used the `tray-icon` crate, which pulled
+# `glib`/`gtk`/`libappindicator` transitively on Linux (~30 crates) and
+# triggered dependabot alert GHSA-wrw7-89jp-8q8g (glib 0.18.5 unsoundness).
+# P4b cleanup replaced it with raw Win32 calls — drops the alert at the source
+# and removes the unmaintained gtk-rs gtk3 dep tree.
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true
+
+[dev-dependencies]
+tempfile = "3.10"

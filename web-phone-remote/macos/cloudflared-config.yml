@@ -1,0 +1,8 @@
+tunnel: b139fecf-a7d0-44ab-aec2-798c718c390a
+credentials-file: /Users/ct/Library/Application Support/PhoneCloudManager/tunnel/credentials.json
+ingress:
+  - hostname: phone.anyuekf.cn
+    service: http://127.0.0.1:8002
+  - hostname: mac-phone-ssh.anyuekf.cn
+    service: ssh://127.0.0.1:22
+  - service: http_status:404

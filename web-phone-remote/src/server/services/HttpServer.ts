@@ -1,0 +1,213 @@
+import type { IncomingMessage, ServerResponse } from 'http';
+import * as http from 'http';
+import * as https from 'https';
+import path from 'path';
+import * as process from 'process';
+import { TypedEmitter } from '../../common/TypedEmitter';
+import { sendInternalError } from '../api/utils';
+import { Config } from '../Config';
+import { EnvName } from '../EnvName';
+import { createStaticHandler } from '../StaticFileServer';
+import { evaluateHttpRequest } from '../security/requestGate';
+import { Utils } from '../Utils';
+import type { Service } from './Service';
+
+interface ApiHandler {
+    handle(req: IncomingMessage, res: ServerResponse): Promise<boolean>;
+}
+
+const DEFAULT_STATIC_DIR = path.join(__dirname, './public');
+
+const PATHNAME = process.env[EnvName.WS_SCRCPY_PATHNAME] || __PATHNAME__;
+
+export type ServerAndPort = {
+    server: https.Server | http.Server;
+    port: number;
+};
+
+interface HttpServerEvents {
+    started: boolean;
+}
+
+export class HttpServer extends TypedEmitter<HttpServerEvents> implements Service {
+    private static instance: HttpServer;
+    private static PUBLIC_DIR = DEFAULT_STATIC_DIR;
+    private static SERVE_STATIC = true;
+    private static apiHandlers: ApiHandler[] = [];
+    private servers: ServerAndPort[] = [];
+    private mainHandler?: (req: IncomingMessage, res: ServerResponse) => void;
+    private started = false;
+
+    protected constructor() {
+        super();
+    }
+
+    public static getInstance(): HttpServer {
+        if (!this.instance) {
+            this.instance = new HttpServer();
+        }
+        return this.instance;
+    }
+
+    public static hasInstance(): boolean {
+        return !!this.instance;
+    }
+
+    public static setPublicDir(dir: string): void {
+        if (HttpServer.instance) {
+            throw Error('Unable to change value after instantiation');
+        }
+        HttpServer.PUBLIC_DIR = dir;
+    }
+
+    public static setServeStatic(enabled: boolean): void {
+        if (HttpServer.instance) {
+            throw Error('Unable to change value after instantiation');
+        }
+        HttpServer.SERVE_STATIC = enabled;
+    }
+
+    public static addApiHandler(handler: ApiHandler): void {
+        HttpServer.apiHandlers.push(handler);
+    }
+
+    public static addFirstApiHandler(handler: ApiHandler): void {
+        HttpServer.apiHandlers.unshift(handler);
+    }
+
+    public async getServers(): Promise<ServerAndPort[]> {
+        if (this.started) {
+            return [...this.servers];
+        }
+        return new Promise<ServerAndPort[]>((resolve) => {
+            this.once('started', () => {
+                resolve([...this.servers]);
+            });
+        });
+    }
+
+    public getName(): string {
+        return 'HTTP(s) Server Service';
+    }
+
+    public async start(): Promise<void> {
+        if (HttpServer.SERVE_STATIC && HttpServer.PUBLIC_DIR) {
+            this.mainHandler = createStaticHandler(HttpServer.PUBLIC_DIR);
+        }
+        const config = Config.getInstance();
+        config.servers.forEach((serverItem) => {
+            const { secure, port, redirectToSecure } = serverItem;
+            let proto: string;
+            let server: http.Server | https.Server;
+            if (secure) {
+                if (!serverItem.options) {
+                    throw Error('Must provide option for secure server configuration');
+                }
+                const requestHandler = this.createRequestHandler(this.mainHandler, true);
+                server = https.createServer(serverItem.options, requestHandler);
+                proto = 'https';
+            } else {
+                const options = serverItem.options ? { ...serverItem.options } : {};
+                proto = 'http';
+                let redirectHost = '';
+                let redirectPort = 443;
+                let doRedirect = false;
+                if (redirectToSecure === true) {
+                    doRedirect = true;
+                } else if (typeof redirectToSecure === 'object') {
+                    doRedirect = true;
+                    if (typeof redirectToSecure.port === 'number') {
+                        redirectPort = redirectToSecure.port;
+                    }
+                    if (typeof redirectToSecure.host === 'string') {
+                        redirectHost = redirectToSecure.host;
+                    }
+                }
+                let handler: ((req: IncomingMessage, res: ServerResponse) => void) | undefined;
+                if (doRedirect) {
+                    // Redirect handler is passed through as-is — no API interception
+                    handler = (req: IncomingMessage, res: ServerResponse) => {
+                        const url = new URL(`https://${redirectHost ? redirectHost : req.headers.host}${req.url}`);
+                        if (redirectPort && redirectPort !== 443) {
+                            url.port = redirectPort.toString();
+                        }
+                        res.writeHead(301, { Location: url.toString() });
+                        res.end();
+                    };
+                } else {
+                    handler = this.createRequestHandler(this.mainHandler, false);
+                }
+                server = http.createServer(options, handler);
+            }
+            this.servers.push({ server, port });
+            server.listen(port, () => {
+                Utils.printListeningMsg(proto, port, PATHNAME);
+            });
+        });
+        this.started = true;
+        this.emit('started', true);
+    }
+
+    private createRequestHandler(
+        fallback?: (req: IncomingMessage, res: ServerResponse) => void,
+        secure = false,
+    ): (req: IncomingMessage, res: ServerResponse) => void {
+        return (req, res) => {
+            let pathname = '/';
+            try {
+                pathname = new URL(req.url || '/', 'http://localhost').pathname;
+            } catch {
+                pathname = '/';
+            }
+            // Defend the otherwise-unauthenticated API/WS surface: Origin + Host
+            // allowlist (CSRF / DNS-rebinding) plus a per-instance token, with
+            // the SPA's token cookie attached on document responses. See
+            // requestGate for the composed policy.
+            const decision = evaluateHttpRequest(
+                req.method,
+                pathname,
+                req.headers.origin,
+                req.headers.host,
+                req.headers.cookie,
+                secure,
+            );
+            if (!decision.allowed) {
+                res.writeHead(decision.status, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'forbidden', reason: decision.reason }));
+                return;
+            }
+            if (decision.setCookie) {
+                res.setHeader('Set-Cookie', decision.setCookie);
+            }
+            const tryHandlers = async () => {
+                for (const handler of HttpServer.apiHandlers) {
+                    const handled = await handler.handle(req, res);
+                    if (handled) return;
+                }
+                if (fallback) fallback(req, res);
+            };
+            tryHandlers().catch(() => {
+                // Last-resort guard for an unhandled rejection from a handler:
+                // emit a generic 500 (no internal detail) and skip re-`writeHead`
+                // if a handler already started streaming the response. (#74)
+                sendInternalError(res);
+            });
+        };
+    }
+
+    public release(): void {
+        this.servers.forEach((item) => {
+            // Initiate graceful close — stops accepting new connections; the
+            // 'close' event fires when existing sockets finish. Without the
+            // forceful call below, HTTP keepalive sockets held by browser
+            // tabs prolong the close indefinitely the same way WS does.
+            item.server.close();
+            // Force-close every idle and active connection. closeAllConnections
+            // is Node 18.2+; the supervisor + fetch-node.mjs pin Node v24.15.0
+            // so this is always available in our runtime.
+            if (typeof item.server.closeAllConnections === 'function') {
+                item.server.closeAllConnections();
+            }
+        });
+    }
+}

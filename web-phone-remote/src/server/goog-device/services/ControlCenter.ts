@@ -1,0 +1,226 @@
+import type GoogDeviceDescriptor from '../../../types/GoogDeviceDescriptor';
+import { AdbClient } from '../../AdbClient';
+import { Config } from '../../Config';
+import { Logger } from '../../Logger';
+import type { Service } from '../../services/Service';
+import { Device } from '../Device';
+
+import Timeout = NodeJS.Timeout;
+
+import * as crypto from 'crypto';
+import type { ChildProcess } from 'child_process';
+import * as os from 'os';
+import { ControlCenterCommand } from '../../../common/ControlCenterCommand';
+import { DeviceState } from '../../../common/DeviceState';
+import { BaseControlCenter } from '../../services/BaseControlCenter';
+
+export class ControlCenter extends BaseControlCenter<GoogDeviceDescriptor> implements Service {
+    private static instance?: ControlCenter | undefined;
+
+    private initialized = false;
+    private adbClient = new AdbClient(Config.getInstance().adbPath);
+    private knownDevices = new Map<string, string>(); // serial -> state
+    private trackerProcess?: ChildProcess;
+    private trackerRestartTimer?: Timeout;
+    private syncRunning = false;
+    private syncPending = false;
+    private deviceMap: Map<string, Device> = new Map();
+    private descriptors: Map<string, GoogDeviceDescriptor> = new Map();
+    private readonly id: string;
+
+    protected constructor() {
+        super();
+        const idString = `goog|${os.hostname()}|${os.uptime()}`;
+        this.id = crypto.createHash('md5').update(idString).digest('hex');
+    }
+
+    public static getInstance(): ControlCenter {
+        if (!this.instance) {
+            this.instance = new ControlCenter();
+        }
+        return this.instance;
+    }
+
+    public static hasInstance(): boolean {
+        return !!ControlCenter.instance;
+    }
+
+    private syncDevices = async (): Promise<void> => {
+        try {
+            const devices = await this.adbClient.devices();
+            const currentSerials = new Set(devices.map((d) => d.serial));
+
+            // Detect new or changed devices
+            for (const device of devices) {
+                const prevState = this.knownDevices.get(device.serial);
+                if (prevState !== device.state) {
+                    this.knownDevices.set(device.serial, device.state);
+                    this.handleConnected(device.serial, device.state);
+                }
+            }
+
+            // Detect removed devices
+            for (const [serial] of this.knownDevices) {
+                if (!currentSerials.has(serial)) {
+                    this.knownDevices.delete(serial);
+                    this.handleConnected(serial, DeviceState.DISCONNECTED);
+                }
+            }
+
+            // Refresh metadata only when ADB reports a device-list change.
+            const connected = Array.from(this.deviceMap.values()).filter((d) => d.isConnected());
+            const checks: Promise<void>[] = [];
+            for (const d of connected) {
+                checks.push(d.checkScreenState());
+                checks.push(d.detectDeviceKind());
+            }
+            await Promise.all(checks);
+        } catch (_e) {
+            // The track process reconnect path will retry after ADB recovers.
+        }
+    };
+
+    private requestDeviceSync = (): void => {
+        if (this.syncRunning) {
+            this.syncPending = true;
+            return;
+        }
+        this.syncRunning = true;
+        void this.syncDevices().finally(() => {
+            this.syncRunning = false;
+            if (this.syncPending) {
+                this.syncPending = false;
+                this.requestDeviceSync();
+            }
+        });
+    };
+
+    private scheduleTrackerRestart(): void {
+        if (!this.initialized || this.trackerRestartTimer) return;
+        this.trackerRestartTimer = setTimeout(() => {
+            this.trackerRestartTimer = undefined;
+            void this.startDeviceTracker();
+        }, 1_000);
+    }
+
+    private async startDeviceTracker(): Promise<void> {
+        try {
+            const child = await this.adbClient.trackDevices();
+            if (!this.initialized) {
+                child.kill();
+                return;
+            }
+            this.trackerProcess = child;
+            child.stdout?.on('data', this.requestDeviceSync);
+            let ended = false;
+            const onEnd = () => {
+                if (ended) return;
+                ended = true;
+                if (this.trackerProcess === child) this.trackerProcess = undefined;
+                this.scheduleTrackerRestart();
+            };
+            child.once('error', onEnd);
+            child.once('exit', onEnd);
+        } catch {
+            this.scheduleTrackerRestart();
+        }
+    }
+
+    private onDeviceUpdate = (device: Device): void => {
+        const { udid, descriptor } = device;
+        this.descriptors.set(udid, descriptor);
+        this.emit('device', descriptor);
+    };
+
+    private handleConnected(udid: string, state: string): void {
+        if (state === DeviceState.DISCONNECTED) {
+            const device = this.deviceMap.get(udid);
+            if (device) {
+                device.setState(state);
+                device.off('update', this.onDeviceUpdate);
+                this.deviceMap.delete(udid);
+                this.descriptors.delete(udid);
+            }
+            return;
+        }
+        let device = this.deviceMap.get(udid);
+        if (device) {
+            device.setState(state);
+        } else {
+            device = new Device(udid, state);
+            device.on('update', this.onDeviceUpdate);
+            this.deviceMap.set(udid, device);
+        }
+    }
+
+    public async init(): Promise<void> {
+        if (this.initialized) {
+            return;
+        }
+        // Daemon coordination is now automatic — `this.adbClient.devices()`
+        // below internally awaits AdbDaemonManager.ensureReady() before any
+        // adb invocation, so the cold-start race that used to break the
+        // very first page load is impossible by construction.
+        this.initialized = true;
+        await this.syncDevices();
+        await this.startDeviceTracker();
+    }
+
+    private stopTracking(): void {
+        this.initialized = false;
+        this.trackerProcess?.kill();
+        this.trackerProcess = undefined;
+        if (this.trackerRestartTimer) clearTimeout(this.trackerRestartTimer);
+        this.trackerRestartTimer = undefined;
+        this.knownDevices.clear();
+    }
+
+    public getDevices(): GoogDeviceDescriptor[] {
+        return Array.from(this.descriptors.values());
+    }
+
+    public getDevice(udid: string): Device | undefined {
+        return this.deviceMap.get(udid);
+    }
+
+    public getId(): string {
+        return this.id;
+    }
+
+    public getName(): string {
+        return `Connected Devices [${os.hostname()}]`;
+    }
+
+    public start(): Promise<void> {
+        return this.init().catch((e) => {
+            Logger.for('ControlCenter').error(`Failed to init "${this.getName()}". ${e.message}`);
+        });
+    }
+
+    public release(): void {
+        this.stopTracking();
+    }
+
+    public async runCommand(command: ControlCenterCommand): Promise<string | undefined> {
+        const udid = command.getUdid();
+        const device = this.getDevice(udid);
+        if (!device) {
+            Logger.for('ControlCenter').error(`Device with udid:"${udid}" not found`);
+            return;
+        }
+        const type = command.getType();
+        switch (type) {
+            case ControlCenterCommand.KILL_SERVER:
+                // Server lifecycle is now managed by ScrcpyConnection — no-op
+                return;
+            case ControlCenterCommand.START_SERVER:
+                // Server lifecycle is now managed by ScrcpyConnection — no-op
+                return;
+            case ControlCenterCommand.UPDATE_INTERFACES:
+                await device.updateInterfaces();
+                return;
+            default:
+                throw new Error(`Unsupported command: "${type}"`);
+        }
+    }
+}
