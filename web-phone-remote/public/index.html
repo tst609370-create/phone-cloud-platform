@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>手机远程控制</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="phones.css?v=20260822i">
+    <link rel="stylesheet" href="phones.css?v=20260823d">
 </head>
 <body>
     <div class="app">
@@ -40,6 +40,10 @@
         <main class="workspace">
             <header class="topbar">
                 <strong>设备窗口</strong><span>普通模式可拖动，旋转模式点击侧边设备切换</span>
+                <div class="stream-switch" role="group" aria-label="远控画面模式">
+                    <button id="stream-video" type="button">流畅视频</button>
+                    <button id="stream-snapshot" type="button">抽帧远控</button>
+                </div>
                 <div class="layout-switch" role="group" aria-label="设备墙样式">
                     <button id="layout-flat" type="button">▦ 普通</button>
                     <button id="layout-carousel" type="button">◫ 旋转</button>
@@ -54,6 +58,6 @@
         </main>
     </div>
     <div id="viewer-backdrop" aria-hidden="true"></div>
-    <script src="phones.js?v=20260822k"></script>
+    <script src="phones.js?v=20260823d"></script>
 </body>
 </html>

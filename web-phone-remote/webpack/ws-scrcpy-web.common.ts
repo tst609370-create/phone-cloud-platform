@@ -149,6 +149,14 @@ const front: webpack.Configuration = {
             path.resolve(PROJECT_ROOT, 'public/phones.js'),
             path.resolve(CLIENT_DIST_PATH, 'phones.js'),
         ),
+        new CopyFilePlugin(
+            path.resolve(PROJECT_ROOT, 'public/snapshot.html'),
+            path.resolve(CLIENT_DIST_PATH, 'snapshot.html'),
+        ),
+        new CopyFilePlugin(
+            path.resolve(PROJECT_ROOT, 'public/snapshot.js'),
+            path.resolve(CLIENT_DIST_PATH, 'snapshot.js'),
+        ),
         // Favicon — derive it from the app icon (assets/tray-icon.png) so the
         // browser tab shows our icon. Served from dist/public/favicon.png and
         // referenced in public/index.html's <head>.

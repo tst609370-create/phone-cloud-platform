@@ -12,6 +12,8 @@
     const workspace = document.querySelector('.workspace');
     const flatButton = document.getElementById('layout-flat');
     const carouselButton = document.getElementById('layout-carousel');
+    const videoModeButton = document.getElementById('stream-video');
+    const snapshotModeButton = document.getElementById('stream-snapshot');
     const layoutVersion = '20260822j';
     let topLayer = 10;
     let layoutTimer = 0;
@@ -22,12 +24,14 @@
     let masterSerial = localStorage.getItem('phone-sync-master') || '';
     let activeSerial = localStorage.getItem('phone-active-device') || '';
     let layoutMode = localStorage.getItem('phone-layout-mode') === 'flat' ? 'flat' : 'carousel';
+    let streamMode = localStorage.getItem('phone-stream-mode') === 'video' ? 'video' : 'snapshot';
     let visibleDevices = [];
     let rentalByDevice = new Map();
     let rentalSignature = '';
     const desktopKeyboard = window.matchMedia?.('(any-hover: hover) and (any-pointer: fine)').matches ?? false;
     const nativeMacShell = new URLSearchParams(location.search).get('native') === 'mac'
         || localStorage.getItem('phone-native-shell') === 'mac';
+    const adaptiveRemote = location.protocol === 'https:' && !nativeMacShell;
     if (new URLSearchParams(location.search).get('native') === 'mac') {
         localStorage.setItem('phone-native-shell', 'mac');
     }
@@ -51,6 +55,17 @@
     function deviceName(device) {
         const name = device.label || device.model || device.serial;
         return localStorage.getItem(`phone-device-note:${device.serial}`) || chineseDeviceNames[name] || chineseDeviceNames[device.model] || name;
+    }
+
+    function logOperation(card, label) {
+        const now = Date.now();
+        const status = card.querySelector('.card-operation-log');
+        if (!status) return;
+        const time = new Date(now).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        status.dataset.label = label;
+        status.dataset.at = String(now);
+        status.textContent = `${time}  ${label}`;
+        status.title = status.textContent;
     }
 
     function rentalLabel(rental) {
@@ -172,7 +187,11 @@
         screenLock.textContent = '锁屏';
         screenLock.addEventListener('click', () => void toggleDeviceScreenLock(card));
         phoneNav.appendChild(screenLock);
-        card.append(header, lastFrame, frame, nativeInput, resume, phoneNav, fileInput);
+        const operationStatus = document.createElement('div');
+        operationStatus.className = 'card-operation-log';
+        operationStatus.setAttribute('aria-live', 'polite');
+        operationStatus.textContent = '等待操作…';
+        card.append(header, lastFrame, frame, nativeInput, resume, phoneNav, operationStatus, fileInput);
         grid.appendChild(card);
         void refreshScreenLockButton(card);
         restorePosition(card, index);
@@ -383,21 +402,56 @@
         }
     }
 
-    function streamUrl(card) {
+    function videoProfile(card) {
         const requestedSize = Number(quality.value);
         const requestedFps = Number(fps.value);
+        const active = card.dataset.device === activeSerial;
+        const activeBitrate = requestedSize > 720 ? 1200000 : requestedSize > 480 ? 1000000 : 800000;
+        return {
+            bitrate: adaptiveRemote && !active ? 350000 : activeBitrate,
+            maxFps: adaptiveRemote && !active ? Math.min(15, requestedFps) : requestedFps,
+            maxSize: requestedSize,
+        };
+    }
+
+    function streamUrl(card) {
+        if (streamMode === 'snapshot') {
+            const params = new URLSearchParams({
+                device: card.dataset.device,
+                interval: '0',
+                ui: '20260823d',
+            });
+            return `snapshot.html?${params}`;
+        }
+        const profile = videoProfile(card);
         const params = new URLSearchParams({
             device: card.dataset.device,
             deviceKind: card.dataset.deviceKind || 'phone',
             codec: 'h264',
-            bitrate: String(requestedSize > 720 ? 2000000 : requestedSize > 480 ? 1200000 : 800000),
-            maxFps: String(requestedFps),
-            maxSize: String(requestedSize),
+            bitrate: String(profile.bitrate),
+            maxFps: String(profile.maxFps),
+            maxSize: String(profile.maxSize),
             audio: 'false',
             secure: location.protocol === 'https:' ? 'true' : 'false',
             ui: '20260822x',
         });
         return `embed.html?${params}`;
+    }
+
+    function applyStreamProfile(card) {
+        if (card.dataset.streaming !== '1') return;
+        const frame = card.querySelector('iframe');
+        try {
+            const status = frame.contentDocument?.getElementById('status');
+            if (!status || (!status.classList.contains('hidden') && !/^connected|^已连接/i.test(status.textContent))) return;
+        } catch { return; }
+        const message = streamMode === 'snapshot'
+            ? { type: 'phone-frame-profile', intervalMs: 0 }
+            : { type: 'phone-stream-profile', ...videoProfile(card) };
+        const signature = JSON.stringify(message);
+        if (card.dataset.streamProfile === signature) return;
+        frame.contentWindow?.postMessage(message, location.origin);
+        card.dataset.streamProfile = signature;
     }
 
     function setState(card, state, label) {
@@ -524,6 +578,7 @@
         if (!button) return;
         if (title === '截图') {
             button.click();
+            logOperation(card, '已截图');
             return;
         }
         for (const type of ['mousedown', 'mouseup']) {
@@ -534,6 +589,7 @@
                 buttons: type === 'mousedown' ? 1 : 0,
             }));
         }
+        if (streamMode === 'video') logOperation(card, { 返回: '已返回', 主页: '已回到主页', 多任务: '已打开多任务' }[title] || `已执行${title}`);
     }
 
     function applyFrameState(card) {
@@ -557,6 +613,7 @@
             if (status.classList.contains('hidden') || /^connected\b/i.test(status.textContent)) setState(card, 'connected', '已连接');
             else if (/error|disconnected/i.test(status.textContent)) setState(card, 'error', '连接失败');
             else setState(card, '', '连接中');
+            applyStreamProfile(card);
         } catch { /* status is cosmetic; stream control remains available */ }
     }
 
@@ -722,6 +779,27 @@
         doc.addEventListener('pointerdown', () => {
             if (card.dataset.device !== activeSerial) activate(card);
         }, true);
+        let operationGesture = null;
+        let lastTap = null;
+        doc.addEventListener('pointerdown', (event) => {
+            if (streamMode !== 'video' || !event.target?.closest?.('.touch-layer')) return;
+            operationGesture = { id: event.pointerId, x: event.clientX, y: event.clientY, at: performance.now() };
+        }, true);
+        doc.addEventListener('pointerup', (event) => {
+            if (streamMode !== 'video' || operationGesture?.id !== event.pointerId) return;
+            const gesture = operationGesture;
+            operationGesture = null;
+            const dx = event.clientX - gesture.x;
+            const dy = event.clientY - gesture.y;
+            if (Math.hypot(dx, dy) >= 12) {
+                logOperation(card, Math.abs(dy) >= Math.abs(dx) ? (dy < 0 ? '已切换下一条视频' : '已切换上一条视频') : '已左右滑动');
+                return;
+            }
+            const now = performance.now();
+            const liked = lastTap && now - lastTap.at < 420 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 60;
+            logOperation(card, liked ? '已点赞' : '已点击屏幕');
+            lastTap = liked ? null : { x: event.clientX, y: event.clientY, at: now };
+        }, true);
         for (const type of ['dragenter', 'dragover', 'dragleave', 'drop']) {
             doc.addEventListener(type, (event) => handleFileDrag(card, event), true);
         }
@@ -777,6 +855,7 @@
                 frame.contentWindow?.postMessage({ type: 'phone-display-power', on }, location.origin);
                 const button = card.querySelector('[data-action="screen-lock"]');
                 if (button) button.textContent = on ? '锁屏' : '解锁';
+                logOperation(card, on ? '已解锁/唤醒' : '已锁屏');
                 return;
             }
         }
@@ -834,6 +913,7 @@
         }
         card.classList.remove('closed', 'paused');
         card.dataset.streaming = '1';
+        delete card.dataset.streamProfile;
         card._videoAspect = 0;
         if (layoutMode !== 'carousel') {
             card.style.width = '';
@@ -866,7 +946,19 @@
             card.classList.toggle('active-stream', card.dataset.device === activeSerial);
             if (card.classList.contains('closed')) return;
             connect(card, force);
+            applyStreamProfile(card);
         });
+    }
+
+    function setStreamMode(mode, reconnect = true) {
+        const changed = streamMode !== mode;
+        streamMode = mode;
+        localStorage.setItem('phone-stream-mode', mode);
+        videoModeButton.classList.toggle('active', mode === 'video');
+        snapshotModeButton.classList.toggle('active', mode === 'snapshot');
+        videoModeButton.setAttribute('aria-pressed', mode === 'video' ? 'true' : 'false');
+        snapshotModeButton.setAttribute('aria-pressed', mode === 'snapshot' ? 'true' : 'false');
+        if (reconnect && changed) updateStreamingMode(true);
     }
 
     function activate(card, force = false) {
@@ -1099,6 +1191,8 @@
     document.getElementById('tile-all').addEventListener('click', tileCards);
     flatButton.addEventListener('click', () => setLayoutMode('flat'));
     carouselButton.addEventListener('click', () => setLayoutMode('carousel'));
+    videoModeButton.addEventListener('click', () => setStreamMode('video'));
+    snapshotModeButton.addEventListener('click', () => setStreamMode('snapshot'));
     document.getElementById('carousel-prev').addEventListener('click', () => rotateCarousel(-1));
     document.getElementById('carousel-next').addEventListener('click', () => rotateCarousel(1));
     grid.addEventListener('pointerdown', (event) => {
@@ -1184,7 +1278,13 @@
             if (topic === 'rentals') void updateAdminVisibility();
         } catch { /* reconnect delivers the next valid event */ }
     });
+    window.addEventListener('message', (event) => {
+        if (event.origin !== location.origin || event.data?.type !== 'phone-operation-log') return;
+        const card = cards.find((item) => item.querySelector('iframe').contentWindow === event.source);
+        if (card && typeof event.data.label === 'string' && event.data.label.length <= 40) logOperation(card, event.data.label);
+    });
     updateSyncButton();
+    setStreamMode(streamMode, false);
     void updateAdminVisibility();
     setLayoutMode(layoutMode);
     refreshDevices();

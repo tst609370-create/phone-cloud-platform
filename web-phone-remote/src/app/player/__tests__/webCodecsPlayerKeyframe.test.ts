@@ -15,10 +15,14 @@ let decodedChunks: Chunk[] = [];
 let lastConfig: VideoDecoderConfig | undefined;
 let decoderState: string;
 let drawImage: ReturnType<typeof vi.fn>;
+let lastDecoder: FakeVideoDecoder;
 
 class FakeVideoDecoder {
     public state = 'unconfigured';
+    public decodeQueueSize = 0;
+    public resetCount = 0;
     constructor(_init: unknown) {
+        lastDecoder = this;
         decoderState = 'unconfigured';
     }
     configure(cfg: VideoDecoderConfig) {
@@ -31,6 +35,12 @@ class FakeVideoDecoder {
     }
     flush() {
         return Promise.resolve();
+    }
+    reset() {
+        this.resetCount += 1;
+        this.decodeQueueSize = 0;
+        this.state = 'unconfigured';
+        decoderState = 'unconfigured';
     }
     close() {
         this.state = 'closed';
@@ -124,5 +134,23 @@ describe('WebCodecsPlayer Annex B keyframe decode', () => {
         expect(drawImage).toHaveBeenCalledOnce();
         expect(drawImage).toHaveBeenCalledWith(latest, 0, 0);
         expect(latest.close).toHaveBeenCalledOnce();
+    });
+
+    it('drops a compressed-frame backlog and resumes at the next keyframe', async () => {
+        const { WebCodecsPlayer } = await import('../WebCodecsPlayer');
+        const player = new WebCodecsPlayer('udid-low-latency');
+        player.setMetadataSize(1280, 720);
+        player.pushVideoFrame(H264_CONFIG, 0n, true, false);
+        player.pushVideoFrame(H264_KEYFRAME, 100n, false, true);
+
+        lastDecoder.decodeQueueSize = 5;
+        player.pushVideoFrame(new Uint8Array([1, 2, 3]), 101n, false, false);
+        player.pushVideoFrame(new Uint8Array([4, 5, 6]), 102n, false, false);
+        expect(decodedChunks).toHaveLength(1);
+
+        player.pushVideoFrame(H264_KEYFRAME, 103n, false, true);
+        expect(lastDecoder.resetCount).toBe(1);
+        expect(decodedChunks).toHaveLength(2);
+        expect(decodedChunks[1]?.type).toBe('key');
     });
 });

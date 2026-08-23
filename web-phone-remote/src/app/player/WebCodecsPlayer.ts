@@ -65,6 +65,8 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
     public override readonly supportsScreenshot = true;
     private context: CanvasRenderingContext2D;
     private decoder: VideoDecoder;
+    private decoderConfig?: VideoDecoderConfig;
+    private droppingUntilKeyframe = false;
     private configData?: Uint8Array | undefined;
     private detectedCodec: 'h264' | 'h265' | 'av1' | null = null;
     private metadataWidth = 0;
@@ -127,26 +129,36 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
                 if (displayW && displayH && displayW > 0 && displayH > 0) {
                     this.scaleCanvas(displayW, displayH);
                 }
-                if (this.decoder.state === 'configured') {
-                    this.decoder.flush().catch(() => {});
-                }
+                if (this.decoder.state === 'configured') this.decoder.reset();
                 // Keep Annex B parameter sets out of `description`: browsers parse
                 // that field as avcC/hvcC, not Annex B.
-                this.decoder.configure(
-                    buildDecoderConfig({
-                        codec: result.codec,
-                        detectedCodec: this.detectedCodec,
-                        codedWidth: codedW,
-                        codedHeight: codedH,
-                        configData: data,
-                    }),
-                );
+                this.decoderConfig = buildDecoderConfig({
+                    codec: result.codec,
+                    detectedCodec: this.detectedCodec,
+                    codedWidth: codedW,
+                    codedHeight: codedH,
+                    configData: data,
+                });
+                this.decoder.configure(this.decoderConfig);
+                this.droppingUntilKeyframe = false;
             }
             this.configData = new Uint8Array(data);
             return;
         }
 
         if (this.decoder.state !== 'configured') return;
+
+        // WebCodecs queues compressed frames internally. On a slow/remote client,
+        // decoding every queued delta frame makes clicks look seconds late. Once
+        // the queue grows, discard deltas and restart at the next keyframe so the
+        // canvas always catches up to the phone's current screen.
+        if (this.decoder.decodeQueueSize > 4) this.droppingUntilKeyframe = true;
+        if (this.droppingUntilKeyframe) {
+            if (!isKeyframe || !this.decoderConfig) return;
+            this.decoder.reset();
+            this.decoder.configure(this.decoderConfig);
+            this.droppingUntilKeyframe = false;
+        }
 
         if (isKeyframe && this.configData) {
             if (!this.receivedFirstFrame) {

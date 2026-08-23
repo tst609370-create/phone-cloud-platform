@@ -208,6 +208,34 @@ export class AdbClient {
         return output.trim();
     }
 
+    async execOut(serial: string, command: string, timeoutMs = 10_000): Promise<Buffer> {
+        assertSerial(serial);
+        await this.daemon.ensureReady();
+        const args = ['-s', serial, 'exec-out', command];
+        return new Promise<Buffer>((resolve, reject) => {
+            execFile(
+                this.adbPath,
+                args,
+                { cwd: this.cwd, encoding: 'buffer', maxBuffer: 12 * 1024 * 1024, timeout: timeoutMs, killSignal: 'SIGKILL' },
+                (err, stdout) => {
+                    if (!err) {
+                        resolve(stdout as Buffer);
+                        return;
+                    }
+                    const e = err as NodeJS.ErrnoException & { killed?: boolean; signal?: string; code?: string | number };
+                    const kind: AdbExecErrorKind = e.killed
+                        ? 'timeout'
+                        : e.code === 'ENOENT' || e.code === 'EACCES'
+                          ? 'spawn'
+                          : typeof e.code === 'number'
+                            ? 'exit'
+                            : 'unknown';
+                    reject(new AdbExecError(kind, this.adbPath, args, err));
+                },
+            );
+        });
+    }
+
     async push(serial: string, local: string, remote: string): Promise<void> {
         await this.exec(['-s', serial, 'push', local, remote]);
     }

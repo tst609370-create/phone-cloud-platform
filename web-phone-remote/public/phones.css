@@ -55,9 +55,10 @@ button, select { transition: color .16s ease, background-color .16s ease, border
 .topbar span { color: #8a96a8; font-size: 12px; }
 .topbar button { padding: 6px 10px; border: 1px solid #d8e5f6; border-radius: 7px; color: #287fe8; background: #f2f7ff; font-size: 12px; cursor: pointer; }
 .topbar button:hover { background: #e5f1ff; }
-.layout-switch { margin-left: auto; display: flex; padding: 2px; border: 1px solid #d8e5f6; border-radius: 9px; background: #f6f9fd; }
-.layout-switch button { border: 0; background: transparent; }
-.layout-switch button.active { color: #fff; background: #358ef4; box-shadow: 0 3px 8px rgba(40,126,232,.22); }
+.stream-switch, .layout-switch { display: flex; padding: 2px; border: 1px solid #d8e5f6; border-radius: 9px; background: #f6f9fd; }
+.stream-switch { margin-left: auto; }
+.stream-switch button, .layout-switch button { border: 0; background: transparent; }
+.stream-switch button.active, .layout-switch button.active { color: #fff; background: #358ef4; box-shadow: 0 3px 8px rgba(40,126,232,.22); }
 .carousel-nav {
     display: none; position: absolute; left: 50%; bottom: 8px; z-index: 20; transform: translateX(-50%);
     gap: 8px; padding: 6px; border: 1px solid rgba(116,151,197,.35); border-radius: 999px;
@@ -76,7 +77,7 @@ button, select { transition: color .16s ease, background-color .16s ease, border
     position: absolute; top: 10px; left: 10px;
     width: var(--phone-width); height: calc(var(--phone-width) * 1.82);
     min-width: 260px; min-height: 460px; max-width: calc(100vw - 100px); max-height: calc(100vh - 60px);
-    display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 36px minmax(0, 1fr) 34px; overflow: hidden; resize: both;
+    display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 36px minmax(0, 1fr) 34px 22px; overflow: hidden; resize: both;
     border: 1px solid #dde4ed; border-radius: 10px; background: #090a0c;
     box-shadow: 0 8px 24px rgba(38, 56, 82, .13);
     transition: width .32s cubic-bezier(.2,.75,.2,1), height .32s cubic-bezier(.2,.75,.2,1), border-color .16s ease, box-shadow .24s ease;
@@ -121,24 +122,29 @@ button, select { transition: color .16s ease, background-color .16s ease, border
     color: #c7d5e8; background: #16253a; font-size: 11px; cursor: pointer;
 }
 .phone-nav button:hover { color: #fff; background: #237df0; }
+.card-operation-log {
+    position: relative; z-index: 6; grid-row: 4; min-width: 0; height: 22px; padding: 3px 8px;
+    overflow: hidden; color: #35ef7a; background: #050805; border-top: 1px solid #173622;
+    font: 11px/15px ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap;
+}
 .last-frame { display: block; opacity: 0; object-fit: contain; pointer-events: none; transition: opacity .2s ease; }
 .phone-card.reconnecting iframe { opacity: 0; }
 .phone-card.reconnecting .last-frame { opacity: 1; }
 .resume-stream {
-    display: none; position: absolute; inset: 36px 0 34px; z-index: 2;
+    display: none; position: absolute; inset: 36px 0 56px; z-index: 2;
     width: 100%; border: 0; color: #fff; background: rgba(10, 20, 34, .36);
     font-weight: 650; cursor: pointer;
 }
 .resume-stream:hover { background: rgba(29, 119, 232, .35); }
 .phone-card.file-dragging::after {
-    content: "松开：图片存相册 / APK 安装"; position: absolute; inset: 38px 0 34px; z-index: 5;
+    content: "松开：图片存相册 / APK 安装"; position: absolute; inset: 38px 0 56px; z-index: 5;
     display: grid; place-items: center; color: #fff; background: rgba(29, 119, 232, .78); font-weight: 700;
 }
 .phone-card.paused iframe { display: none; }
 .phone-card.paused .last-frame, .phone-card.paused .resume-stream { display: block; }
 .phone-card.paused .last-frame { opacity: 1; }
 .phone-card.closed { height: 36px; min-height: 36px; resize: none; background: #fff; }
-.phone-card.closed iframe, .phone-card.closed .last-frame, .phone-card.closed .resume-stream, .phone-card.closed .phone-nav { display: none; }
+.phone-card.closed iframe, .phone-card.closed .last-frame, .phone-card.closed .resume-stream, .phone-card.closed .phone-nav, .phone-card.closed .card-operation-log { display: none; }
 #viewer-backdrop { display: none; position: fixed; inset: 0; z-index: 900; background: rgba(25, 35, 50, .62); backdrop-filter: blur(3px); }
 #viewer-backdrop.visible { display: block; }
 .phone-card.expanded {
@@ -188,8 +194,8 @@ button, select { transition: color .16s ease, background-color .16s ease, border
 [data-theme="dark"] .topbar { background: rgba(9,18,32,.96); border-color: #223149; }
 [data-theme="dark"] .topbar button { color: #86bcff; border-color: #2a3d5a; background: #111f34; }
 [data-theme="dark"] .topbar button:hover { background: #172c49; }
-[data-theme="dark"] .layout-switch { border-color: #293b56; background: #0d192a; }
-[data-theme="dark"] .layout-switch button.active { color: #fff; background: #237df0; }
+[data-theme="dark"] .stream-switch, [data-theme="dark"] .layout-switch { border-color: #293b56; background: #0d192a; }
+[data-theme="dark"] .stream-switch button.active, [data-theme="dark"] .layout-switch button.active { color: #fff; background: #237df0; }
 [data-theme="dark"] .phone-grid { background-color: #08111f; background-image: radial-gradient(#203a5d .7px, transparent .7px); }
 [data-theme="dark"] .phone-grid.carousel-mode { background-image: radial-gradient(#203a5d .7px, transparent .7px), radial-gradient(circle at 50% 45%, rgba(24,100,220,.2), transparent 42%); }
 [data-theme="dark"] .phone-card { border-color: #2a3a52; box-shadow: 0 12px 32px rgba(0,0,0,.36); }
@@ -232,6 +238,8 @@ button, select { transition: color .16s ease, background-color .16s ease, border
     .topbar > span { display: none; }
     .topbar #tile-all { display: none; }
     .layout-switch, .carousel-nav { display: none !important; }
+    .stream-switch { margin-left: auto; }
+    .stream-switch button { padding: 5px 7px; }
     #mobile-device-picker { display: block; flex: 1; }
     .phone-grid { min-height: 0; height: calc(100dvh - 102px); overflow: hidden; }
     .phone-card {

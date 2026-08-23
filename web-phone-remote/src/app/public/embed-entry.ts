@@ -124,8 +124,17 @@ function bootstrap(): void {
     try {
         const handle = window.WsScrcpy.startStream(document.body, deviceId, options);
         window.addEventListener('message', (event) => {
-            if (event.origin !== location.origin || event.data?.type !== 'phone-display-power') return;
-            handle.setScreenPower(Boolean(event.data.on));
+            if (event.origin !== location.origin) return;
+            if (event.data?.type === 'phone-display-power') {
+                handle.setScreenPower(Boolean(event.data.on));
+                return;
+            }
+            if (event.data?.type === 'phone-stream-profile') {
+                const { bitrate, maxFps, maxSize } = event.data;
+                if ([bitrate, maxFps, maxSize].every((value) => Number.isFinite(value) && value > 0)) {
+                    handle.setVideoProfile({ bitrate, maxFps, maxSize });
+                }
+            }
         });
     } catch (err) {
         show(`error: ${err instanceof Error ? err.message : String(err)}`, true);

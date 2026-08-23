@@ -4,7 +4,7 @@ import { CommandControlMessage } from '../controlMessage/CommandControlMessage';
 import { StreamClientScrcpy } from '../googDevice/client/StreamClientScrcpy';
 import Size from '../Size';
 import VideoSettings from '../VideoSettings';
-import type { StartStreamOptions, StreamHandle, StreamInfo } from './types';
+import type { StartStreamOptions, StreamHandle, StreamInfo, StreamProfile } from './types';
 
 /**
  * Public facade over StreamClientScrcpy for programmatic stream control.
@@ -75,7 +75,7 @@ export function startStream(container: HTMLElement, deviceId: string, options: S
         videoSettings = new VideoSettings({
             bitrate: options.bitrate ?? 8000000,
             maxFps: options.maxFps ?? 15,
-            iFrameInterval: 2,
+            iFrameInterval: 1,
             bounds: options.maxSize !== undefined ? new Size(options.maxSize, options.maxSize) : new Size(0, 0),
             sendFrameMeta: false,
             lockedVideoOrientation: -1,
@@ -126,6 +126,18 @@ export function startStream(container: HTMLElement, deviceId: string, options: S
         },
         setScreenPower(on: boolean): void {
             client?.sendMessage(CommandControlMessage.createSetScreenPowerModeCommand(on));
+        },
+        setVideoProfile(profile: StreamProfile): void {
+            if (!client) return;
+            videoSettings = new VideoSettings({
+                bitrate: profile.bitrate,
+                maxFps: profile.maxFps,
+                iFrameInterval: 1,
+                bounds: new Size(profile.maxSize, profile.maxSize),
+                sendFrameMeta: false,
+                lockedVideoOrientation: -1,
+            });
+            client.sendNewVideoSetting(videoSettings);
         },
         get isConnected() {
             return isConnected;

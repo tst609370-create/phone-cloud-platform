@@ -24,7 +24,7 @@ export {
     notifyThemeReady,
     setTheme,
 } from './themeEmbed';
-export type { StartStreamOptions, StreamHandle, StreamInfo } from './types';
+export type { StartStreamOptions, StreamHandle, StreamInfo, StreamProfile } from './types';
 
 // Injected at build time via webpack DefinePlugin
 declare const __WSSCRCPY_VERSION__: string;

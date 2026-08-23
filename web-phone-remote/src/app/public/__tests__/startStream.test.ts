@@ -7,7 +7,7 @@ import { startStream } from '../startStream';
 vi.mock('../../googDevice/client/StreamClientScrcpy', () => ({
     StreamClientScrcpy: {
         start: vi.fn(() => ({
-            instance: { stopStream: vi.fn(), sendMessage: vi.fn() },
+            instance: { stopStream: vi.fn(), sendMessage: vi.fn(), sendNewVideoSetting: vi.fn() },
             stop: vi.fn(),
         })),
     },
@@ -51,6 +51,19 @@ describe('startStream', () => {
         handle.setScreenPower(false);
         const instance = (StreamClientScrcpy.start as ReturnType<typeof vi.fn>).mock.results[0]!.value.instance;
         expect(instance.sendMessage).toHaveBeenCalledOnce();
+    });
+
+    it('changes the live stream profile without reconnecting', async () => {
+        const { StreamClientScrcpy } = await import('../../googDevice/client/StreamClientScrcpy');
+        const handle = startStream(container, 'abc123', { bitrate: 800000, maxFps: 30, maxSize: 480 });
+        handle.setVideoProfile({ bitrate: 250000, maxFps: 10, maxSize: 480 });
+        const instance = (StreamClientScrcpy.start as ReturnType<typeof vi.fn>).mock.results[0]!.value.instance;
+        expect(instance.sendNewVideoSetting).toHaveBeenCalledOnce();
+        const settings = instance.sendNewVideoSetting.mock.calls[0][0];
+        expect(settings.bitrate).toBe(250000);
+        expect(settings.maxFps).toBe(10);
+        expect(settings.bounds.width).toBe(480);
+        expect(settings.iFrameInterval).toBe(1);
     });
 
     it('passes bitrate/maxFps/maxSize through to StreamClientScrcpy.start as VideoSettings', async () => {

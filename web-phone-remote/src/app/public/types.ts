@@ -53,9 +53,16 @@ export interface StreamInfo {
     resolution: string;
 }
 
+export interface StreamProfile {
+    bitrate: number;
+    maxFps: number;
+    maxSize: number;
+}
+
 export interface StreamHandle {
     stop(): void;
     setScreenPower(on: boolean): void;
+    setVideoProfile(profile: StreamProfile): void;
     readonly isConnected: boolean;
     readonly deviceId: string;
 }

@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { AdbClient, parseSerialFromMdnsName } from '../AdbClient';
 import { resolveUserId } from '../auth/currentUser';
@@ -12,12 +13,40 @@ import { BodyTooLargeError, InvalidJsonError, readJsonBodyStrict, sendInternalEr
 import { RealtimeEventsApi } from './RealtimeEventsApi';
 
 const log = Logger.for('DeviceDiscoveryApi');
+const INPUT_KEYS: Record<string, number> = { back: 4, home: 3, recent: 187, enter: 66, delete: 67 };
+
+type CachedFrame = { capturedAt: number; etag: string; data: Buffer };
 
 export class DeviceDiscoveryApi {
     private adbClient: AdbClient;
+    private readonly frameCache = new Map<string, CachedFrame>();
+    private readonly frameCaptures = new Map<string, Promise<CachedFrame>>();
 
-    constructor() {
-        this.adbClient = new AdbClient(Config.getInstance().adbPath);
+    constructor(adbClient?: AdbClient) {
+        this.adbClient = adbClient ?? new AdbClient(Config.getInstance().adbPath);
+    }
+
+    private async captureFrame(udid: string, force: boolean): Promise<CachedFrame> {
+        const cached = this.frameCache.get(udid);
+        if (!force && cached && Date.now() - cached.capturedAt < 350) return cached;
+        const running = this.frameCaptures.get(udid);
+        if (running) return running;
+        const capture = this.adbClient.execOut(udid, 'screencap -p').then((data) => {
+            if (!data.length) throw new Error('empty screenshot');
+            const frame = {
+                capturedAt: Date.now(),
+                etag: `"${createHash('sha1').update(data).digest('hex')}"`,
+                data,
+            };
+            this.frameCache.set(udid, frame);
+            return frame;
+        });
+        this.frameCaptures.set(udid, capture);
+        try {
+            return await capture;
+        } finally {
+            this.frameCaptures.delete(udid);
+        }
     }
 
     async handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
@@ -27,6 +56,115 @@ export class DeviceDiscoveryApi {
         res.setHeader('Content-Type', 'application/json');
 
         try {
+            if (req.method === 'GET' && url.startsWith('/api/devices/frame')) {
+                const parsedUrl = new URL(url, `http://${req.headers.host}`);
+                const udid = parsedUrl.searchParams.get('udid');
+                if (!udid) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({ error: 'udid is required' }));
+                    return true;
+                }
+                if (!requireDeviceAccess(req, res, udid)) return true;
+                const frame = await this.captureFrame(udid, parsedUrl.searchParams.get('fresh') === '1');
+                res.setHeader('Cache-Control', 'no-store');
+                res.setHeader('ETag', frame.etag);
+                if (req.headers['if-none-match'] === frame.etag) {
+                    res.writeHead(304);
+                    res.end();
+                    return true;
+                }
+                res.setHeader('Content-Type', 'image/png');
+                res.setHeader('Content-Length', String(frame.data.length));
+                res.writeHead(200);
+                res.end(frame.data);
+                return true;
+            }
+
+            if (req.method === 'POST' && url.startsWith('/api/devices/input')) {
+                const inputUrl = new URL(url, `http://${req.headers.host}`);
+                if (inputUrl.pathname !== '/api/devices/input') return false;
+                const body = await readJsonBodyStrict<{
+                    udid?: string;
+                    action?: string;
+                    x?: number;
+                    y?: number;
+                    x2?: number;
+                    y2?: number;
+                    duration?: number;
+                    key?: string;
+                    text?: string;
+                }>(req);
+                if (!body.udid || !body.action) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({ error: 'udid and action are required' }));
+                    return true;
+                }
+                if (!requireDeviceAccess(req, res, body.udid)) return true;
+                const coordinate = (value: unknown): number | null => {
+                    const number = Number(value);
+                    return Number.isFinite(number) && number >= 0 && number <= 20_000 ? Math.round(number) : null;
+                };
+                let command = '';
+                if (body.action === 'tap') {
+                    const x = coordinate(body.x);
+                    const y = coordinate(body.y);
+                    if (x === null || y === null) {
+                        res.writeHead(400);
+                        res.end(JSON.stringify({ error: 'invalid tap coordinates' }));
+                        return true;
+                    }
+                    command = `input tap ${x} ${y}`;
+                } else if (body.action === 'swipe') {
+                    const x = coordinate(body.x);
+                    const y = coordinate(body.y);
+                    const x2 = coordinate(body.x2);
+                    const y2 = coordinate(body.y2);
+                    if ([x, y, x2, y2].some((value) => value === null)) {
+                        res.writeHead(400);
+                        res.end(JSON.stringify({ error: 'invalid swipe coordinates' }));
+                        return true;
+                    }
+                    const duration = Math.max(50, Math.min(1_500, Math.round(Number(body.duration) || 250)));
+                    command = `input swipe ${x} ${y} ${x2} ${y2} ${duration}`;
+                } else if (body.action === 'key') {
+                    const keyevent = body.key ? INPUT_KEYS[body.key] : undefined;
+                    if (!keyevent) {
+                        res.writeHead(400);
+                        res.end(JSON.stringify({ error: 'invalid key' }));
+                        return true;
+                    }
+                    command = `input keyevent ${keyevent}`;
+                } else if (body.action === 'text') {
+                    if (typeof body.text !== 'string' || !body.text || body.text.length > 200) {
+                        res.writeHead(400);
+                        res.end(JSON.stringify({ error: 'invalid text' }));
+                        return true;
+                    }
+                    command = `input text ${shArg(body.text.replace(/ /g, '%s'))}`;
+                } else {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({ error: 'invalid input action' }));
+                    return true;
+                }
+                await this.adbClient.shell(body.udid, command, 8_000);
+                if (inputUrl.searchParams.get('frame') === '1') {
+                    await new Promise((resolve) => setTimeout(resolve, 120));
+                    const runningCapture = this.frameCaptures.get(body.udid);
+                    if (runningCapture) await runningCapture.catch(() => undefined);
+                    const frame = await this.captureFrame(body.udid, true);
+                    res.setHeader('Cache-Control', 'no-store');
+                    res.setHeader('ETag', frame.etag);
+                    res.setHeader('Content-Type', 'image/png');
+                    res.setHeader('Content-Length', String(frame.data.length));
+                    res.writeHead(200);
+                    res.end(frame.data);
+                    return true;
+                }
+                res.writeHead(204);
+                res.end();
+                return true;
+            }
+
             if (req.method === 'GET' && url === '/api/devices/connected') {
                 const db = Config.getInstance().db;
                 const userId = resolveUserId(req);

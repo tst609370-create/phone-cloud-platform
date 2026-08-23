@@ -9,6 +9,7 @@ import { Attribute } from '../../Attribute';
 import { AudioPlayer } from '../../audio/AudioPlayer';
 import { BaseClient } from '../../client/BaseClient';
 import { settingsService } from '../../client/SettingsService';
+import { CommandControlMessage } from '../../controlMessage/CommandControlMessage';
 import type { ControlMessage } from '../../controlMessage/ControlMessage';
 import type { KeyCodeControlMessage } from '../../controlMessage/KeyCodeControlMessage';
 import type { DisplayInfo } from '../../DisplayInfo';
@@ -648,6 +649,7 @@ export class StreamClientScrcpy
     }
 
     public sendNewVideoSetting(videoSettings: VideoSettings): void {
+        this.sendMessage(CommandControlMessage.createSetVideoSettingsCommand(videoSettings));
         if (this.player) {
             this.player.setVideoSettings(videoSettings, !!this.fitToScreen, true);
         }
