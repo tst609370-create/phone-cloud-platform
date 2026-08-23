@@ -814,16 +814,6 @@
         watchState(card);
     }
 
-    function freeze(card) {
-        if (card.dataset.streaming !== '1' || card.classList.contains('closed')) return;
-        captureLastFrame(card);
-        clearFrameObservers(card);
-        card.querySelector('iframe').src = 'about:blank';
-        card.dataset.streaming = '0';
-        card.classList.add('paused');
-        setState(card, '', '已暂停');
-    }
-
     function close(card, update = true) {
         clearFrameObservers(card);
         card.querySelector('iframe').src = 'about:blank';
@@ -845,10 +835,6 @@
         cards.forEach((card) => {
             card.classList.toggle('active-stream', card.dataset.device === activeSerial);
             if (card.classList.contains('closed')) return;
-            if (document.hidden) {
-                freeze(card);
-                return;
-            }
             connect(card, force);
         });
     }
@@ -1151,7 +1137,6 @@
             if (event.key === 'ArrowRight') rotateCarousel(1);
         }
     });
-    document.addEventListener('visibilitychange', () => updateStreamingMode(!document.hidden));
     window.addEventListener('resize', () => {
         if (layoutMode === 'carousel') layoutCarousel();
         else if (autoArrange) scheduleTile();
