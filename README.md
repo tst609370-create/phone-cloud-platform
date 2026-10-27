@@ -21,3 +21,18 @@ Windows 通过 USB/ADB 选择一部 Android 手机，把该手机的 4G/5G 出�
 ```powershell
 python -m unittest -v
 ```
+
+## 组成与上游来源
+
+本仓库包含多项彼此独立的手机与远程访问工具：
+
+- 根目录的 `phone_socks_manager.py`、`test_phone_socks_manager.py` 及辅助脚本：Android 手机网络出口与 SOCKS5 管理。
+- `mac-phoneproxy/`：macOS 侧手机代理管理工具。
+- `web-phone-remote/`：包含第三方 [ws-scrcpy-web](https://github.com/bilbospocketses/ws-scrcpy-web) 项目的代码及本仓库集成文件。该目录保留上游的 GPL-3.0 许可证、版权归属和独立安全策略，不应被当作本仓库维护者从零编写。
+- `tools/`：设备和桌面协作相关工具。
+
+本项目的整合维护者为 [@tst609370-create](https://github.com/tst609370-create)；这不代表其是所有上游项目的官方维护者。分发和修改第三方代码时须继续遵守对应许可证与归属要求。
+
+## 安全报告
+
+发现本仓库整合代码、访问控制或配置处理中的安全问题，请先阅读 [SECURITY.md](SECURITY.md)，通过私人渠道报告。不要在公开 Issue 中发布凭据、用户数据或未修复漏洞的细节。
