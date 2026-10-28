@@ -1,8 +1,11 @@
-tunnel: b139fecf-a7d0-44ab-aec2-798c718c390a
-credentials-file: /Users/ct/Library/Application Support/PhoneCloudManager/tunnel/credentials.json
+# Local deployment template. Replace placeholders before using.
+# Never commit tunnel credentials or production tunnel identifiers.
+tunnel: YOUR_TUNNEL_UUID
+credentials-file: /Users/YOUR_USER/Library/Application Support/PhoneCloudManager/tunnel/credentials.json
 ingress:
-  - hostname: phone.anyuekf.cn
+  - hostname: phone.example.com
     service: http://127.0.0.1:8002
-  - hostname: mac-phone-ssh.anyuekf.cn
-    service: ssh://127.0.0.1:22
+  # Uncomment only after implementing SSH authentication / access controls:
+  # - hostname: ssh.example.com
+  #   service: ssh://127.0.0.1:22
   - service: http_status:404
