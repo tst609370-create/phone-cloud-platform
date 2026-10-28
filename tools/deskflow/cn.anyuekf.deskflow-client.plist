@@ -6,7 +6,7 @@
   <string>cn.anyuekf.deskflow-client</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/ct/Applications/Deskflow.app/Contents/MacOS/deskflow-core</string>
+    <string>/Users/YOUR_USER/Applications/Deskflow.app/Contents/MacOS/deskflow-core</string>
     <string>client</string>
   </array>
   <key>RunAtLoad</key>
@@ -18,8 +18,8 @@
   <key>LimitLoadToSessionType</key>
   <string>Aqua</string>
   <key>StandardOutPath</key>
-  <string>/Users/ct/Library/Logs/deskflow-client.log</string>
+  <string>/Users/YOUR_USER/Library/Logs/deskflow-client.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/ct/Library/Logs/deskflow-client-error.log</string>
+  <string>/Users/YOUR_USER/Library/Logs/deskflow-client-error.log</string>
 </dict>
 </plist>
