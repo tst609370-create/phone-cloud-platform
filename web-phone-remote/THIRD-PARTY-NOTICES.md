@@ -72,6 +72,22 @@ Copyright (c) 2013 Arnout Kazemier and contributors
 Copyright (c) 2016 Luigi Pinca and contributors
 ```
 
+**qrcode** — https://github.com/soldair/node-qrcode
+
+Copyright (c) 2012 Ryan Day
+
+The bundled `qrcode` server module also includes these MIT-licensed runtime
+dependencies:
+
+**dijkstrajs** — https://github.com/wagenaartje/dijkstra
+
+Copyright (C) 2008 Wyatt Baldwin
+
+**pngjs** — https://github.com/pngjs/pngjs
+
+Copyright (c) 2015 Luke Page & Original Contributors (pngjs2 original work)
+Copyright (c) 2012 Kuba Niegowski (pngjs derived work)
+
 **@xterm/xterm, @xterm/addon-attach, @xterm/addon-fit** — https://github.com/xtermjs/xterm.js
 
 ```
@@ -94,7 +110,7 @@ Copyright (c) 2018 - present Microsoft Corporation
 Copyright (c) the Velopack authors
 ```
 
-All four packages are distributed under the MIT License:
+The npm packages listed in this section are distributed under the MIT License:
 
 ```
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -115,3 +131,4 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
+

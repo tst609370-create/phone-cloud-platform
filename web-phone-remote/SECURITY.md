@@ -40,11 +40,15 @@ Out of scope:
 
 ## Access Control Model
 
-ws-scrcpy-web exposes an **unauthenticated** control surface intended for a trusted local or LAN network — anyone who can reach the port can drive connected devices. There is no built-in user login yet. The server does defend that surface against cross-network and cross-site attackers with three layers (see `docs/TECHNICAL_GUIDE.md` §24 for the implementation):
+Authentication is **disabled by default**. In this open mode, anyone who can reach the server port can control connected devices; use it only on a trusted local or LAN network. The application also supports optional built-in account authentication with administrator and user roles and per-device assignments. Enable authentication before exposing the service through a public tunnel or reverse proxy.
+
+The server also defends its control surface against cross-site and DNS-rebinding attacks with three layers (see `docs/TECHNICAL_GUIDE.md` §24 for the implementation):
 
 - **Host allowlist** — the `Host` header must be `localhost`, an IP literal, or a configured `allowedHosts` entry. Bare domains are rejected (DNS-rebinding defense).
 - **Origin match** — for the API / WebSocket surface, a present `Origin` must be same-origin (CSRF defense).
 - **Per-instance token** — a random per-launch `HttpOnly; SameSite=Strict` cookie gates the API and the WebSocket upgrade, so a non-browser client that never loaded the page is refused.
+
+The per-instance token protects the API from callers that have not loaded the app; it is not a substitute for account authentication when the server is reachable by untrusted users.
 
 **Serving on a domain / behind a reverse proxy.** Because the default rejects domain `Host` headers, a TLS-terminating reverse proxy on a domain name must be opted in via the server-only `allowedHosts` array in `config.json`:
 
@@ -55,3 +59,4 @@ ws-scrcpy-web exposes an **unauthenticated** control surface intended for a trus
 `allowedHosts` is read only at startup and is **not** exposed or mutable through `/api/config`. The proxy must forward the original `Host` header (not rewrite it to `localhost`), or the Origin check will reject requests. List only domains you control, and leave it empty for local/LAN-only use.
 
 Thanks for helping keep the project safe.
+
