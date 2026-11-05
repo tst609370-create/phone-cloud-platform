@@ -73,18 +73,40 @@ func TestDefaultBootstrapIsHTTPSAndHasNoToken(t *testing.T) {
 }
 
 func TestElevatedHandoffKeepsTheActionVisible(t *testing.T) {
+	user, err := currentTaskUser("PC", "张三")
+	if err != nil || user != `PC\张三` {
+		t.Fatal(user, err)
+	}
 	for _, action := range []string{"install", "uninstall", "stop"} {
-		params, err := elevatedParameters(action)
-		if err != nil || params != "--elevated --"+action {
+		params, err := elevatedParameters(action, user)
+		if err != nil || !contains(params, "--elevated --"+action) || !contains(params, `PC\张三`) {
 			t.Fatal(action, params, err)
 		}
-		line, err := handoffLine(action)
+		line, err := handoffLine(action, user)
 		if err != nil || !contains(line, params) || !contains(line, "父窗口会等到该进程结束") {
 			t.Fatal(line, err)
 		}
 	}
-	if _, err := elevatedParameters("cancel"); err == nil {
+	if _, err := elevatedParameters("cancel", user); err == nil {
 		t.Fatal("unknown action was accepted")
+	}
+	if _, err := currentTaskUser("PC", `a$b`); err == nil {
+		t.Fatal("metacharacter was accepted")
+	}
+	blank := formatTaskFailure("PhoneRemote-Node", 1, "  ")
+	if !contains(blank, "退出码 1") || !contains(blank, "没有输出文本") {
+		t.Fatal(blank)
+	}
+	script := logonTaskScript()
+	if !contains(script, "LogonType = 3") || !contains(script, "RunLevel = 0") || !contains(script, "RegisterTaskDefinition") {
+		t.Fatal(script)
+	}
+	if contains(script, "schtasks") || contains(script, "/RU") || contains(script, "password") || contains(script, "HIGHEST") {
+		t.Fatal(script)
+	}
+	args, err := taskArguments(`C:\Users\张三\AppData\Local\PhoneRemote\run-node.vbs`)
+	if err != nil || args != `//B //Nologo "C:\Users\张三\AppData\Local\PhoneRemote\run-node.vbs"` {
+		t.Fatal(args, err)
 	}
 	if !needsConfirm("stop") || !needsConfirm("uninstall") || needsConfirm("install") {
 		t.Fatal("destructive actions must ask on this computer")
