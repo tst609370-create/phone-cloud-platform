@@ -8,6 +8,7 @@ import DeviceTabletSVG from '../../public/images/buttons/device_tablet.svg';
 import DeviceTvSVG from '../../public/images/buttons/device_tv.svg';
 import DpadSVG from '../../public/images/buttons/dpad.svg';
 import MenuSVG from '../../public/images/buttons/menu.svg';
+import MicSVG from '../../public/images/buttons/mic.svg';
 import OfflineSVG from '../../public/images/buttons/offline.svg';
 import RefreshSVG from '../../public/images/buttons/refresh.svg';
 import SettingsSVG from '../../public/images/buttons/settings.svg';
@@ -51,6 +52,7 @@ export enum Icon {
     DEVICE_TV = 22,
     DEVICE_TABLET = 23,
     DEVICE_PHONE = 24,
+    MIC = 25,
 }
 
 export default class SvgImage {
@@ -107,6 +109,8 @@ export default class SvgImage {
                 return DeviceTabletSVG;
             case Icon.DEVICE_PHONE:
                 return DevicePhoneSVG;
+            case Icon.MIC:
+                return MicSVG;
             default:
                 return '';
         }

@@ -1,0 +1,8 @@
+# Terminate publicly trusted HTTPS for the registration service.
+# The certificate must be trusted by Windows and include IP 103.205.240.23.
+# Do not put an FRP token in this file.
+
+https://103.205.240.23:7443 {
+	tls /etc/phone-remote/ip.crt /etc/phone-remote/ip.key
+	reverse_proxy 127.0.0.1:7100
+}

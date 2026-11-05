@@ -9,6 +9,7 @@ import { ensureScrcpyServerPushed } from './ensureScrcpyServerPushed';
 import { ControlCenter } from './goog-device/services/ControlCenter';
 import { parseWmDensity, parseWmSize } from './goog-device/wmParsers';
 import { Logger } from './Logger';
+import { readMicCapability } from './mic/route';
 import { Mw, type RequestParameters } from './mw/Mw';
 import { parseScrcpyEncoderList } from './scrcpyEncoderList';
 import { getInstalledScrcpyServerVersion } from './scrcpyServerVersion';
@@ -87,10 +88,11 @@ export class DeviceProbe extends Mw {
         const sdkInt = this.getCachedSdkInt();
         const useScrcpyList = sdkInt > 0 && sdkInt < 28;
 
-        const [sizeOutput, densityOutput, encoders] = await Promise.all([
+        const [sizeOutput, densityOutput, encoders, mic] = await Promise.all([
             this.adbClient.shell(this.serial, 'wm size'),
             this.adbClient.shell(this.serial, 'wm density'),
             useScrcpyList ? this.listEncodersViaScrcpyServer() : this.listEncodersViaDumpsys(),
+            readMicCapability(this.adbClient, this.serial, sdkInt),
         ]);
 
         const { width, height } = parseWmSize(sizeOutput);
@@ -103,6 +105,7 @@ export class DeviceProbe extends Mw {
             sdkInt,
             videoEncoders: encoders.videoEncoders,
             audioEncoders: encoders.audioEncoders,
+            mic,
         };
         log.info(`Probe result for ${this.serial}:`, JSON.stringify(result));
 

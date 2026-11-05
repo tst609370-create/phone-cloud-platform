@@ -4,7 +4,7 @@ import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { Db } from '../../db/Db';
-import { isAllowlisted, isAuthEnabled, parseCookie, SESSION_COOKIE, setAuthEnabled } from '../authState';
+import { isAllowlisted, isAuthEnabled, isLoopbackHost, parseCookie, SESSION_COOKIE, setAuthEnabled } from '../authState';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -32,5 +32,14 @@ describe('authState', () => {
         expect(isAllowlisted('/api/devices')).toBe(false);
         expect(isAllowlisted('/')).toBe(false); // app shell is gated → AuthGate serves the login page inline
         expect(isAllowlisted('/login')).toBe(false); // SPA-shell-leak defense: /login is served inline by AuthGate, never allow-listed
+        expect(isAllowlisted('/admin.html')).toBe(false);
+        expect(isAllowlisted('/admin-login')).toBe(false);
+    });
+    it('recognises only loopback hosts for the local admin entry', () => {
+        expect(isLoopbackHost('127.0.0.1:8000')).toBe(true);
+        expect(isLoopbackHost('localhost:8000')).toBe(true);
+        expect(isLoopbackHost('[::1]:8000')).toBe(true);
+        expect(isLoopbackHost('103.205.240.23:11000')).toBe(false);
+        expect(isLoopbackHost(undefined)).toBe(false);
     });
 });

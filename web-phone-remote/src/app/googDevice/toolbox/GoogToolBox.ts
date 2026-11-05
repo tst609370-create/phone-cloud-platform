@@ -1,5 +1,6 @@
 import { CommandControlMessage } from '../../controlMessage/CommandControlMessage';
 import { KeyCodeControlMessage } from '../../controlMessage/KeyCodeControlMessage';
+import { createMicTalkButton } from '../../mic/MicTalkController';
 import type { BasePlayer } from '../../player/BasePlayer';
 import { ToolBox } from '../../toolbox/ToolBox';
 import { ToolBoxButton } from '../../toolbox/ToolBoxButton';
@@ -102,6 +103,8 @@ export class GoogToolBox extends ToolBox {
             });
             elements.push(screenshot);
         }
+
+        elements.push(createMicTalkButton(udid));
 
         const keyboard = new ToolBoxCheckbox(
             '软键盘',

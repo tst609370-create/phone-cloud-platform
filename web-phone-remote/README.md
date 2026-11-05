@@ -21,6 +21,7 @@ Input flows back as mouse, UHID keyboard, i16-fixed-point scroll, and a D-pad/To
 - Real-time screen mirroring in the browser via WebSocket
 - **Multi-codec video** -- H.264, H.265 (HEVC), AV1 with automatic detection and smart encoder selection
 - **Multi-codec audio** -- Opus, AAC, FLAC, raw PCM via WebCodecs AudioDecoder
+- **Virtual microphone** -- the browser toolbar can feed the computer microphone into the phone so WeChat hold-to-talk and voice calls hear the operator. Rooted phones use an LSPosed hook; Android 13+ tries a shell AudioPolicy injector and grays the button out with a reason when neither path works. Usage, support, and limits are in [docs/虚拟麦克风.md](docs/虚拟麦克风.md).
 - **UHID keyboard/mouse** -- hardware-level input via USB HID reports (pointer lock for mouse)
 - **D-pad / Touch input modes** -- toolbar toggle between D-pad mode (default, for TV apps like Peacock/Netflix) and Touch mode (for touch-aware apps). D-pad mode maps left-click to OK, scroll wheel to up/down, Shift+scroll to left/right
 - **Scroll wheel support** -- mouse wheel scrolling on the mirrored device, tuned for latent streams

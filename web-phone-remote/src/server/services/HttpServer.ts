@@ -5,6 +5,7 @@ import path from 'path';
 import * as process from 'process';
 import { TypedEmitter } from '../../common/TypedEmitter';
 import { sendInternalError } from '../api/utils';
+import { resolveBindHost } from '../bindHost';
 import { Config } from '../Config';
 import { EnvName } from '../EnvName';
 import { createStaticHandler } from '../StaticFileServer';
@@ -140,9 +141,15 @@ export class HttpServer extends TypedEmitter<HttpServerEvents> implements Servic
                 server = http.createServer(options, handler);
             }
             this.servers.push({ server, port });
-            server.listen(port, () => {
+            const bindHost = resolveBindHost(process.env['WS_SCRCPY_BIND_HOST']);
+            const onListen = () => {
                 Utils.printListeningMsg(proto, port, PATHNAME);
-            });
+            };
+            if (bindHost) {
+                server.listen(port, bindHost, onListen);
+            } else {
+                server.listen(port, onListen);
+            }
         });
         this.started = true;
         this.emit('started', true);

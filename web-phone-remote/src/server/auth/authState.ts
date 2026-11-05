@@ -32,3 +32,16 @@ export function parseCookie(header: string | undefined): Record<string, string> 
 export function isAllowlisted(pathname: string): boolean {
     return ALLOWLIST_EXACT.has(pathname) || ALLOWLIST_PREFIX.some((p) => pathname.startsWith(p));
 }
+
+export function isLoopbackHost(hostHeader: string | undefined): boolean {
+    if (!hostHeader) return false;
+    let host = hostHeader.trim().toLowerCase();
+    if (host.startsWith('[')) {
+        const end = host.indexOf(']');
+        host = end > 0 ? host.slice(1, end) : host;
+    } else {
+        const colon = host.lastIndexOf(':');
+        if (colon > -1) host = host.slice(0, colon);
+    }
+    return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+}
