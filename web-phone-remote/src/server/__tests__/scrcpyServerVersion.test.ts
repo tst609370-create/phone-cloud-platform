@@ -1,9 +1,22 @@
+import { execFileSync } from 'node:child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SERVER_VERSION } from '../../common/Constants';
 import { getInstalledScrcpyServerVersion, writeInstalledScrcpyServerVersion } from '../scrcpyServerVersion';
+
+function bundledServerVersion(): string {
+    const jar = path.resolve(process.cwd(), 'assets/scrcpy-server');
+    const dex = execFileSync('unzip', ['-p', jar, 'classes.dex'], { maxBuffer: 8 * 1024 * 1024 });
+    const marker = Buffer.from('The server version (');
+    const at = dex.indexOf(marker);
+    expect(at).toBeGreaterThan(0);
+    const rest = dex.subarray(at + marker.length, at + marker.length + 16).toString('utf8');
+    const version = rest.slice(0, rest.indexOf(')'));
+    expect(version).toMatch(/^\d+\.\d+/);
+    return version;
+}
 
 describe('getInstalledScrcpyServerVersion', () => {
     let tmpDir: string;
@@ -69,5 +82,11 @@ describe('writeInstalledScrcpyServerVersion', () => {
         writeInstalledScrcpyServerVersion(tmpDir, '3.3.4');
         writeInstalledScrcpyServerVersion(tmpDir, '4.0');
         expect(getInstalledScrcpyServerVersion(tmpDir)).toBe('4.0');
+    });
+});
+
+describe('bundled scrcpy-server version', () => {
+    it('is the version the packaged server accepts at startup', () => {
+        expect(bundledServerVersion()).toBe(SERVER_VERSION);
     });
 });

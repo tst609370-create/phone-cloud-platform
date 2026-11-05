@@ -4,6 +4,7 @@ import { CommandControlMessage } from '../controlMessage/CommandControlMessage';
 import { StreamClientScrcpy } from '../googDevice/client/StreamClientScrcpy';
 import Size from '../Size';
 import VideoSettings from '../VideoSettings';
+import { streamCloseLabel } from './streamCloseLabel';
 import type { StartStreamOptions, StreamHandle, StreamInfo, StreamProfile } from './types';
 
 /**
@@ -89,9 +90,9 @@ export function startStream(container: HTMLElement, deviceId: string, options: S
             true,
             videoSettings,
             container,
-            () => {
+            (ev?: CloseEvent) => {
                 isConnected = false;
-                options.onDisconnect?.();
+                options.onDisconnect?.(streamCloseLabel(ev, params.secure ? 'wss' : 'ws'));
             },
             options.deviceKind,
         );
@@ -100,9 +101,6 @@ export function startStream(container: HTMLElement, deviceId: string, options: S
             stop();
             container.removeAttribute(ACTIVE_STREAM_ATTR);
         };
-        // Task 3 will make these hooks functional on StreamClientScrcpy.
-        // Until then, these assignments silently create inert properties on
-        // the instance — no runtime error.
         const hooked = instance as unknown as StreamClientInstanceHooks;
         hooked.onMetadataReceived = (info: StreamInfo) => {
             isConnected = true;

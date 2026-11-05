@@ -197,7 +197,7 @@ export class StreamClientScrcpy
         fitToScreen?: boolean,
         videoSettings?: VideoSettings,
         container?: HTMLElement,
-        onDisconnect?: () => void,
+        onDisconnect?: (ev?: CloseEvent) => void,
         deviceKind?: 'phone' | 'tablet' | 'tv',
     ): { instance: StreamClientScrcpy; stop: () => void } {
         const params = query instanceof URLSearchParams ? StreamClientScrcpy.parseParameters(query) : query;
@@ -219,7 +219,7 @@ export class StreamClientScrcpy
         fitToScreen?: boolean,
         videoSettings?: VideoSettings,
         private readonly container?: HTMLElement,
-        private readonly onDisconnectCallback?: () => void,
+        private readonly onDisconnectCallback?: (ev?: CloseEvent) => void,
         deviceKind?: 'phone' | 'tablet' | 'tv',
     ) {
         super(params);
@@ -366,7 +366,7 @@ export class StreamClientScrcpy
         if (!this.isRefreshing) {
             this.touchHandler?.release();
             this.touchHandler = undefined;
-            this.onDisconnectCallback?.();
+            this.onDisconnectCallback?.(ev);
         }
         // Public hook — fire on abnormal WebSocket closures. ScrcpyDemuxer does
         // not expose a separate onError callback (its ws.onerror is a no-op),

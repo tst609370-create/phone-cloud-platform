@@ -706,7 +706,10 @@
                 else if (autoArrange || needsInitialLayout) scheduleTile();
             }
             if (status.classList.contains('hidden') || /^connected\b/i.test(status.textContent)) setState(card, 'connected', '已连接');
-            else if (/error|disconnected/i.test(status.textContent)) setState(card, 'error', '连接失败');
+            else if (/error|disconnected/i.test(status.textContent)) {
+                const detail = status.textContent.replace(/\s+/g, ' ').trim().slice(0, 96);
+                setState(card, 'error', detail || '连接失败');
+            }
             else setState(card, '', '连接中');
             applyStreamProfile(card);
         } catch { /* status is cosmetic; stream control remains available */ }
