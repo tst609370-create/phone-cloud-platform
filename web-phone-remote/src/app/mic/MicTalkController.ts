@@ -1,4 +1,5 @@
 import { ACTION } from '../../common/Action';
+import { MIC_BUSY_REASON } from '../../common/micProtocol';
 import { ToolBoxButton } from '../toolbox/ToolBoxButton';
 import SvgImage from '../ui/SvgImage';
 import { captureMicrophone, describeMicCaptureError } from './micCapture';
@@ -55,7 +56,6 @@ export function createMicTalkButton(udid: string, deps?: MicTalkDeps): ToolBoxBu
     const el = button.getElement();
     el.classList.add('mic-talk');
     el.type = 'button';
-    el.disabled = true;
     new MicTalkController(udid, el, deps);
     return button;
 }
@@ -311,7 +311,9 @@ export class MicTalkController {
     }
 
     private render(): void {
-        const live = this.captureState === 'capturing' && (this.gesture.continuous || this.gesture.phase === 'ptt' || this.sending);
+        const phoneBusy = this.deviceReason === MIC_BUSY_REASON;
+        const live = this.deviceReady && this.captureState === 'capturing' && (this.gesture.continuous || this.gesture.phase === 'ptt' || this.sending);
+        this.el.disabled = false;
         this.el.classList.toggle('mic-live', live);
         let label = '启用麦克风';
         let title = '点一下请求电脑麦克风。浏览器若已经允许，不会再弹窗。';
@@ -321,6 +323,9 @@ export class MicTalkController {
         } else if (this.captureState === 'failed') {
             label = '麦克风未打开';
             title = this.captureReason;
+        } else if (phoneBusy) {
+            label = this.captureState === 'capturing' ? '已采集，手机被占用' : '手机被占用';
+            title = `${MIC_BUSY_REASON}。这只表示已有控制端占着送音名额。电脑可以单独采集，但不会把声音送进手机，也不代表微信有声。`;
         } else if (this.captureState === 'capturing' && !this.deviceReady) {
             label = '已采集，手机未就绪';
             title = `电脑麦克风已授权并正在采集。${this.deviceReason}。这不代表微信已经有声。`;
@@ -328,7 +333,8 @@ export class MicTalkController {
             label = this.sending ? '已采集，送往手机' : '已采集，未发送';
             title = '电脑麦克风已授权并正在采集。送到手机不等于微信通话或按住说话已经有声。';
         } else if (!this.deviceReady) {
-            title = `${this.deviceReason}。点一下仍会请求电脑麦克风。`;
+            label = '手机未就绪';
+            title = `${this.deviceReason}。点一下仍会请求电脑麦克风，不会把它说成被别人占用。`;
         }
         this.statusEl.textContent = label;
         this.el.title = title;

@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { MicSocketLike, MicTalkDeps } from '../MicTalkController';
 import { MicTalkController, micSocketUrl } from '../MicTalkController';
+import { MIC_BUSY_REASON } from '../../../common/micProtocol';
 
 class FakeSocket implements MicSocketLike {
     readyState = 1;
@@ -96,7 +97,7 @@ describe('mic talk button', () => {
         const button = mount(rig);
         status(rig.socket, false, '未安装虚拟麦克风模块，Android API 28 低于 13');
         expect(button.disabled).toBe(false);
-        expect(button.querySelector('.mic-status')?.textContent).toBe('启用麦克风');
+        expect(button.querySelector('.mic-status')?.textContent).toBe('手机未就绪');
         expect(button.title).toContain('未安装虚拟麦克风模块');
         button.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1 }));
         await flush();
@@ -167,6 +168,25 @@ describe('mic talk button', () => {
         await flush();
         expect(jsons(rig.socket)).toContainEqual({ type: 'start', mode: 'ptt' });
         expect(jsons(rig.socket).some((msg) => msg.type === 'stop')).toBe(true);
+    });
+});
+
+describe('mic occupancy message', () => {
+    it('keeps the exact busy sentence visible and does not treat it as capture success', async () => {
+        const rig = deps(async () => () => undefined);
+        const button = document.createElement('button');
+        button.disabled = true;
+        new MicTalkController('PHONE1', button, rig.deps);
+        cleanups.push(button);
+        status(rig.socket, false, MIC_BUSY_REASON);
+        expect(button.disabled).toBe(false);
+        expect(button.querySelector('.mic-status')?.textContent).toBe('手机被占用');
+        expect(button.title).toContain(MIC_BUSY_REASON);
+        expect(button.title).not.toContain('送往手机');
+        button.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1 }));
+        await flush();
+        expect(button.querySelector('.mic-status')?.textContent).toBe('已采集，手机被占用');
+        expect(button.title).toContain('不会把声音送进手机');
     });
 });
 
