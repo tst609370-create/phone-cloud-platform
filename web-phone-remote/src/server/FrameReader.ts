@@ -9,9 +9,9 @@ import type net from 'net';
 //   PACKET_FLAG_SESSION   = 1L << 63
 //   PACKET_FLAG_CONFIG    = 1L << 62  (was 1L << 63 in v3)
 //   PACKET_FLAG_KEY_FRAME = 1L << 61  (was 1L << 62 in v3)
-const PACKET_FLAG_SESSION = 0x8000000000000000n;
-const PTS_FLAG_CONFIG = 0x4000000000000000n;
-const PTS_FLAG_KEYFRAME = 0x2000000000000000n;
+export const PACKET_FLAG_SESSION = 0x8000000000000000n;
+export const PTS_FLAG_CONFIG = 0x4000000000000000n;
+export const PTS_FLAG_KEYFRAME = 0x2000000000000000n;
 const PTS_CLEAR_FLAGS = 0x1fffffffffffffffn;
 const HEADER_SIZE = 12; // media packet: 8 (PTS + flags) + 4 (size); session packet: 4 (flags) + 4 (width) + 4 (height)
 

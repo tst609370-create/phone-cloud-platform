@@ -14,6 +14,7 @@ import { ControlCenter } from './goog-device/services/ControlCenter';
 import { Logger } from './Logger';
 import { Mw, type RequestParameters } from './mw/Mw';
 import { type ScrcpyOptions, serializeOptions } from './ScrcpyOptions';
+import { acceptScrcpy41Control } from './scrcpy41';
 import { scrcpyOptionsFromQuery } from './scrcpyOptionsFromQuery';
 import { getInstalledScrcpyServerVersion } from './scrcpyServerVersion';
 
@@ -506,6 +507,10 @@ export class ScrcpyConnection extends Mw {
             const channel = data[0];
             const payload = data.subarray(1);
             if (channel === ChannelId.CONTROL && this.controlSocket && !this.controlSocket.destroyed) {
+                if (!acceptScrcpy41Control(payload)) {
+                    log.info(`ignored control type ${payload[0]} because scrcpy 4.1 would close the control channel`);
+                    return;
+                }
                 this.controlSocket.write(payload);
             }
         }
