@@ -221,6 +221,23 @@ func localPage(port int) string {
 	return fmt.Sprintf("http://127.0.0.1:%d/", port)
 }
 
+func localAdminEntry(port int) string {
+	return fmt.Sprintf("http://127.0.0.1:%d/admin-login", port)
+}
+
+func savedAdminPassword(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		if strings.HasPrefix(line, "密码:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "密码:"))
+		}
+		if strings.HasPrefix(line, "密码：") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "密码："))
+		}
+	}
+	return ""
+}
+
 func needsConfirm(action string) bool {
 	return action == "stop" || action == "uninstall"
 }
@@ -242,9 +259,9 @@ func internetShortcut(url string) string {
 }
 
 func shortcutFiles(installExe, logPath string, port int) (map[string]string, error) {
-	page := localPage(port)
-	if !strings.HasPrefix(page, "http://127.0.0.1:") || strings.Contains(page, "https://") {
-		return nil, fmt.Errorf("本机页面地址不正确")
+	page := localAdminEntry(port)
+	if !strings.HasPrefix(page, "http://127.0.0.1:") || !strings.HasSuffix(page, "/admin-login") || strings.Contains(page, "https://") {
+		return nil, fmt.Errorf("本机管理入口地址不正确")
 	}
 	stop := "@echo off\r\n\"" + installExe + "\" --stop\r\n"
 	uninstall := "@echo off\r\n\"" + installExe + "\" --uninstall\r\n"
@@ -266,9 +283,10 @@ func finishText(localPort int, password, credPath string, frpConnected bool, rem
 	}
 	return fmt.Sprintf(`安装完成。
 
-本机地址：http://127.0.0.1:%d
-安装结束会打开这个本机页面。桌面和开始菜单里有“打开本机控制台”“管理后台”“查看安装日志”“停止手机远控”“卸载手机远控”。停止和卸载都会再问一次。
-在这台电脑上打开上面的地址才是安全上下文，麦克风才可能使用。
+本机管理入口：http://127.0.0.1:%d/admin-login
+安装结束会打开这个地址。桌面的“管理后台”也指向它。它要求填写管理员账号和密码，地址里没有密码。
+公网页面上的识别码表单不是管理员登录。
+在这台电脑上打开本机地址才是安全上下文，麦克风才可能使用。
 管理员账号：%s
 管理员密码：%s
 密码同时写在（请勿外传、勿放进压缩包）：%s

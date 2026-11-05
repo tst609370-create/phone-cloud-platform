@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { Db } from '../db/Db';
-import { isAllowlisted, isAuthEnabled, parseCookie, SESSION_COOKIE } from './authState';
+import { isAllowlisted, isAuthEnabled, isLoopbackHost, parseCookie, SESSION_COOKIE } from './authState';
 import { isRentalExpired } from './rentalExpiry';
 import { SessionStore } from './session';
 
@@ -22,9 +22,40 @@ try{const r=await fetch('/api/auth/login',{method:'POST',headers:{'content-type'
 if(r.ok){location.href='/';}else{e.textContent='识别码无效、已停用或暂时锁定。';}}catch{e.textContent='网络连接失败，请重试。';}});
 </script></body></html>`;
 
-function serveLoginPage(res: ServerResponse): void {
+const ADMIN_LOGIN_HTML = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>管理员登录</title>
+<style>*{box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#07111f;color:#eef6ff;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:20px}form{background:#0e1c30;border:1px solid #29415f;padding:30px;border-radius:18px;width:min(380px,100%)}h1{font-size:24px;margin:0 0 7px}.sub{color:#8da3bd;margin:0 0 22px}label{display:block;margin:12px 0 6px}input{display:block;width:100%;height:46px;padding:0 14px;background:#091526;border:1px solid #344c69;color:#fff;border-radius:10px;font-size:16px}button{width:100%;height:46px;margin-top:16px;background:#328af5;color:#fff;border:0;border-radius:10px;font-size:16px;font-weight:700}.err{color:#ff8d99;min-height:20px;margin-top:9px}</style>
+</head><body><form id="f"><h1>管理员登录</h1><p class="sub">这是本机管理入口。账号和密码分开填写，密码不会写在地址里。</p>
+<label for="user">管理员账号</label><input id="user" name="username" autocomplete="username">
+<label for="pass">管理员密码</label><input id="pass" name="password" type="password" autocomplete="current-password">
+<div class="err" id="e"></div><button type="submit">进入后台</button></form>
+<script>
+const f=document.getElementById('f'),e=document.getElementById('e');
+f.addEventListener('submit',async (ev)=>{ev.preventDefault();e.textContent='';
+const username=document.getElementById('user').value.trim();
+const password=document.getElementById('pass').value;
+try{const r=await fetch('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username,password})});
+if(!r.ok){e.textContent='账号或密码不正确。';return;}
+const me=await fetch('/api/auth/me');const data=await me.json();
+if(data.user&&data.user.role==='admin'){location.href='/admin.html';return;}
+await fetch('/api/auth/logout',{method:'POST'});
+e.textContent='这个账号不是管理员。';}catch{e.textContent='网络连接失败，请重试。';}});
+</script></body></html>`;
+
+const ADMIN_LOCAL_ONLY_HTML = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>管理入口在安装这台电脑上</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#07111f;color:#eef6ff;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:24px}main{max-width:460px}h1{font-size:24px}p{color:#b7c8dc;line-height:1.6}</style>
+</head><body><main><h1>管理入口在安装这台电脑上</h1>
+<p>请在安装了手机远控的那台 Windows 上双击桌面的“管理后台”。公网地址只给租用识别码使用，这里没有管理员登录表单。</p>
+</main></body></html>`;
+
+function serveHtml(res: ServerResponse, html: string): void {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end(LOGIN_PAGE_HTML);
+    res.end(html);
+}
+
+function serveLoginPage(res: ServerResponse): void {
+    serveHtml(res, LOGIN_PAGE_HTML);
 }
 
 export class AuthGate {
@@ -48,9 +79,14 @@ export class AuthGate {
             if (url.pathname.startsWith('/api/')) {
                 res.writeHead(401, { 'content-type': 'application/json' });
                 res.end(JSON.stringify({ error: 'unauthorized' }));
+            } else if (url.pathname === '/admin-login' && isLoopbackHost(req.headers.host)) {
+                serveHtml(res, ADMIN_LOGIN_HTML);
+            } else if (url.pathname === '/admin-login') {
+                serveHtml(res, ADMIN_LOCAL_ONLY_HTML);
             } else {
-                // Serve the login page INLINE — never redirect to /login (that would fall through
-                // to the static handler's index.html SPA fallback and leak the gated app shell).
+                // Serve the tenant login page INLINE — never redirect to /login (that would fall
+                // through to the static handler's index.html SPA fallback and leak the gated app shell).
+                // /admin.html is not an admin login URL: it is the admin app, and it stays behind this gate.
                 serveLoginPage(res);
             }
             return true; // handled → short-circuit the chain

@@ -109,8 +109,11 @@ func TestShortcutsStayOnTheLocalPage(t *testing.T) {
 			t.Fatal(name, body)
 		}
 	}
-	if files["打开本机控制台.url"] != "[InternetShortcut]\r\nURL=http://127.0.0.1:8000/\r\n" {
+	if files["打开本机控制台.url"] != "[InternetShortcut]\r\nURL=http://127.0.0.1:8000/admin-login\r\n" {
 		t.Fatal(files["打开本机控制台.url"])
+	}
+	if savedAdminPassword("用户名: admin\r\n密码: secret-1\r\n") != "secret-1" {
+		t.Fatal(savedAdminPassword("用户名: admin\r\n密码: secret-1\r\n"))
 	}
 	if files["打开本机控制台.url"] != files["管理后台.url"] {
 		t.Fatal("admin entry is the same local web app")

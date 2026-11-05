@@ -20,10 +20,19 @@ function db(): Db {
     return Db.getInstance(d);
 }
 
-async function runGate(gate: AuthGate, method: string, url: string, cookie: string | undefined) {
-    const { req, res, getStatus } = makeReqRes(method, url, undefined, cookie ? { cookie } : {});
+async function runGate(
+    gate: AuthGate,
+    method: string,
+    url: string,
+    cookie: string | undefined,
+    headers: Record<string, string> = {},
+) {
+    const { req, res, getStatus, getBody } = makeReqRes(method, url, undefined, {
+        ...(cookie ? { cookie } : {}),
+        ...headers,
+    });
     const handled = await gate.handle(req, res);
-    return { req, res, handled, status: getStatus() };
+    return { req, res, handled, status: getStatus(), body: getBody() };
 }
 
 describe('AuthGate', () => {
@@ -79,5 +88,30 @@ describe('AuthGate', () => {
         expect(handled).toBe(true);
         expect(status).toBe(401);
         expect((d.sqlite.prepare('SELECT COUNT(*) AS c FROM sessions WHERE user_id = ?').get(tenant.id) as { c: number }).c).toBe(0);
+    });
+    it('serves the tenant code form for /admin.html and keeps admin login on loopback', async () => {
+        const d = db();
+        setAuthEnabled(d, true);
+        const gate = new AuthGate(() => d);
+        const tenant = await runGate(gate, 'GET', '/admin.html', undefined, { host: '103.205.240.23:11000' });
+        expect(tenant.handled).toBe(true);
+        expect(tenant.status).toBe(200);
+        expect(tenant.body).toContain('进入云手机');
+        expect(tenant.body).toContain('唯一识别码');
+        expect(tenant.body).toContain('username:code,password:code');
+        expect(tenant.body).not.toContain('后台总控');
+
+        const local = await runGate(gate, 'GET', '/admin-login', undefined, { host: '127.0.0.1:8000' });
+        expect(local.status).toBe(200);
+        expect(local.body).toContain('管理员登录');
+        expect(local.body).toContain('JSON.stringify({username,password})');
+        expect(local.body).toContain("location.href='/admin.html'");
+        expect(local.body).not.toContain('username:code,password:code');
+        expect(local.body).not.toContain('value="');
+
+        const remote = await runGate(gate, 'GET', '/admin-login', undefined, { host: '103.205.240.23:11000' });
+        expect(remote.body).toContain('管理入口在安装这台电脑上');
+        expect(remote.body).not.toContain('type="password"');
+        expect(remote.body).not.toContain('/api/auth/login');
     });
 });

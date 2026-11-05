@@ -17,6 +17,7 @@ export function makeReqRes(
     req: IncomingMessage;
     res: ServerResponse;
     getStatus(): number;
+    getBody(): string;
     getJson(): unknown;
     getHeader(name: string): string | undefined;
 } {
@@ -47,6 +48,7 @@ export function makeReqRes(
         req,
         res,
         getStatus: () => status,
+        getBody: () => chunks.join(''),
         getJson: () => (chunks.length ? JSON.parse(chunks.join('')) : undefined),
         getHeader: (name: string) => setHeaders[name.toLowerCase()],
     };

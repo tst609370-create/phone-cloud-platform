@@ -23,18 +23,27 @@ const dbPath = process.env.PHONE_REMOTE_DB;
 const user = process.env.PHONE_REMOTE_ADMIN_USER || 'admin';
 const password = process.env.PHONE_REMOTE_ADMIN_PASSWORD || '';
 
-if (!dbPath || !password) {
-    console.error('缺少数据库路径或密码环境变量');
+if (!dbPath) {
+    console.error('缺少数据库路径');
     process.exit(2);
 }
 
 const db = new DatabaseSync(dbPath);
 db.exec('PRAGMA busy_timeout = 5000');
 db.exec('PRAGMA foreign_keys = ON');
-const admin = db.prepare('SELECT id FROM users WHERE id = 1').get();
+const admin = db.prepare('SELECT id, password_hash FROM users WHERE id = 1').get();
 if (!admin) {
     console.error('数据库里还没有管理员记录。请先成功启动一次服务。');
     process.exit(1);
+}
+if (admin.password_hash) {
+    console.log('KEEP');
+    db.close();
+    process.exit(0);
+}
+if (!password) {
+    console.error('缺少密码环境变量');
+    process.exit(2);
 }
 db.prepare('UPDATE users SET username = ?, password_hash = ? WHERE id = 1').run(user, hashPassword(password));
 db.prepare(

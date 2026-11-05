@@ -350,10 +350,20 @@ func bootAuth(root, appDir, node, configPath, deps string, localPort int, log *i
 	if err != nil {
 		return "", fmt.Errorf("开启登录失败：%s", strings.TrimSpace(logged))
 	}
-	cred := fmt.Sprintf("PhoneRemote 本机凭证。不要发送给别人，不要放进压缩包。\r\n用户名: %s\r\n密码: %s\r\n本机地址: http://127.0.0.1:%d\r\n", adminUser, password, localPort)
 	credPath := filepath.Join(root, "credentials.txt")
-	if err := os.WriteFile(credPath, []byte(cred), 0o600); err != nil {
-		return "", err
+	if strings.Contains(logged, "KEEP") {
+		kept := savedAdminPassword(string(mustRead(credPath)))
+		log.hide(kept)
+		if kept != "" {
+			password = kept
+		} else {
+			password = "（这台电脑已经设置过管理员密码，这次没有改。请使用当时安装完成窗口里的密码。）"
+		}
+	} else {
+		cred := fmt.Sprintf("PhoneRemote 本机凭证。不要发送给别人，不要放进压缩包。\r\n用户名: %s\r\n密码: %s\r\n本机管理入口: %s\r\n", adminUser, password, localAdminEntry(localPort))
+		if err := os.WriteFile(credPath, []byte(cred), 0o600); err != nil {
+			return "", err
+		}
 	}
 	if err := runHidden("schtasks", "/Run", "/TN", "PhoneRemote-Node"); err != nil {
 		return "", fmt.Errorf("计划任务没有启动服务：%w", err)
@@ -606,7 +616,15 @@ func copyFile(src, dst string) error {
 }
 
 func openLocalPage(port int) error {
-	return exec.Command("explorer.exe", localPage(port)).Start()
+	return exec.Command("explorer.exe", localAdminEntry(port)).Start()
+}
+
+func mustRead(path string) []byte {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return raw
 }
 
 func removeEntries() {
