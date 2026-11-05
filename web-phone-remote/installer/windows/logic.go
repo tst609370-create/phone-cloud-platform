@@ -208,6 +208,57 @@ func ownedByInstall(root, exe string) bool {
 	return exeLower == rootLower || strings.HasPrefix(exeLower, rootLower+sep)
 }
 
+func elevatedParameters(action string) (string, error) {
+	switch action {
+	case "install", "uninstall", "stop":
+		return "--elevated --" + action, nil
+	default:
+		return "", fmt.Errorf("未知操作")
+	}
+}
+
+func localPage(port int) string {
+	return fmt.Sprintf("http://127.0.0.1:%d/", port)
+}
+
+func needsConfirm(action string) bool {
+	return action == "stop" || action == "uninstall"
+}
+
+func handoffLine(action string) (string, error) {
+	params, err := elevatedParameters(action)
+	if err != nil {
+		return "", err
+	}
+	return "已请求管理员权限，参数 " + params + "。父窗口会等到该进程结束。", nil
+}
+
+func failureBoxText(detail, logPath string) string {
+	return detail + "\r\n\r\n安装日志：\r\n" + logPath + "\r\n日志不含管理员密码。打不开窗口时，把这个文件发给管理员。"
+}
+
+func internetShortcut(url string) string {
+	return "[InternetShortcut]\r\nURL=" + url + "\r\n"
+}
+
+func shortcutFiles(installExe, logPath string, port int) (map[string]string, error) {
+	page := localPage(port)
+	if !strings.HasPrefix(page, "http://127.0.0.1:") || strings.Contains(page, "https://") {
+		return nil, fmt.Errorf("本机页面地址不正确")
+	}
+	stop := "@echo off\r\n\"" + installExe + "\" --stop\r\n"
+	uninstall := "@echo off\r\n\"" + installExe + "\" --uninstall\r\n"
+	logCmd := "@echo off\r\nnotepad \"" + logPath + "\"\r\n"
+	pageFile := internetShortcut(page)
+	return map[string]string{
+		"打开本机控制台.url": pageFile,
+		"管理后台.url":    pageFile,
+		"查看安装日志.cmd":  logCmd,
+		"停止手机远控.cmd":  stop,
+		"卸载手机远控.cmd":  uninstall,
+	}, nil
+}
+
 func finishText(localPort int, password, credPath string, frpConnected bool, remotePort int) string {
 	frp := "公网 HTTPS：尚未分配，中转未连通。没有邀请或注册失败时不会占用端口，也没有发放共享令牌。"
 	if frpConnected {
@@ -216,6 +267,7 @@ func finishText(localPort int, password, credPath string, frpConnected bool, rem
 	return fmt.Sprintf(`安装完成。
 
 本机地址：http://127.0.0.1:%d
+安装结束会打开这个本机页面。桌面和开始菜单里有“打开本机控制台”“管理后台”“查看安装日志”“停止手机远控”“卸载手机远控”。停止和卸载都会再问一次。
 在这台电脑上打开上面的地址才是安全上下文，麦克风才可能使用。
 管理员账号：%s
 管理员密码：%s

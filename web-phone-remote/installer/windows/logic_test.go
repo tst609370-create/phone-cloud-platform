@@ -72,6 +72,57 @@ func TestDefaultBootstrapIsHTTPSAndHasNoToken(t *testing.T) {
 	}
 }
 
+func TestElevatedHandoffKeepsTheActionVisible(t *testing.T) {
+	for _, action := range []string{"install", "uninstall", "stop"} {
+		params, err := elevatedParameters(action)
+		if err != nil || params != "--elevated --"+action {
+			t.Fatal(action, params, err)
+		}
+		line, err := handoffLine(action)
+		if err != nil || !contains(line, params) || !contains(line, "父窗口会等到该进程结束") {
+			t.Fatal(line, err)
+		}
+	}
+	if _, err := elevatedParameters("cancel"); err == nil {
+		t.Fatal("unknown action was accepted")
+	}
+	if !needsConfirm("stop") || !needsConfirm("uninstall") || needsConfirm("install") {
+		t.Fatal("destructive actions must ask on this computer")
+	}
+	text := failureBoxText("安装进程退出码 1", `C:\Users\Administrator\AppData\Local\PhoneRemote\logs\install.log`)
+	if !contains(text, `PhoneRemote\logs\install.log`) || !contains(text, "不含管理员密码") {
+		t.Fatal(text)
+	}
+}
+
+func TestShortcutsStayOnTheLocalPage(t *testing.T) {
+	files, err := shortcutFiles(`C:\PhoneRemote\PhoneRemoteSetup.exe`, `C:\PhoneRemote\logs\install.log`, 8000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"打开本机控制台.url", "管理后台.url", "查看安装日志.cmd", "停止手机远控.cmd", "卸载手机远控.cmd"} {
+		body, ok := files[name]
+		if !ok || body == "" {
+			t.Fatalf("missing %s", name)
+		}
+		if contains(body, "103.205.240.23") || contains(body, "password") || contains(body, "deviceSecret") {
+			t.Fatal(name, body)
+		}
+	}
+	if files["打开本机控制台.url"] != "[InternetShortcut]\r\nURL=http://127.0.0.1:8000/\r\n" {
+		t.Fatal(files["打开本机控制台.url"])
+	}
+	if files["打开本机控制台.url"] != files["管理后台.url"] {
+		t.Fatal("admin entry is the same local web app")
+	}
+	if !contains(files["查看安装日志.cmd"], `logs\install.log`) {
+		t.Fatal(files["查看安装日志.cmd"])
+	}
+	if !contains(files["停止手机远控.cmd"], "--stop") || !contains(files["卸载手机远控.cmd"], "--uninstall") {
+		t.Fatal(files["停止手机远控.cmd"], files["卸载手机远控.cmd"])
+	}
+}
+
 func TestOwnedProcessAndEnrollmentReuse(t *testing.T) {
 	root := filepath.Join("C:", "Users", "Administrator", "AppData", "Local", "PhoneRemote")
 	if !ownedByInstall(root, filepath.Join(root, "dependencies", "adb", "adb.exe")) {

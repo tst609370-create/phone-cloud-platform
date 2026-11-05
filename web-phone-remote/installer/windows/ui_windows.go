@@ -10,16 +10,21 @@ import (
 )
 
 var (
-	user32          = syscall.NewLazyDLL("user32.dll")
-	shell32         = syscall.NewLazyDLL("shell32.dll")
-	kernel32        = syscall.NewLazyDLL("kernel32.dll")
-	procMessageBox  = user32.NewProc("MessageBoxW")
-	procShellExec   = shell32.NewProc("ShellExecuteW")
-	procIsAdmin     = shell32.NewProc("IsUserAnAdmin")
-	procSetConsole  = kernel32.NewProc("SetConsoleOutputCP")
-	procSetConsoleI = kernel32.NewProc("SetConsoleCP")
-	procCreateMutex = kernel32.NewProc("CreateMutexW")
-	procCloseHandle = kernel32.NewProc("CloseHandle")
+	user32           = syscall.NewLazyDLL("user32.dll")
+	shell32          = syscall.NewLazyDLL("shell32.dll")
+	kernel32         = syscall.NewLazyDLL("kernel32.dll")
+	procMessageBox   = user32.NewProc("MessageBoxW")
+	procIsAdmin      = shell32.NewProc("IsUserAnAdmin")
+	procSetConsole   = kernel32.NewProc("SetConsoleOutputCP")
+	procSetConsoleI  = kernel32.NewProc("SetConsoleCP")
+	procCreateMutex  = kernel32.NewProc("CreateMutexW")
+	procCloseHandle  = kernel32.NewProc("CloseHandle")
+	procShellEx      = shell32.NewProc("ShellExecuteExW")
+	procWait         = kernel32.NewProc("WaitForSingleObject")
+	procExitCode     = kernel32.NewProc("GetExitCodeProcess")
+	procFreeConsole  = kernel32.NewProc("FreeConsole")
+	procAllocConsole = kernel32.NewProc("AllocConsole")
+	procSetTitle     = kernel32.NewProc("SetConsoleTitleW")
 )
 
 var installMutex uintptr
@@ -31,6 +36,7 @@ const (
 	mbIconWarning   = 0x00000030
 	mbIconError     = 0x00000010
 	mbSetForeground = 0x00010000
+	mbTopMost       = 0x00040000
 	idYes           = 6
 	idNo            = 7
 	idCancel        = 2
@@ -65,7 +71,7 @@ func enableUTF8Console() {
 func messageBox(title, text string, flags uintptr) int {
 	t, _ := syscall.UTF16PtrFromString(title)
 	b, _ := syscall.UTF16PtrFromString(text)
-	r, _, _ := procMessageBox.Call(0, uintptr(unsafe.Pointer(b)), uintptr(unsafe.Pointer(t)), flags|mbSetForeground)
+	r, _, _ := procMessageBox.Call(0, uintptr(unsafe.Pointer(b)), uintptr(unsafe.Pointer(t)), flags|mbSetForeground|mbTopMost)
 	return int(r)
 }
 
@@ -74,19 +80,75 @@ func isAdmin() bool {
 	return r != 0
 }
 
-func relaunchElevated(args string) error {
+func relaunchElevated(args string) (int, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return err
+		return 1, err
 	}
 	verb, _ := syscall.UTF16PtrFromString("runas")
 	file, _ := syscall.UTF16PtrFromString(exe)
 	params, _ := syscall.UTF16PtrFromString(args)
-	dir, _ := syscall.UTF16PtrFromString("")
-	r, _, _ := procShellExec.Call(0, uintptr(unsafe.Pointer(verb)), uintptr(unsafe.Pointer(file)), uintptr(unsafe.Pointer(params)), uintptr(unsafe.Pointer(dir)), 1)
-	if r <= 32 {
-		return fmt.Errorf("没有获得管理员确认（返回值 %d）。安装已取消", r)
+	var sei struct {
+		cbSize       uint32
+		fMask        uint32
+		hwnd         uintptr
+		lpVerb       *uint16
+		lpFile       *uint16
+		lpParameters *uint16
+		lpDirectory  *uint16
+		nShow        int32
+		hInstApp     uintptr
+		lpIDList     uintptr
+		lpClass      *uint16
+		hkeyClass    uintptr
+		dwHotKey     uint32
+		hIcon        uintptr
+		hProcess     uintptr
 	}
+	sei.cbSize = uint32(unsafe.Sizeof(sei))
+	if sei.cbSize != 112 {
+		return 1, fmt.Errorf("内部错误：提权参数大小 %d", sei.cbSize)
+	}
+	sei.fMask = 0x00000040
+	sei.lpVerb = verb
+	sei.lpFile = file
+	sei.lpParameters = params
+	sei.nShow = 1
+	r, _, callErr := procShellEx.Call(uintptr(unsafe.Pointer(&sei)))
+	if r == 0 {
+		return 1, fmt.Errorf("没有获得管理员确认（%v）。安装已取消", callErr)
+	}
+	if sei.hProcess == 0 {
+		return 1, fmt.Errorf("系统没有返回管理员安装进程。安装已取消")
+	}
+	defer procCloseHandle.Call(sei.hProcess)
+	wait, _, _ := procWait.Call(sei.hProcess, 0xFFFFFFFF)
+	if wait != 0 {
+		return 1, fmt.Errorf("没能等到管理员安装进程结束")
+	}
+	var code uint32
+	procExitCode.Call(sei.hProcess, uintptr(unsafe.Pointer(&code)))
+	return int(code), nil
+}
+
+func reopenConsole() error {
+	procFreeConsole.Call()
+	r, _, err := procAllocConsole.Call()
+	if r == 0 {
+		return fmt.Errorf("无法打开安装窗口：%v", err)
+	}
+	title, _ := syscall.UTF16PtrFromString("手机远控安装")
+	procSetTitle.Call(uintptr(unsafe.Pointer(title)))
+	out, err := syscall.GetStdHandle(syscall.STD_OUTPUT_HANDLE)
+	if err != nil {
+		return err
+	}
+	errHandle, err := syscall.GetStdHandle(syscall.STD_ERROR_HANDLE)
+	if err != nil {
+		return err
+	}
+	os.Stdout = os.NewFile(uintptr(out), "stdout")
+	os.Stderr = os.NewFile(uintptr(errHandle), "stderr")
 	return nil
 }
 

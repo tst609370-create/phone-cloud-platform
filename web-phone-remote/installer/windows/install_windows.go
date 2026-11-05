@@ -274,7 +274,16 @@ func configureAndStart(root, genRoot string, log *installerLog, invite string) e
 	// bootAuth stores the admin password in log.secret only after redact is active.
 	// The completion dialog is not the log file.
 	cred := filepath.Join(root, "credentials.txt")
-	infoBox("安装完成", finishText(localPort, password, cred, connected, remotePort))
+	text := finishText(localPort, password, cred, connected, remotePort)
+	if err := placeShortcuts(root, localPort); err != nil {
+		log.printf("创建快捷方式失败：%s", err.Error())
+		text += "\r\n\r\n快捷方式没有全部创建：" + err.Error()
+	}
+	if err := openLocalPage(localPort); err != nil {
+		log.printf("打开本机页面失败：%s", err.Error())
+		text += "\r\n\r\n没能自动打开本机页面：" + err.Error() + "\r\n请手动打开 " + localPage(localPort)
+	}
+	infoBox("安装完成", text)
 	return nil
 }
 
@@ -523,11 +532,129 @@ func stopOwnedProcesses(root string) {
 	_ = cmd.Run()
 }
 
-func runUninstall() error {
+func installLogPathFromEnv() string {
+	root, err := installRoot()
+	if err != nil {
+		return filepath.Join("PhoneRemote", "logs", "install.log")
+	}
+	return filepath.Join(root, "logs", "install.log")
+}
+
+func noteInstallLog(line string) string {
+	path := installLogPathFromEnv()
+	_ = os.MkdirAll(filepath.Dir(path), 0o755)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err == nil {
+		_, _ = file.WriteString(time.Now().Format("15:04:05 ") + line + "\n")
+		_ = file.Close()
+	}
+	return path
+}
+
+func placeShortcuts(root string, port int) error {
+	profile := os.Getenv("USERPROFILE")
+	appData := os.Getenv("APPDATA")
+	if profile == "" || appData == "" {
+		return fmt.Errorf("找不到桌面或开始菜单目录")
+	}
+	exePath := filepath.Join(root, "PhoneRemoteSetup.exe")
+	source, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(filepath.Clean(source), filepath.Clean(exePath)) {
+		if err := copyFile(source, exePath); err != nil {
+			return err
+		}
+	}
+	files, err := shortcutFiles(exePath, filepath.Join(root, "logs", "install.log"), port)
+	if err != nil {
+		return err
+	}
+	dirs := []string{
+		filepath.Join(profile, "Desktop"),
+		filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "手机远控"),
+	}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		for name, body := range files {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
+}
+
+func openLocalPage(port int) error {
+	return exec.Command("explorer.exe", localPage(port)).Start()
+}
+
+func removeEntries() {
+	profile := os.Getenv("USERPROFILE")
+	appData := os.Getenv("APPDATA")
+	files, err := shortcutFiles("unused.exe", "unused.log", 8000)
+	if err != nil || profile == "" || appData == "" {
+		return
+	}
+	dirs := []string{
+		filepath.Join(profile, "Desktop"),
+		filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "手机远控"),
+	}
+	for _, dir := range dirs {
+		for name := range files {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
+	_ = os.Remove(filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "手机远控"))
+}
+
+func runStop() error {
+	if messageBox("停止手机远控", "将停止本机的手机远控计划任务，以及安装目录里的程序。不会删除文件，也不会动其他软件。\r\n\r\n是否继续？", mbYesNo|mbIconWarning) != idYes {
+		infoBox("已取消", "没有停止。")
+		return nil
+	}
 	root, err := installRoot()
 	if err != nil {
 		return err
 	}
+	noteInstallLog("用户确认停止本机服务")
+	stopOurTasks()
+	time.Sleep(500 * time.Millisecond)
+	stopOwnedProcesses(root)
+	infoBox("已停止", "手机远控已停止。桌面和开始菜单里的入口还在。\r\n日志："+installLogPathFromEnv())
+	return nil
+}
+
+func runUninstall() error {
+	if messageBox("卸载手机远控", "将删除本机的手机远控文件，并取消登录后自动启动。桌面上的入口也会失效。\r\n\r\n是否继续？", mbYesNo|mbIconWarning) != idYes {
+		infoBox("已取消", "没有卸载。")
+		return nil
+	}
+	root, err := installRoot()
+	if err != nil {
+		return err
+	}
+	removeEntries()
 	stopOurTasks()
 	_ = runHidden("schtasks", "/Delete", "/TN", "PhoneRemote-Node", "/F")
 	_ = runHidden("schtasks", "/Delete", "/TN", "PhoneRemote-Frpc", "/F")

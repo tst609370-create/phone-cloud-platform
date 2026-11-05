@@ -1,6 +1,6 @@
 # Windows 单文件安装器
 
-双击 `PhoneRemoteSetup.exe`。它会先用中文说明要安装手机远控、并在登录 Windows 后自动启动，然后弹出系统的管理员确认。安装器自己带好 Node、adb、frpc 和已经编译好的远控程序，不会在对方电脑上执行 `npm install` 或 `npm run build`。
+双击 `PhoneRemoteSetup.exe`。它会先用中文说明要安装手机远控、并在登录 Windows 后自动启动，然后弹出系统的管理员确认。点“是”之后原来的窗口会留着，并等到提权后的安装进程结束；成功、失败、取消都会再弹出中文窗口。安装器自己带好 Node、adb、frpc 和已经编译好的远控程序，不会在对方电脑上执行 `npm install` 或 `npm run build`。
 
 不要从压缩包预览里直接运行 cmd。旧的 `install.cmd` 用当前目录去找 `install.ps1`，用 360 压缩打开时工作目录不对，脚本就找不到。这个 exe 不依赖旁边的脚本。
 
@@ -11,7 +11,9 @@
 - 生成随机管理员密码，打开强制登录
 - 密码只在结束对话框和本机 `credentials.txt` 里。安装日志会把密码打成 `[已隐藏]`
 - 注册计划任务 `PhoneRemote-Node`（登录后启动）
-- 已安装时可以选择卸载
+- 已安装时可以选择卸载。停止和卸载都会再弹出确认
+- 安装完成后打开 `http://127.0.0.1:本机端口/`，并在桌面和开始菜单放本机控制台、管理后台、安装日志、停止和卸载入口
+- 日志在 `%LOCALAPPDATA%\PhoneRemote\logs\install.log`
 
 ## 公网中转
 
