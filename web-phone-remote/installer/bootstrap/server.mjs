@@ -49,6 +49,10 @@ function send(res, status, body) {
 
 const server = createServer(async (req, res) => {
     try {
+        if (req.method === 'GET' && (req.url === '/healthz' || req.url === '/healthz/')) {
+            send(res, 200, { ok: true });
+            return;
+        }
         if (req.method === 'POST' && req.url === '/v1/register') {
             const body = await readBody(req);
             const store = load();

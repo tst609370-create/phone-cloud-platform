@@ -10,6 +10,7 @@ Environment=PORT=7100
 Environment=FRP_SERVER=103.205.240.23
 Environment=FRP_SERVER_PORT=7000
 Environment=PHONE_REMOTE_STORE=/var/lib/phone-remote/enrollment.json
+# Do not set FRP_TOKEN or ENROLL_OPEN. This service does not use them.
 Restart=on-failure
 NoNewPrivileges=true
 
