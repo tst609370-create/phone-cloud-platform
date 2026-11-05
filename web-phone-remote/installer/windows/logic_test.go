@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAssignRemotePortDoesNotPin10002(t *testing.T) {
 	port, err := assignRemotePort(nil, "device-a")
@@ -23,14 +26,15 @@ func TestAssignRemotePortDoesNotPin10002(t *testing.T) {
 	}
 }
 
-func TestParseBootstrapRejectsMissingTokenAndFixedPort(t *testing.T) {
-	if _, err := parseBootstrap([]byte(`{"serverAddr":"103.205.240.23","serverPort":7000,"remotePort":10002,"token":""}`)); err == nil {
-		t.Fatal("empty token was accepted")
+func TestParseBootstrapRejectsSharedToken(t *testing.T) {
+	secret := strings.Repeat("ab", 32)
+	if _, err := parseBootstrap([]byte(`{"serverAddr":"103.205.240.23","serverPort":7000,"remotePort":10007,"deviceSecret":"` + secret + `","token":"shared"}`)); err == nil {
+		t.Fatal("shared token was accepted")
 	}
-	if _, err := parseBootstrap([]byte(`{"serverAddr":"103.205.240.23","serverPort":7000,"remotePort":80,"token":"secret"}`)); err == nil {
+	if _, err := parseBootstrap([]byte(`{"serverAddr":"103.205.240.23","serverPort":7000,"remotePort":80,"deviceSecret":"` + secret + `"}`)); err == nil {
 		t.Fatal("port outside 10000-10100 was accepted")
 	}
-	got, err := parseBootstrap([]byte(`{"serverAddr":"103.205.240.23","serverPort":7000,"remotePort":10007,"token":"per-device"}`))
+	got, err := parseBootstrap([]byte(`{"serverAddr":"103.205.240.23","serverPort":7000,"remotePort":10007,"deviceSecret":"` + secret + `"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,11 +42,11 @@ func TestParseBootstrapRejectsMissingTokenAndFixedPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !contains(toml, `remotePort = 10007`) || !contains(toml, `localIP = "127.0.0.1"`) {
+	if !contains(toml, `remotePort = 10007`) || !contains(toml, `metadatas.deviceSecret`) {
 		t.Fatalf("toml = %s", toml)
 	}
-	if contains(toml, "10002") {
-		t.Fatal("toml still mentions 10002")
+	if contains(toml, "auth.token") || contains(toml, "10002") {
+		t.Fatal(toml)
 	}
 }
 

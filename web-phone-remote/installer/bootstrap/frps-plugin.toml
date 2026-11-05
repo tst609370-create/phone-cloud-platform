@@ -1,0 +1,11 @@
+# Add this beside the existing frps auth block.
+# Do not put auth.token in this file or in git.
+# The plugin is not a substitute for frps' own token check.
+# It runs only after that check succeeds, then rejects proxies whose
+# device secret or remote port does not match the redeemed invite.
+
+[[httpPlugins]]
+name = "phone-remote-guard"
+addr = "127.0.0.1:7100"
+path = "/frp/handler"
+ops = ["Login", "NewProxy"]

@@ -12,6 +12,7 @@ import (
 )
 
 var payloadMagic = []byte("PRSETUP1")
+var inviteMagic = []byte("PRINVITE")
 
 func appendPayload(exe, zipBytes []byte) []byte {
 	out := make([]byte, 0, len(exe)+len(zipBytes)+16)
@@ -22,6 +23,36 @@ func appendPayload(exe, zipBytes []byte) []byte {
 	copy(tail[8:], payloadMagic)
 	out = append(out, tail[:]...)
 	return out
+}
+
+// splitInvite separates a private one-time invite trailer from the public payload.
+// A public base exe has no trailer and returns an empty invite.
+func splitInvite(r io.ReaderAt, size int64) (string, int64, error) {
+	if size < 10 {
+		return "", size, nil
+	}
+	tail := make([]byte, 10)
+	if _, err := r.ReadAt(tail, size-10); err != nil {
+		return "", 0, err
+	}
+	if !bytes.Equal(tail[2:], inviteMagic) {
+		return "", size, nil
+	}
+	n := int(binary.LittleEndian.Uint16(tail[:2]))
+	if n < 64 || n > 256 || int64(n)+10 > size {
+		return "", 0, fmt.Errorf("邀请损坏")
+	}
+	buf := make([]byte, n)
+	if _, err := r.ReadAt(buf, size-10-int64(n)); err != nil {
+		return "", 0, err
+	}
+	invite := string(buf)
+	for _, c := range invite {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return "", 0, fmt.Errorf("邀请损坏")
+		}
+	}
+	return invite, size - 10 - int64(n), nil
 }
 
 func openPayload(r io.ReaderAt, size int64) (*zip.Reader, error) {

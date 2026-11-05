@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -31,6 +32,21 @@ func TestPayloadRoundTripAndPathGuard(t *testing.T) {
 	}
 	if _, err := openPayload(bytes.NewReader([]byte("not an installer")), int64(len("not an installer"))); err == nil {
 		t.Fatal("plain file was accepted")
+	}
+	invite := strings.Repeat("ab", 32)
+	withInvite := append(packed, []byte(invite)...)
+	var lenBuf [2]byte
+	lenBuf[0] = byte(len(invite))
+	lenBuf[1] = 0
+	withInvite = append(withInvite, lenBuf[:]...)
+	withInvite = append(withInvite, []byte("PRINVITE")...)
+	gotInvite, payloadSize, err := splitInvite(bytes.NewReader(withInvite), int64(len(withInvite)))
+	if err != nil || gotInvite != invite || payloadSize != int64(len(packed)) {
+		t.Fatalf("invite=%s size=%d err=%v", gotInvite, payloadSize, err)
+	}
+	publicInvite, publicSize, err := splitInvite(bytes.NewReader(packed), int64(len(packed)))
+	if err != nil || publicInvite != "" || publicSize != int64(len(packed)) {
+		t.Fatal(publicInvite, publicSize, err)
 	}
 	dir := t.TempDir()
 	if _, err := safeJoin(dir, `..\Windows\System32\cmd.exe`); err == nil {

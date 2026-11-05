@@ -15,12 +15,21 @@ import (
 )
 
 type installerLog struct {
-	file   *os.File
-	secret string
+	file    *os.File
+	secrets []string
+}
+
+func (l *installerLog) hide(secret string) {
+	if secret != "" {
+		l.secrets = append(l.secrets, secret)
+	}
 }
 
 func (l *installerLog) printf(format string, args ...any) {
-	line := redact(l.secret, fmt.Sprintf(format, args...))
+	line := fmt.Sprintf(format, args...)
+	for _, secret := range l.secrets {
+		line = redact(secret, line)
+	}
 	fmt.Println(line)
 	if l.file != nil {
 		_, _ = l.file.WriteString(time.Now().Format("15:04:05 ") + line + "\n")
@@ -93,7 +102,14 @@ func extractSelf(root string, log *installerLog) error {
 	if err != nil {
 		return err
 	}
-	reader, err := openPayload(f, info.Size())
+	invite, payloadSize, err := splitInvite(f, info.Size())
+	if err != nil {
+		return err
+	}
+	if invite != "" {
+		log.hide(invite)
+	}
+	reader, err := openPayload(f, payloadSize)
 	if err != nil {
 		return err
 	}
@@ -124,7 +140,7 @@ func extractSelf(root string, log *installerLog) error {
 	if _, err := os.Stat(filepath.Join(root, "app", "dist", "index.js")); err != nil {
 		return fmt.Errorf("安装包里没有远控程序")
 	}
-	return configureAndStart(root, log)
+	return configureAndStart(root, log, invite)
 }
 
 func writeZipFile(file *zip.File, dest string) error {
@@ -142,7 +158,7 @@ func writeZipFile(file *zip.File, dest string) error {
 	return err
 }
 
-func configureAndStart(root string, log *installerLog) error {
+func configureAndStart(root string, log *installerLog, invite string) error {
 	state := filepath.Join(root, "state")
 	deps := filepath.Join(root, "dependencies")
 	logs := filepath.Join(root, "logs")
@@ -176,17 +192,17 @@ func configureAndStart(root string, log *installerLog) error {
 	}
 	log.printf("已注册登录后自动启动。本机端口 %d，只绑定 127.0.0.1。", localPort)
 
-	frpNote := "未配置私人注册地址，公网中转保持关闭。"
+	frpNote := "这是公共安装包，没有一次性邀请，公网未开通。"
 	connected := false
 	remotePort := 0
-	if url := bootstrapURL(); url != "" {
-		log.printf("正在向私人注册地址申请独立端口（地址本身不会写入日志以外的公开文件）")
-		boot, err := enroll(url, deviceID)
+	if invite != "" {
+		log.printf("正在兑付一次性邀请")
+		boot, err := enroll(bootstrapURL(), deviceID, invite)
 		if err != nil {
-			frpNote = "注册失败，公网中转未连通：" + err.Error()
+			frpNote = "邀请兑付失败，公网中转未连通：" + err.Error()
 			log.printf("%s", frpNote)
 		} else {
-			log.secret = boot.Token
+			log.hide(boot.DeviceSecret)
 			toml, err := renderFrpcToml(boot, deviceID, localPort)
 			if err != nil {
 				return err
@@ -207,8 +223,8 @@ func configureAndStart(root string, log *installerLog) error {
 			}
 			connected = true
 			remotePort = boot.RemotePort
-			frpNote = fmt.Sprintf("已为本机分配远端端口 %d。", remotePort)
-			log.printf("公网映射已写入本机配置。令牌已隐藏。")
+			frpNote = fmt.Sprintf("已为本机分配远端端口 %d。未写入共享令牌。", remotePort)
+			log.printf("公网配置已写入本机。设备密钥已隐藏。隧道是否连通要等 frps 插件，这里不视为已可用。")
 		}
 	} else {
 		_ = os.Remove(filepath.Join(root, "frp", "frpc.toml"))
@@ -283,13 +299,7 @@ func bootAuth(root, configPath, deps string, localPort int, log *installerLog) (
 	if err != nil {
 		return "", err
 	}
-	previous := log.secret
-	log.secret = password
-	defer func() {
-		if previous != "" {
-			log.secret = previous
-		}
-	}()
+	log.hide(password)
 	auth := exec.Command(node, filepath.Join(root, "tools", "setup-auth.mjs"))
 	auth.Env = append(os.Environ(),
 		"PHONE_REMOTE_DB="+dbPath,
@@ -363,8 +373,8 @@ func bootstrapURL() string {
 	return defaultBootstrapURL()
 }
 
-func enroll(url, deviceID string) (Bootstrap, error) {
-	body := fmt.Sprintf(`{"deviceId":"%s"}`, deviceID)
+func enroll(url, deviceID, invite string) (Bootstrap, error) {
+	body := fmt.Sprintf(`{"deviceId":"%s","invite":"%s"}`, deviceID, invite)
 	reqBody := strings.NewReader(body)
 	client := &httpClientTimeout{timeout: 20 * time.Second}
 	raw, err := client.post(url, reqBody)

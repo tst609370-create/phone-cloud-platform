@@ -1,93 +1,99 @@
 /**
- * Reference FRP enrollment service. Run this yourself on the machine that
- * already has frps. It reads FRP_TOKEN from the environment and is not started
- * by the public installer.
+ * Local registration service for https://103.205.240.23:7443 → 127.0.0.1:7100.
+ * It does not read or return the FRP shared token.
  *
- *   FRP_TOKEN=... node server.mjs
- *
- * Bind is 127.0.0.1:7100 by default so it is not exposed until you put it
- * behind a protected reverse proxy. Do not commit the token.
+ *   BIND_HOST=127.0.0.1 PORT=7100 node server.mjs
  */
 import { createServer } from 'node:http';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { assignPort } from './assignPort.mjs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { authorizeFrp, emptyStore, fetchConfig, redeemInvite } from './enroll.mjs';
 
-const token = process.env.FRP_TOKEN || '';
-const storePath = process.env.PHONE_REMOTE_PORT_STORE || './ports.json';
+const storePath = process.env.PHONE_REMOTE_STORE || './enrollment.json';
 const host = process.env.BIND_HOST || '127.0.0.1';
 const port = Number(process.env.PORT || 7100);
 const frpServer = process.env.FRP_SERVER || '103.205.240.23';
 const frpServerPort = Number(process.env.FRP_SERVER_PORT || 7000);
 
 function load() {
-    if (!existsSync(storePath)) return [];
-    return JSON.parse(readFileSync(storePath, 'utf8'));
+    if (!existsSync(storePath)) return emptyStore();
+    const parsed = JSON.parse(readFileSync(storePath, 'utf8'));
+    if (!parsed || !Array.isArray(parsed.invites) || !Array.isArray(parsed.devices)) return emptyStore();
+    return parsed;
 }
 
-function save(rows) {
-    writeFileSync(storePath, JSON.stringify(rows, null, 2));
+function save(store) {
+    const tmp = `${storePath}.tmp`;
+    writeFileSync(tmp, JSON.stringify(store));
+    renameSync(tmp, storePath);
 }
 
-const server = createServer((req, res) => {
-    if (req.method !== 'POST' || req.url !== '/v1/register') {
-        res.writeHead(404, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: 'not found' }));
-        return;
-    }
-    if (!token) {
-        res.writeHead(503, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: 'FRP_TOKEN is not set on this bootstrap server' }));
-        return;
-    }
-    const chunks = [];
-    req.on('data', (chunk) => chunks.push(chunk));
-    req.on('end', () => {
-        let body;
-        try {
-            body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-        } catch {
-            res.writeHead(400, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ error: 'bad json' }));
-            return;
-        }
-        const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
-        if (!/^[a-f0-9]{32}$/.test(deviceId)) {
-            res.writeHead(400, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ error: 'deviceId must be 32 hex chars' }));
-            return;
-        }
-        const rows = load();
-        const known = rows.some((row) => row.deviceId === deviceId);
-        if (!known && process.env.ENROLL_OPEN !== '1') {
-            res.writeHead(403, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ error: 'enrollment closed' }));
-            return;
-        }
-        const remotePort = assignPort(rows, deviceId);
-        if (remotePort === null) {
-            res.writeHead(409, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ error: '10000-10100 are all assigned' }));
-            return;
-        }
-        if (!rows.some((row) => row.deviceId === deviceId)) {
-            rows.push({ deviceId, port: remotePort });
-            save(rows);
-        }
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(
-            JSON.stringify({
+function readBody(req) {
+    return new Promise((resolve, reject) => {
+        const chunks = [];
+        req.on('data', (chunk) => chunks.push(chunk));
+        req.on('end', () => {
+            try {
+                resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'));
+            } catch {
+                reject(new Error('bad json'));
+            }
+        });
+        req.on('error', reject);
+    });
+}
+
+function send(res, status, body) {
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(body));
+}
+
+const server = createServer(async (req, res) => {
+    try {
+        if (req.method === 'POST' && req.url === '/v1/register') {
+            const body = await readBody(req);
+            const store = load();
+            const result = redeemInvite(store, body.invite, body.deviceId);
+            if (!result.ok) {
+                send(res, result.status, { error: result.error });
+                return;
+            }
+            save(store);
+            send(res, 200, {
                 serverAddr: frpServer,
                 serverPort: frpServerPort,
-                remotePort,
-                token,
-            }),
-        );
-    });
+                remotePort: result.remotePort,
+                deviceSecret: result.deviceSecret,
+            });
+            return;
+        }
+        if (req.method === 'POST' && req.url === '/v1/config') {
+            const body = await readBody(req);
+            const result = fetchConfig(load(), body.deviceId, body.deviceSecret);
+            if (!result.ok) {
+                send(res, result.status, { error: 'unauthorized' });
+                return;
+            }
+            send(res, 200, {
+                serverAddr: frpServer,
+                serverPort: frpServerPort,
+                remotePort: result.remotePort,
+            });
+            return;
+        }
+        if (req.method === 'POST' && req.url === '/frp/handler') {
+            const body = await readBody(req);
+            send(res, 200, authorizeFrp(load(), body));
+            return;
+        }
+        send(res, 404, { error: 'not found' });
+    } catch {
+        send(res, 400, { error: 'bad request' });
+    }
 });
 
 if (process.argv[1] && process.argv[1].endsWith('server.mjs')) {
     server.listen(port, host, () => {
-        console.log(`bootstrap listening on http://${host}:${port} (token is not logged)`);
+        console.log(`registration listening on http://${host}:${port}`);
     });
 }
 
