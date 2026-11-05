@@ -4,6 +4,7 @@ package main
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -113,34 +115,47 @@ func extractSelf(root string, log *installerLog) error {
 	if err != nil {
 		return err
 	}
+	log.printf("先结束本安装目录里的计划任务和进程，不结束其他软件的 adb 或 node")
+	stopOurTasks()
+	time.Sleep(time.Second)
+	stopOwnedProcesses(root)
+	genRoot := filepath.Join(root, "generations", time.Now().Format("20060102T150405.000"))
+	if err := os.MkdirAll(genRoot, 0o755); err != nil {
+		return err
+	}
 	count := 0
 	for _, file := range reader.File {
 		if file.FileInfo().IsDir() {
 			continue
 		}
-		dest, err := safeJoin(root, file.Name)
+		dest, err := safeJoin(genRoot, file.Name)
 		if err != nil {
+			_ = os.RemoveAll(genRoot)
 			return err
 		}
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			_ = os.RemoveAll(genRoot)
 			return err
 		}
 		if err := writeZipFile(file, dest); err != nil {
-			return err
+			_ = os.RemoveAll(genRoot)
+			return fmt.Errorf("无法写入 %s。安装器不会覆盖正在使用的文件，也不结束其他目录里的 adb。请关闭已经打开的本安装窗口后重试。原始错误：%w", dest, err)
 		}
 		count++
 		if count%40 == 0 {
 			log.printf("已释放 %d 个文件", count)
 		}
 	}
-	log.printf("已释放 %d 个文件", count)
-	if _, err := os.Stat(filepath.Join(root, "runtime", "node", "node.exe")); err != nil {
+	log.printf("已释放到新目录 %s，共 %d 个文件", genRoot, count)
+	if _, err := os.Stat(filepath.Join(genRoot, "runtime", "node", "node.exe")); err != nil {
+		_ = os.RemoveAll(genRoot)
 		return fmt.Errorf("安装包里没有 node.exe")
 	}
-	if _, err := os.Stat(filepath.Join(root, "app", "dist", "index.js")); err != nil {
+	if _, err := os.Stat(filepath.Join(genRoot, "app", "dist", "index.js")); err != nil {
+		_ = os.RemoveAll(genRoot)
 		return fmt.Errorf("安装包里没有远控程序")
 	}
-	return configureAndStart(root, log, invite)
+	return configureAndStart(root, genRoot, log, invite)
 }
 
 func writeZipFile(file *zip.File, dest string) error {
@@ -158,9 +173,9 @@ func writeZipFile(file *zip.File, dest string) error {
 	return err
 }
 
-func configureAndStart(root string, log *installerLog, invite string) error {
+func configureAndStart(root, genRoot string, log *installerLog, invite string) error {
 	state := filepath.Join(root, "state")
-	deps := filepath.Join(root, "dependencies")
+	deps := filepath.Join(genRoot, "dependencies")
 	logs := filepath.Join(root, "logs")
 	for _, dir := range []string{state, deps, logs, filepath.Join(root, "frp")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -181,9 +196,10 @@ func configureAndStart(root string, log *installerLog, invite string) error {
 		return err
 	}
 	nodeCmd := filepath.Join(root, "run-node.cmd")
-	nodeExe := filepath.Join(root, "runtime", "node", "node.exe")
+	nodeExe := filepath.Join(genRoot, "runtime", "node", "node.exe")
+	appDir := filepath.Join(genRoot, "app")
 	script := fmt.Sprintf("@echo off\r\nsetlocal\r\nset \"WS_SCRCPY_BIND_HOST=127.0.0.1\"\r\nset \"WS_SCRCPY_CONFIG=%s\"\r\nset \"DEPS_PATH=%s\"\r\nset \"PORT=%d\"\r\nset \"WS_SCRCPY_NO_BROWSER=1\"\r\ncd /d \"%s\"\r\n\"%s\" dist\\index.js >> \"%s\" 2>&1\r\n",
-		configPath, deps, localPort, filepath.Join(root, "app"), nodeExe, filepath.Join(logs, "node.log"))
+		configPath, deps, localPort, appDir, nodeExe, filepath.Join(logs, "node.log"))
 	if err := os.WriteFile(nodeCmd, []byte(script), 0o644); err != nil {
 		return err
 	}
@@ -195,7 +211,27 @@ func configureAndStart(root string, log *installerLog, invite string) error {
 	frpNote := "这是公共安装包，没有一次性邀请，公网未开通。"
 	connected := false
 	remotePort := 0
-	if invite != "" {
+	credFile := filepath.Join(state, "device-auth.json")
+	saved, hasSaved := loadCredential(credFile)
+	switch enrollmentPlan(hasSaved, invite != "") {
+	case "reuse":
+		log.hide(saved.DeviceSecret)
+		log.printf("使用已保存的设备身份，不再兑换邀请。")
+		cfgURL, err := configURL(bootstrapURL())
+		if err != nil {
+			return err
+		}
+		cfg, err := fetchConfig(cfgURL, saved.DeviceID, saved.DeviceSecret)
+		if err != nil {
+			return fmt.Errorf("无法用已保存的设备身份取配置，没有重新兑换邀请：%w", err)
+		}
+		if err := writeFrpc(root, genRoot, logs, saved.DeviceID, saved.DeviceSecret, cfg, localPort); err != nil {
+			return err
+		}
+		connected = true
+		remotePort = cfg.RemotePort
+		frpNote = fmt.Sprintf("已复用设备身份，远端端口 %d。未写入共享令牌。", remotePort)
+	case "redeem":
 		log.printf("正在兑付一次性邀请")
 		boot, err := enroll(bootstrapURL(), deviceID, invite)
 		if err != nil {
@@ -203,22 +239,11 @@ func configureAndStart(root string, log *installerLog, invite string) error {
 			log.printf("%s", frpNote)
 		} else {
 			log.hide(boot.DeviceSecret)
-			toml, err := renderFrpcToml(boot, deviceID, localPort)
-			if err != nil {
-				return err
+			record := savedCredential{DeviceID: deviceID, DeviceSecret: boot.DeviceSecret, RemotePort: boot.RemotePort, ServerAddr: boot.ServerAddr, ServerPort: boot.ServerPort}
+			if err := saveCredential(credFile, record); err != nil {
+				return fmt.Errorf("邀请已兑付，但没能保存设备身份。请保留安装日志并联系管理员，不要换一个新邀请重试：%w", err)
 			}
-			frpcToml := filepath.Join(root, "frp", "frpc.toml")
-			if err := os.WriteFile(frpcToml, []byte(toml), 0o600); err != nil {
-				return err
-			}
-			frpcCmd := filepath.Join(root, "run-frpc.cmd")
-			frpcExe := filepath.Join(root, "frp", "frpc.exe")
-			frScript := fmt.Sprintf("@echo off\r\ncd /d \"%s\"\r\n\"%s\" -c \"%s\" >> \"%s\" 2>&1\r\n",
-				filepath.Join(root, "frp"), frpcExe, frpcToml, filepath.Join(logs, "frpc.log"))
-			if err := os.WriteFile(frpcCmd, []byte(frScript), 0o644); err != nil {
-				return err
-			}
-			if err := registerTask("PhoneRemote-Frpc", frpcCmd); err != nil {
+			if err := writeFrpc(root, genRoot, logs, deviceID, boot.DeviceSecret, boot, localPort); err != nil {
 				return err
 			}
 			connected = true
@@ -226,9 +251,9 @@ func configureAndStart(root string, log *installerLog, invite string) error {
 			frpNote = fmt.Sprintf("已为本机分配远端端口 %d。未写入共享令牌。", remotePort)
 			log.printf("公网配置已写入本机。设备密钥已隐藏。隧道是否连通要等 frps 插件，这里不视为已可用。")
 		}
-	} else {
+	default:
 		_ = os.Remove(filepath.Join(root, "frp", "frpc.toml"))
-		_ = exec.Command("schtasks", "/Delete", "/TN", "PhoneRemote-Frpc", "/F").Run()
+		_ = runHidden("schtasks", "/Delete", "/TN", "PhoneRemote-Frpc", "/F")
 		log.printf("%s", frpNote)
 	}
 	stepsPath := filepath.Join(root, "服务端步骤.txt")
@@ -237,7 +262,7 @@ func configureAndStart(root string, log *installerLog, invite string) error {
 
 	var password string
 	if err := withRetry(log, "启动本机服务并开启登录", func() error {
-		got, err := bootAuth(root, configPath, deps, localPort, log)
+		got, err := bootAuth(root, appDir, nodeExe, configPath, deps, localPort, log)
 		if err != nil {
 			return err
 		}
@@ -253,11 +278,13 @@ func configureAndStart(root string, log *installerLog, invite string) error {
 	return nil
 }
 
-func bootAuth(root, configPath, deps string, localPort int, log *installerLog) (string, error) {
-	_ = stopOurs(root)
-	node := filepath.Join(root, "runtime", "node", "node.exe")
+func bootAuth(root, appDir, node, configPath, deps string, localPort int, log *installerLog) (string, error) {
+	stopOurTasks()
+	time.Sleep(500 * time.Millisecond)
+	stopOwnedProcesses(root)
 	cmd := exec.Command(node, "dist\\index.js")
-	cmd.Dir = filepath.Join(root, "app")
+	cmd.Dir = appDir
+	hide(cmd)
 	cmd.Env = append(os.Environ(),
 		"WS_SCRCPY_BIND_HOST=127.0.0.1",
 		"WS_SCRCPY_CONFIG="+configPath,
@@ -288,6 +315,7 @@ func bootAuth(root, configPath, deps string, localPort int, log *installerLog) (
 	_, _ = cmd.Process.Wait()
 	out.Close()
 	time.Sleep(time.Second)
+	stopOwnedProcesses(root)
 	if !ready {
 		tail := tailFile(filepath.Join(root, "logs", "node-firstboot.log"), 1200)
 		return "", fmt.Errorf("本机服务没有在 %d 端口起来。日志末尾：%s", localPort, tail)
@@ -300,7 +328,8 @@ func bootAuth(root, configPath, deps string, localPort int, log *installerLog) (
 		return "", err
 	}
 	log.hide(password)
-	auth := exec.Command(node, filepath.Join(root, "tools", "setup-auth.mjs"))
+	auth := exec.Command(node, filepath.Join(filepath.Dir(appDir), "tools", "setup-auth.mjs"))
+	hide(auth)
 	auth.Env = append(os.Environ(),
 		"PHONE_REMOTE_DB="+dbPath,
 		"PHONE_REMOTE_ADMIN_USER="+adminUser,
@@ -317,13 +346,14 @@ func bootAuth(root, configPath, deps string, localPort int, log *installerLog) (
 	if err := os.WriteFile(credPath, []byte(cred), 0o600); err != nil {
 		return "", err
 	}
-	if err := exec.Command("schtasks", "/Run", "/TN", "PhoneRemote-Node").Run(); err != nil {
+	if err := runHidden("schtasks", "/Run", "/TN", "PhoneRemote-Node"); err != nil {
 		return "", fmt.Errorf("计划任务没有启动服务：%w", err)
 	}
 	if !waitPort(localPort, 90*time.Second) {
+		stopOwnedProcesses(root)
 		return "", fmt.Errorf("计划任务启动后 %d 端口仍不可用，请查看 logs\\node.log", localPort)
 	}
-	_ = exec.Command("schtasks", "/Run", "/TN", "PhoneRemote-Frpc").Run()
+	_ = runHidden("schtasks", "/Run", "/TN", "PhoneRemote-Frpc")
 	return password, nil
 }
 
@@ -375,27 +405,122 @@ func bootstrapURL() string {
 
 func enroll(url, deviceID, invite string) (Bootstrap, error) {
 	body := fmt.Sprintf(`{"deviceId":"%s","invite":"%s"}`, deviceID, invite)
-	reqBody := strings.NewReader(body)
-	client := &httpClientTimeout{timeout: 20 * time.Second}
-	raw, err := client.post(url, reqBody)
+	raw, err := postJSON(url, body)
 	if err != nil {
+		if strings.Contains(err.Error(), "返回 403") {
+			return Bootstrap{}, fmt.Errorf("邀请已经兑付过，不能再次兑换。若这台电脑已保存设备身份，重试会读取 state\\device-auth.json 并走配置接口，不会丢掉原来的身份")
+		}
 		return Bootstrap{}, fmt.Errorf("联系注册服务失败：%w", err)
 	}
 	return parseBootstrap(raw)
 }
 
+func fetchConfig(url, deviceID, deviceSecret string) (Bootstrap, error) {
+	body := fmt.Sprintf(`{"deviceId":"%s","deviceSecret":"%s"}`, deviceID, deviceSecret)
+	raw, err := postJSON(url, body)
+	if err != nil {
+		return Bootstrap{}, fmt.Errorf("联系配置服务失败：%w", err)
+	}
+	return parseConfig(raw)
+}
+
+func postJSON(url, body string) ([]byte, error) {
+	client := &httpClientTimeout{timeout: 20 * time.Second}
+	return client.post(url, strings.NewReader(body))
+}
+
+type savedCredential struct {
+	DeviceID     string `json:"deviceId"`
+	DeviceSecret string `json:"deviceSecret"`
+	RemotePort   int    `json:"remotePort"`
+	ServerAddr   string `json:"serverAddr"`
+	ServerPort   int    `json:"serverPort"`
+}
+
+func loadCredential(path string) (savedCredential, bool) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return savedCredential{}, false
+	}
+	var saved savedCredential
+	if json.Unmarshal(raw, &saved) != nil || len(saved.DeviceID) != 32 || len(saved.DeviceSecret) != 64 {
+		return savedCredential{}, false
+	}
+	return saved, true
+}
+
+func saveCredential(path string, saved savedCredential) error {
+	raw, err := json.Marshal(saved)
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func writeFrpc(root, genRoot, logs, deviceID, deviceSecret string, boot Bootstrap, localPort int) error {
+	boot.DeviceSecret = deviceSecret
+	toml, err := renderFrpcToml(boot, deviceID, localPort)
+	if err != nil {
+		return err
+	}
+	frpcToml := filepath.Join(root, "frp", "frpc.toml")
+	if err := os.MkdirAll(filepath.Dir(frpcToml), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(frpcToml, []byte(toml), 0o600); err != nil {
+		return err
+	}
+	frpcCmd := filepath.Join(root, "run-frpc.cmd")
+	frpcExe := filepath.Join(genRoot, "frp", "frpc.exe")
+	frScript := fmt.Sprintf("@echo off\r\ncd /d \"%s\"\r\n\"%s\" -c \"%s\" >> \"%s\" 2>&1\r\n",
+		filepath.Dir(frpcExe), frpcExe, frpcToml, filepath.Join(logs, "frpc.log"))
+	if err := os.WriteFile(frpcCmd, []byte(frScript), 0o644); err != nil {
+		return err
+	}
+	return registerTask("PhoneRemote-Frpc", frpcCmd)
+}
+
 func registerTask(name, cmdPath string) error {
-	_ = exec.Command("schtasks", "/Delete", "/TN", name, "/F").Run()
-	out, err := exec.Command("schtasks", "/Create", "/TN", name, "/TR", `"`+cmdPath+`"`, "/SC", "ONLOGON", "/RL", "LIMITED", "/F").CombinedOutput()
+	vbsPath := strings.TrimSuffix(cmdPath, filepath.Ext(cmdPath)) + ".vbs"
+	body := "CreateObject(\"Wscript.Shell\").Run \"cmd /c \"\"" + cmdPath + "\"\"\", 0, False\r\n"
+	if err := os.WriteFile(vbsPath, []byte(body), 0o644); err != nil {
+		return err
+	}
+	_ = runHidden("schtasks", "/End", "/TN", name)
+	_ = runHidden("schtasks", "/Delete", "/TN", name, "/F")
+	tr := fmt.Sprintf(`wscript.exe //B //Nologo "%s"`, vbsPath)
+	out, err := exec.Command("schtasks", "/Create", "/TN", name, "/TR", tr, "/SC", "ONLOGON", "/RL", "LIMITED", "/F").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("注册开机登录启动“%s”失败：%s", name, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
 
-func stopOurs(root string) error {
-	script := fmt.Sprintf(`Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like '%s*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`, strings.ReplaceAll(root, "'", "''"))
-	return exec.Command("powershell", "-NoProfile", "-Command", script).Run()
+func hide(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000}
+}
+
+func runHidden(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	hide(cmd)
+	return cmd.Run()
+}
+
+func stopOurTasks() {
+	_ = runHidden("schtasks", "/End", "/TN", "PhoneRemote-Node")
+	_ = runHidden("schtasks", "/End", "/TN", "PhoneRemote-Frpc")
+}
+
+func stopOwnedProcesses(root string) {
+	root = strings.ReplaceAll(root, "'", "''")
+	script := fmt.Sprintf(`$base = [IO.Path]::GetFullPath('%s'); Get-CimInstance Win32_Process | ForEach-Object { $exe = $_.ExecutablePath; if (-not $exe) { return }; $full = [IO.Path]::GetFullPath($exe); if ($full.Equals($base, [StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($base + '\', [StringComparison]::OrdinalIgnoreCase)) { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }`, root)
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
+	hide(cmd)
+	_ = cmd.Run()
 }
 
 func runUninstall() error {
@@ -403,9 +528,11 @@ func runUninstall() error {
 	if err != nil {
 		return err
 	}
-	_ = exec.Command("schtasks", "/Delete", "/TN", "PhoneRemote-Node", "/F").Run()
-	_ = exec.Command("schtasks", "/Delete", "/TN", "PhoneRemote-Frpc", "/F").Run()
-	_ = stopOurs(root)
+	stopOurTasks()
+	_ = runHidden("schtasks", "/Delete", "/TN", "PhoneRemote-Node", "/F")
+	_ = runHidden("schtasks", "/Delete", "/TN", "PhoneRemote-Frpc", "/F")
+	time.Sleep(500 * time.Millisecond)
+	stopOwnedProcesses(root)
 	if err := os.RemoveAll(root); err != nil {
 		return fmt.Errorf("删除 %s 失败：%w", root, err)
 	}

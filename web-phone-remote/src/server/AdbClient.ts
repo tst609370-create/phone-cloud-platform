@@ -197,6 +197,7 @@ export class AdbClient {
         return spawn(this.adbPath, ['track-devices'], {
             stdio: ['ignore', 'pipe', 'pipe'],
             cwd: this.cwd,
+            windowsHide: true,
         });
     }
 
@@ -216,7 +217,14 @@ export class AdbClient {
             execFile(
                 this.adbPath,
                 args,
-                { cwd: this.cwd, encoding: 'buffer', maxBuffer: 12 * 1024 * 1024, timeout: timeoutMs, killSignal: 'SIGKILL' },
+                {
+                    cwd: this.cwd,
+                    encoding: 'buffer',
+                    maxBuffer: 12 * 1024 * 1024,
+                    timeout: timeoutMs,
+                    killSignal: 'SIGKILL',
+                    windowsHide: true,
+                },
                 (err, stdout) => {
                     if (!err) {
                         resolve(stdout as Buffer);
@@ -307,6 +315,7 @@ export class AdbClient {
         return spawn(this.adbPath, ['-s', serial, 'shell', command], {
             stdio: ['ignore', 'pipe', 'pipe'],
             cwd: this.cwd,
+            windowsHide: true,
         });
     }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -71,6 +72,25 @@ func TestDefaultBootstrapIsHTTPSAndHasNoToken(t *testing.T) {
 	}
 }
 
+func TestOwnedProcessAndEnrollmentReuse(t *testing.T) {
+	root := filepath.Join("C:", "Users", "Administrator", "AppData", "Local", "PhoneRemote")
+	if !ownedByInstall(root, filepath.Join(root, "dependencies", "adb", "adb.exe")) {
+		t.Fatal("own adb should be stopped")
+	}
+	if ownedByInstall(root, filepath.Join("C:", "platform-tools", "adb.exe")) {
+		t.Fatal("foreign adb must be left alone")
+	}
+	if ownedByInstall(root, filepath.Join("C:", "Users", "Administrator", "AppData", "Local", "PhoneRemote2", "node.exe")) {
+		t.Fatal("sibling directory must not match")
+	}
+	if enrollmentPlan(true, true) != "reuse" || enrollmentPlan(false, true) != "redeem" || enrollmentPlan(false, false) != "skip" {
+		t.Fatal(enrollmentPlan(true, true), enrollmentPlan(false, true), enrollmentPlan(false, false))
+	}
+	if publicHTTPSAddr(10007) != "https://103.205.240.23:11007" {
+		t.Fatal(publicHTTPSAddr(10007))
+	}
+}
+
 func TestFinishTextDoesNotClaimPublicHTTPMic(t *testing.T) {
 	text := finishText(8000, "abc", `C:\cred.txt`, false, 0)
 	if !contains(text, "明文 HTTP") && !contains(text, "电脑麦克风在那个地址上不可用") && !contains(text, "不能") {
@@ -85,6 +105,13 @@ func TestFinishTextDoesNotClaimPublicHTTPMic(t *testing.T) {
 	}
 	if !contains(text, "未连通") {
 		t.Fatal(text)
+	}
+	connected := finishText(8000, "abc", `C:\cred.txt`, true, 10007)
+	if !contains(connected, "https://103.205.240.23:11007") {
+		t.Fatal(connected)
+	}
+	if contains(connected, "auth.token") {
+		t.Fatal(connected)
 	}
 	steps := serverStepsText()
 	if !contains(steps, "https://103.205.240.23:7443/v1/register") || !contains(steps, "没有 FRP 全局令牌") {

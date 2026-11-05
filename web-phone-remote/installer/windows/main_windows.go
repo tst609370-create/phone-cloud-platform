@@ -10,6 +10,11 @@ import (
 
 func main() {
 	enableUTF8Console()
+	if !acquireInstallLock() {
+		infoBox("安装程序已在运行", "已经有一个安装窗口在运行。请不要重复双击，先完成或关闭那个窗口。")
+		return
+	}
+	defer releaseInstallLock()
 	fmt.Println("手机远控安装器")
 	fmt.Println("此程序未签名。")
 	elevated := false
@@ -44,6 +49,7 @@ func main() {
 			if action == "uninstall" {
 				flag = "--uninstall"
 			}
+			releaseInstallLock()
 			if err := relaunchElevated("--elevated " + flag); err != nil {
 				errorBox("需要管理员权限", err.Error())
 			}

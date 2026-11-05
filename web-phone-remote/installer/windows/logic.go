@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -55,13 +56,28 @@ func assignRemotePort(records []portRecord, deviceID string) (int, error) {
 	return 0, fmt.Errorf("%d-%d 端口已分配完", remotePortMin, remotePortMax)
 }
 
-func parseBootstrap(body []byte) (Bootstrap, error) {
+func rejectSharedToken(body []byte) error {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return Bootstrap{}, fmt.Errorf("注册响应不是 JSON")
+		return fmt.Errorf("响应不是 JSON")
 	}
 	if _, ok := raw["token"]; ok {
-		return Bootstrap{}, fmt.Errorf("注册响应包含 token 字段，已拒绝")
+		return fmt.Errorf("响应包含 token 字段，已拒绝")
+	}
+	return nil
+}
+
+func configURL(registerURL string) (string, error) {
+	const suffix = "/v1/register"
+	if !strings.HasSuffix(registerURL, suffix) {
+		return "", fmt.Errorf("注册地址不符合约定")
+	}
+	return strings.TrimSuffix(registerURL, suffix) + "/v1/config", nil
+}
+
+func parseBootstrap(body []byte) (Bootstrap, error) {
+	if err := rejectSharedToken(body); err != nil {
+		return Bootstrap{}, err
 	}
 	var out Bootstrap
 	if err := json.Unmarshal(body, &out); err != nil {
@@ -80,6 +96,23 @@ func parseBootstrap(body []byte) (Bootstrap, error) {
 		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return out, fmt.Errorf("注册响应没有设备密钥")
 		}
+	}
+	return out, nil
+}
+
+func parseConfig(body []byte) (Bootstrap, error) {
+	if err := rejectSharedToken(body); err != nil {
+		return Bootstrap{}, err
+	}
+	var out Bootstrap
+	if err := json.Unmarshal(body, &out); err != nil {
+		return Bootstrap{}, fmt.Errorf("配置响应不是 JSON")
+	}
+	if out.ServerAddr == "" || out.ServerPort <= 0 {
+		return out, fmt.Errorf("配置响应缺少中转地址")
+	}
+	if out.RemotePort < remotePortMin || out.RemotePort > remotePortMax {
+		return out, fmt.Errorf("远端端口 %d 不在 %d-%d", out.RemotePort, remotePortMin, remotePortMax)
 	}
 	return out, nil
 }
@@ -149,10 +182,36 @@ frps 插件只能在它自己的令牌校验通过之后限制端口。没有插
 `
 }
 
+func publicHTTPSAddr(remotePort int) string {
+	return fmt.Sprintf("https://%s:%d", relayHost, remotePort+1000)
+}
+
+func enrollmentPlan(hasCredential, hasInvite bool) string {
+	if hasCredential {
+		return "reuse"
+	}
+	if hasInvite {
+		return "redeem"
+	}
+	return "skip"
+}
+
+func ownedByInstall(root, exe string) bool {
+	root = strings.TrimRight(filepath.Clean(root), `\/`)
+	exe = filepath.Clean(exe)
+	if root == "." || root == "" || exe == "" || exe == "." {
+		return false
+	}
+	rootLower := strings.ToLower(root)
+	exeLower := strings.ToLower(exe)
+	sep := string(filepath.Separator)
+	return exeLower == rootLower || strings.HasPrefix(exeLower, rootLower+sep)
+}
+
 func finishText(localPort int, password, credPath string, frpConnected bool, remotePort int) string {
-	frp := "公网中转：未连通。没有邀请或注册失败时不会占用端口，也没有发放共享令牌。"
+	frp := "公网 HTTPS：尚未分配，中转未连通。没有邀请或注册失败时不会占用端口，也没有发放共享令牌。"
 	if frpConnected {
-		frp = fmt.Sprintf("已兑付邀请并写入本机 frpc 配置，远端端口 %d。配置里没有 FRP 共享令牌。隧道能否连上取决于 frps 自己的鉴权，这里不能当成已经可用。访问仍是明文 HTTP，电脑麦克风在那个地址上不可用。", remotePort)
+		frp = fmt.Sprintf("公网地址：%s\n这是远端端口 %d 再加 1000 的 HTTPS 地址。配置里没有 FRP 共享令牌。隧道能否连上取决于 frps 自己的鉴权，这里不能当成已经可用。公网明文 HTTP 不能开麦；本机 http://127.0.0.1 可以。", publicHTTPSAddr(remotePort), remotePort)
 	}
 	return fmt.Sprintf(`安装完成。
 

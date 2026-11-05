@@ -42,6 +42,16 @@ function readBody(req) {
     });
 }
 
+export function requestPathname(url) {
+    try {
+        const path = new URL(url || '/', 'http://127.0.0.1').pathname;
+        if (path.length > 1 && path.endsWith('/')) return path.slice(0, -1);
+        return path || '/';
+    } catch {
+        return '/';
+    }
+}
+
 function send(res, status, body) {
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify(body));
@@ -49,11 +59,12 @@ function send(res, status, body) {
 
 const server = createServer(async (req, res) => {
     try {
-        if (req.method === 'GET' && (req.url === '/healthz' || req.url === '/healthz/')) {
+        const pathname = requestPathname(req.url);
+        if (req.method === 'GET' && pathname === '/healthz') {
             send(res, 200, { ok: true });
             return;
         }
-        if (req.method === 'POST' && req.url === '/v1/register') {
+        if (req.method === 'POST' && pathname === '/v1/register') {
             const body = await readBody(req);
             const store = load();
             const result = redeemInvite(store, body.invite, body.deviceId);
@@ -70,7 +81,7 @@ const server = createServer(async (req, res) => {
             });
             return;
         }
-        if (req.method === 'POST' && req.url === '/v1/config') {
+        if (req.method === 'POST' && pathname === '/v1/config') {
             const body = await readBody(req);
             const result = fetchConfig(load(), body.deviceId, body.deviceSecret);
             if (!result.ok) {
@@ -84,7 +95,7 @@ const server = createServer(async (req, res) => {
             });
             return;
         }
-        if (req.method === 'POST' && req.url === '/frp/handler') {
+        if (req.method === 'POST' && pathname === '/frp/handler') {
             const body = await readBody(req);
             send(res, 200, authorizeFrp(load(), body));
             return;

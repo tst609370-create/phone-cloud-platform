@@ -18,7 +18,11 @@ var (
 	procIsAdmin     = shell32.NewProc("IsUserAnAdmin")
 	procSetConsole  = kernel32.NewProc("SetConsoleOutputCP")
 	procSetConsoleI = kernel32.NewProc("SetConsoleCP")
+	procCreateMutex = kernel32.NewProc("CreateMutexW")
+	procCloseHandle = kernel32.NewProc("CloseHandle")
 )
+
+var installMutex uintptr
 
 const (
 	mbYesNo         = 0x00000004
@@ -31,6 +35,27 @@ const (
 	idNo            = 7
 	idCancel        = 2
 )
+
+func acquireInstallLock() bool {
+	name, _ := syscall.UTF16PtrFromString(`Local\PhoneRemoteSetup`)
+	handle, _, err := procCreateMutex.Call(0, 1, uintptr(unsafe.Pointer(name)))
+	if handle == 0 {
+		return false
+	}
+	if errno, ok := err.(syscall.Errno); ok && errno == 183 {
+		procCloseHandle.Call(handle)
+		return false
+	}
+	installMutex = handle
+	return true
+}
+
+func releaseInstallLock() {
+	if installMutex != 0 {
+		procCloseHandle.Call(installMutex)
+		installMutex = 0
+	}
+}
 
 func enableUTF8Console() {
 	procSetConsole.Call(uintptr(65001))
