@@ -4,9 +4,10 @@
  *
  *   BIND_HOST=127.0.0.1 PORT=7100 node server.mjs
  */
+import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { authorizeFrp, emptyStore, fetchConfig, redeemInvite } from './enroll.mjs';
+import { authorizeFrp, collapseDevices, emptyStore, fetchConfig, redeemInvite } from './enroll.mjs';
 
 const storePath = process.env.PHONE_REMOTE_STORE || './enrollment.json';
 const host = process.env.BIND_HOST || '127.0.0.1';
@@ -22,9 +23,20 @@ function load() {
 }
 
 function save(store) {
-    const tmp = `${storePath}.tmp`;
+    const tmp = `${storePath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
     writeFileSync(tmp, JSON.stringify(store));
     renameSync(tmp, storePath);
+}
+
+let queue = Promise.resolve();
+
+function exclusive(fn) {
+    const run = queue.then(fn, fn);
+    queue = run.then(
+        () => undefined,
+        () => undefined,
+    );
+    return run;
 }
 
 function readBody(req) {
@@ -66,13 +78,17 @@ const server = createServer(async (req, res) => {
         }
         if (req.method === 'POST' && pathname === '/v1/register') {
             const body = await readBody(req);
-            const store = load();
-            const result = redeemInvite(store, body.invite, body.deviceId);
+            const result = await exclusive(() => {
+                const store = load();
+                const changed = collapseDevices(store);
+                const redeemed = redeemInvite(store, body.invite, body.deviceId);
+                if (redeemed.ok || changed) save(store);
+                return redeemed;
+            });
             if (!result.ok) {
                 send(res, result.status, { error: result.error });
                 return;
             }
-            save(store);
             send(res, 200, {
                 serverAddr: frpServer,
                 serverPort: frpServerPort,
@@ -83,7 +99,11 @@ const server = createServer(async (req, res) => {
         }
         if (req.method === 'POST' && pathname === '/v1/config') {
             const body = await readBody(req);
-            const result = fetchConfig(load(), body.deviceId, body.deviceSecret);
+            const result = await exclusive(() => {
+                const store = load();
+                if (collapseDevices(store)) save(store);
+                return fetchConfig(store, body.deviceId, body.deviceSecret);
+            });
             if (!result.ok) {
                 send(res, result.status, { error: 'unauthorized' });
                 return;
@@ -97,7 +117,12 @@ const server = createServer(async (req, res) => {
         }
         if (req.method === 'POST' && pathname === '/frp/handler') {
             const body = await readBody(req);
-            send(res, 200, authorizeFrp(load(), body));
+            const decision = await exclusive(() => {
+                const store = load();
+                if (collapseDevices(store)) save(store);
+                return authorizeFrp(store, body);
+            });
+            send(res, 200, decision);
             return;
         }
         send(res, 404, { error: 'not found' });
