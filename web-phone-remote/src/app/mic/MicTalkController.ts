@@ -4,6 +4,7 @@ import SvgImage from '../ui/SvgImage';
 import { captureMicrophone } from './micCapture';
 import {
     initialMicGesture,
+    insecureMicReason,
     MIC_HOLD_MS,
     type MicGestureEffect,
     type MicGestureState,
@@ -80,6 +81,17 @@ export class MicTalkController {
         private readonly deps: MicTalkDeps = defaultDeps,
     ) {
         this.el.classList.add('mic-talk');
+        const secure = typeof window.isSecureContext === 'boolean' ? window.isSecureContext : true;
+        const blocked = insecureMicReason(secure);
+        if (blocked) {
+            this.supported = false;
+            this.serverReason = blocked;
+            this.render();
+            this.el.addEventListener('stream-teardown', this.close);
+            window.addEventListener('pagehide', this.close);
+            window.addEventListener('beforeunload', this.close);
+            return;
+        }
         this.el.addEventListener('pointerdown', this.onPointerDown);
         this.el.addEventListener('pointerup', this.onPointerUp);
         this.el.addEventListener('pointercancel', this.onPointerCancel);

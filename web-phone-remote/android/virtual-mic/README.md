@@ -4,8 +4,8 @@
 
 1. **LSPosed 模块（root）**  
    在微信进程里钩住 `android.media.AudioRecord.read`。模块连 `127.0.0.1:28256`，这是 `adb reverse` 指回电脑上的桥。注入没开时钩子什么都不做，微信继续用手机麦克风。不钩 `REMOTE_SUBMIX`，避免弄坏投屏的手机声音。
-2. **shell 注入（不需要 root，要 Android 13+ 且系统允许）**  
-   `shell/` 里的 Java 用反射注册 AudioPolicy loopback，听 `127.0.0.1:28257`。零售机上 shell 经常没有 `MODIFY_AUDIO_ROUTING`，那时进程打印 `SHELL_MIC_NO:...`，网页按钮置灰或改走模块。
+2. **shell 注入（实验，不需要 root）**  
+   `shell/` 里的 Java 用反射注册 AudioPolicy loopback，听 `127.0.0.1:28257`。网页只有在这台手机打印 `SHELL_MIC_OK` 后才把按钮标成可用。Android 13 及以上只说明值得去试，不是成功保证。零售机上 shell 经常没有 `MODIFY_AUDIO_ROUTING`，那时进程打印 `SHELL_MIC_NO:...`，按钮保持灰色。
 
 用法、按钮手势和支持范围见 [docs/虚拟麦克风.md](../../docs/虚拟麦克风.md)。
 

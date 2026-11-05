@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { initialMicGesture, MIC_HOLD_MS, reduceMicGesture } from '../micGesture';
+import { initialMicGesture, insecureMicReason, MIC_HOLD_MS, reduceMicGesture } from '../micGesture';
+
+describe('insecure microphone page', () => {
+    it('explains that plain public HTTP cannot open the computer microphone', () => {
+        expect(insecureMicReason(true)).toBeUndefined();
+        const reason = insecureMicReason(false);
+        expect(reason).toContain('明文 HTTP');
+        expect(reason).toContain('127.0.0.1');
+        expect(reason).toContain('没有公网证书');
+    });
+});
 
 describe('mic gesture', () => {
     it('treats a short press as a continuous toggle', () => {

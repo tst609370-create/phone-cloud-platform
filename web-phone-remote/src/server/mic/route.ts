@@ -64,8 +64,10 @@ export function shellMicCommand(mode: 'probe' | 'serve'): string {
 
 export function selectMicRoute(facts: MicProbeFacts): MicRoutePlan {
     const routes: MicRouteName[] = [];
+    // Shell injection stays experimental: Android 13+ only makes it worth probing.
+    // The button may offer it only after this device's probe printed SHELL_MIC_OK.
     const shellCandidate =
-        facts.sdkInt >= ANDROID_SHELL_MIC_SDK && facts.shellDexPresent && facts.shellVerified !== false;
+        facts.shellVerified === true && facts.sdkInt >= ANDROID_SHELL_MIC_SDK && facts.shellDexPresent;
     if (facts.bridgeInstalled) routes.push('lsposed');
     if (shellCandidate) routes.push('shell');
     if (routes.length === 0) {
@@ -81,10 +83,7 @@ export function selectMicRoute(facts: MicProbeFacts): MicRoutePlan {
     return {
         supported: true,
         routes,
-        reason:
-            facts.shellVerified === true
-                ? '使用 Android shell 音频注入。请先按住电脑麦克风，再在微信里按住说话。'
-                : '将尝试 Android 13+ shell 音频注入（首次按下时检测系统权限）。',
+        reason: '这台手机的 shell 注入探测已通过。请先按住电脑麦克风，再在微信里按住说话。',
     };
 }
 
@@ -99,11 +98,11 @@ function explainUnsupported(facts: MicProbeFacts): string {
     } else if (!facts.shellDexPresent) {
         parts.push('服务端缺少 shell 注入组件');
     } else if (facts.shellVerified === false) {
-        parts.push('shell 音频策略注册失败');
+        parts.push('shell 注入已探测但未通过');
     } else {
-        parts.push('没有可用的注入通道');
+        parts.push('非 root 注入尚未在这台手机上探测通过');
     }
-    return `${parts.join('，')}。微信语音需要 root 模块，或 Android 13+ 且系统允许 shell 注入。`;
+    return `${parts.join('，')}。不能只凭 Android 版本判定麦克风可用。需要已手动启用的 LSPosed 模块，或这台手机实际返回 SHELL_MIC_OK。`;
 }
 
 export function resolveVirtualMicJar(exists: (file: string) => boolean = fs.existsSync): string | undefined {

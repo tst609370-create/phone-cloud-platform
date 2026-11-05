@@ -1,5 +1,11 @@
 export const MIC_HOLD_MS = 280;
 
+/** Why the computer microphone cannot be used on this page, if it cannot. */
+export function insecureMicReason(isSecureContext: boolean): string | undefined {
+    if (isSecureContext) return undefined;
+    return '当前页面不是安全上下文。通过公网 IP 的明文 HTTP 不能使用电脑麦克风。请在插着手机的电脑上打开 http://127.0.0.1 。远程开麦需要受信任的 HTTPS 证书；安装包没有公网证书，所以远程页面上的麦克风不可用。';
+}
+
 export interface MicGestureState {
     phase: 'idle' | 'pending' | 'ptt';
     continuous: boolean;

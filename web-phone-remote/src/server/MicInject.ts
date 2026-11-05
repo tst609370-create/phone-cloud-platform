@@ -4,8 +4,8 @@ import type { MicStatus } from '../common/micProtocol';
 import { AdbClient } from './AdbClient';
 import { Config } from './Config';
 import { Logger } from './Logger';
-import { type MicAdb, openLsposedMic, openShellMic } from './mic/deviceBridge';
-import { probeMicFacts, resolveVirtualMicJar } from './mic/route';
+import { type MicAdb, openLsposedMic, openShellMic, probeDeviceMic } from './mic/deviceBridge';
+import { resolveVirtualMicJar } from './mic/route';
 import { MicTalkSession } from './mic/session';
 import { Mw, type RequestParameters } from './mw/Mw';
 import { isValidSerial } from './security/deviceInput';
@@ -42,9 +42,7 @@ export class MicInject extends Mw {
         const adb = new AdbClient(Config.getInstance().adbPath);
         this.session = new MicTalkSession(serial, {
             probe: () =>
-                release
-                    ? probeMicFacts(adb, serial, resolveVirtualMicJar() !== undefined)
-                    : Promise.reject(new Error(BUSY_REASON)),
+                release ? probeDeviceMic(adb, serial, resolveVirtualMicJar()) : Promise.reject(new Error(BUSY_REASON)),
             open: (route) => (release ? openRoute(adb, serial, route) : Promise.reject(new Error(BUSY_REASON))),
             onStatus: (status) => this.sendStatus(status),
         });

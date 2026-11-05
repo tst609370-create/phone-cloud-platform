@@ -1,6 +1,7 @@
 import type { ChildProcess } from 'child_process';
 import net from 'net';
 import {
+    ANDROID_SHELL_MIC_SDK,
     encodeMicFormat,
     encodeMicFrame,
     encodeMicText,
@@ -14,7 +15,7 @@ import {
 import { Logger } from '../Logger';
 import { MicHub } from './hub';
 import { s16leToBytes } from './resample';
-import { parseForwardPort, parseShellProbe, shellMicCommand } from './route';
+import { type MicProbeFacts, parseForwardPort, parseShellProbe, probeMicFacts, shellMicCommand } from './route';
 
 const log = Logger.for('MicBridge');
 
@@ -34,6 +35,26 @@ export interface MicAdb {
     reverse(serial: string, remote: string, local: string): Promise<void>;
     removeReverse(serial: string, remote: string): Promise<void>;
     shellSpawn(serial: string, command: string): ChildProcess;
+}
+
+/**
+ * Fast facts, then a real shell probe when that is the only possible route.
+ * A high SDK is not treated as success: `shellVerified` stays false unless
+ * the device prints SHELL_MIC_OK.
+ */
+export async function probeDeviceMic(adb: MicAdb, serial: string, jarPath: string | undefined): Promise<MicProbeFacts> {
+    const facts = await probeMicFacts(adb, serial, jarPath !== undefined);
+    if (facts.bridgeInstalled || !jarPath || facts.sdkInt < ANDROID_SHELL_MIC_SDK) {
+        return { ...facts, shellVerified: false };
+    }
+    try {
+        await adb.push(serial, jarPath, MIC_REMOTE_JAR);
+        const out = await adb.execOut(serial, shellMicCommand('probe'), 20_000);
+        return { ...facts, shellVerified: parseShellProbe(out.toString('utf8')).ok };
+    } catch (err) {
+        log.warn(`shell probe failed for ${serial}: ${messageOf(err)}`);
+        return { ...facts, shellVerified: false };
+    }
 }
 
 export async function openLsposedMic(adb: MicAdb, serial: string): Promise<OpenedMic> {

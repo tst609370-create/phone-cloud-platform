@@ -17,23 +17,37 @@ describe('mic route selection', () => {
             rooted: true,
             bridgeInstalled: true,
             shellDexPresent: true,
-            shellVerified: 'unknown',
+            shellVerified: true,
         });
         expect(plan.supported).toBe(true);
         expect(plan.routes).toEqual(['lsposed', 'shell']);
         expect(plan.reason).toContain('LSPosed');
     });
 
-    it('offers shell injection on Android 13+ when the jar is present', () => {
+    it('does not treat Android 13 as shell support until the device probe succeeds', () => {
         const plan = selectMicRoute({
-            sdkInt: 33,
+            sdkInt: 34,
             rooted: false,
             bridgeInstalled: false,
             shellDexPresent: true,
             shellVerified: 'unknown',
         });
+        expect(plan.supported).toBe(false);
+        expect(plan.routes).toEqual([]);
+        expect(plan.reason).toContain('不能只凭 Android 版本');
+    });
+
+    it('offers shell injection only after SHELL_MIC_OK', () => {
+        const plan = selectMicRoute({
+            sdkInt: 33,
+            rooted: false,
+            bridgeInstalled: false,
+            shellDexPresent: true,
+            shellVerified: true,
+        });
         expect(plan.routes).toEqual(['shell']);
         expect(plan.supported).toBe(true);
+        expect(plan.reason).toContain('探测已通过');
     });
 
     it('explains why a non-root phone below Android 13 cannot inject', () => {
@@ -59,7 +73,7 @@ describe('mic route selection', () => {
             shellVerified: false,
         });
         expect(plan.supported).toBe(false);
-        expect(plan.reason).toContain('shell 音频策略注册失败');
+        expect(plan.reason).toContain('已探测但未通过');
     });
 
     it('does not offer shell injection when the jar is missing', () => {

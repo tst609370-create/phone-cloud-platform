@@ -4,7 +4,8 @@ import net from 'net';
 import { describe, expect, it } from 'vitest';
 import type { MicStatus } from '../../../common/micProtocol';
 import { MicFrameDecoder, MicFrameType } from '../../../common/micProtocol';
-import { type MicAdb, openLsposedMic, openShellMic } from '../deviceBridge';
+import { type MicAdb, openLsposedMic, openShellMic, probeDeviceMic } from '../deviceBridge';
+import { selectMicRoute } from '../route';
 import { MicTalkSession } from '../session';
 
 describe('MicTalkSession', () => {
@@ -17,7 +18,7 @@ describe('MicTalkSession', () => {
                 rooted: true,
                 bridgeInstalled: true,
                 shellDexPresent: true,
-                shellVerified: 'unknown',
+                shellVerified: true,
             }),
             open: async (route) => {
                 if (route === 'lsposed') throw new Error('adb reverse 失败');
@@ -122,6 +123,32 @@ describe('device bridges', () => {
         });
         await expect(openShellMic(adb, 'SERIAL', '/tmp/virtual-mic.jar')).rejects.toThrow(/registerAudioPolicy/);
         expect(spawned).toBe(0);
+    });
+
+    it('keeps shell unsupported when Android 14 refuses the live probe', async () => {
+        const adb: MicAdb = {
+            shell: async (_serial, command) => {
+                if (command.startsWith('getprop')) return '34';
+                if (command.startsWith('su ') || command === 'id' || command.startsWith('pm path')) {
+                    throw new Error('not found');
+                }
+                return '';
+            },
+            push: async () => undefined,
+            execOut: async () => Buffer.from('SHELL_MIC_NO:registerAudioPolicy=-1\n'),
+            forward: async () => '',
+            removeForward: async () => undefined,
+            reverse: async () => undefined,
+            removeReverse: async () => undefined,
+            shellSpawn: () => {
+                throw new Error('probe must not start the server');
+            },
+        };
+        const facts = await probeDeviceMic(adb, 'SERIAL', '/tmp/virtual-mic.jar');
+        expect(facts.sdkInt).toBe(34);
+        expect(facts.shellVerified).toBe(false);
+        expect(selectMicRoute(facts).supported).toBe(false);
+        expect(selectMicRoute(facts).reason).toContain('不能只凭 Android 版本');
     });
 
     it('serves the LSPosed hook through the reversed host port', async () => {
