@@ -66,6 +66,26 @@ describe('startStream', () => {
         expect(settings.iFrameInterval).toBe(1);
     });
 
+    it('uses wss only when the caller sets secure, and shows the close code', async () => {
+        const { StreamClientScrcpy } = await import('../../googDevice/client/StreamClientScrcpy');
+        const reasons: string[] = [];
+        startStream(container, 'abc123', {
+            secure: true,
+            onDisconnect: (reason) => reasons.push(reason ?? ''),
+        });
+        const secureArgs = (StreamClientScrcpy.start as ReturnType<typeof vi.fn>).mock.calls.at(-1)!;
+        expect(secureArgs[0].secure).toBe(true);
+        secureArgs[5]({ code: 4005, reason: 'scrcpy-server did not emit handshake byte' });
+        expect(reasons[0]).toContain('wss 4005');
+        expect(reasons[0]).toContain('handshake');
+
+        startStream(document.createElement('div'), 'other', { onDisconnect: (reason) => reasons.push(reason ?? '') });
+        const plainArgs = (StreamClientScrcpy.start as ReturnType<typeof vi.fn>).mock.calls.at(-1)!;
+        expect(plainArgs[0].secure).toBe(false);
+        plainArgs[5](undefined);
+        expect(reasons[1]).toBe('ws');
+    });
+
     it('passes bitrate/maxFps/maxSize through to StreamClientScrcpy.start as VideoSettings', async () => {
         const { StreamClientScrcpy } = await import('../../googDevice/client/StreamClientScrcpy');
         startStream(container, 'abc123', { codec: 'h265', bitrate: 8000000, maxFps: 30, maxSize: 1920 });
