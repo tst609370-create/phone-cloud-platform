@@ -1,6 +1,6 @@
 import path from 'path';
 import webpack from 'webpack';
-import { readFileSync } from 'fs';
+import { copyFileSync, existsSync, readFileSync } from 'fs';
 import MiniCssExtractPlugin from 'mini-css-extract-plugin';
 
 export const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -186,6 +186,16 @@ export const frontend = () => {
     return Object.assign({}, common(), front);
 };
 
+class CopyVirtualMicJarPlugin {
+    apply(compiler: webpack.Compiler) {
+        compiler.hooks.afterEmit.tap('CopyVirtualMicJarPlugin', () => {
+            const src = path.resolve(PROJECT_ROOT, 'android/virtual-mic/prebuilt/virtual-mic.jar');
+            if (!existsSync(src)) return;
+            copyFileSync(src, path.resolve(SERVER_DIST_PATH, 'virtual-mic.jar'));
+        });
+    }
+}
+
 const back: webpack.Configuration = {
     entry: path.join(PROJECT_ROOT, './src/server/index.ts'),
     externals: [/^[a-z@]/],
@@ -193,6 +203,7 @@ const back: webpack.Configuration = {
     plugins: [
         new GenerateDistPackageJsonPlugin(),
         buildConfigDefinePlugin,
+        new CopyVirtualMicJarPlugin(),
     ],
     node: {
         global: false,

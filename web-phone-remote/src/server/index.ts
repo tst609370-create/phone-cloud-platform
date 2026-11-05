@@ -23,6 +23,7 @@ import { Config } from './Config';
 import { DependencyManager } from './DependencyManager';
 import { DeviceProbe } from './DeviceProbe';
 import { Logger } from './Logger';
+import { MicInject } from './MicInject';
 import { HostTracker } from './mw/HostTracker';
 import type { MwFactory } from './mw/Mw';
 import { ScanMw } from './mw/ScanMw';
@@ -81,7 +82,7 @@ if (__ssArgs) {
     const servicesToStart: ServiceClass[] = [HttpServer, WebSocketServer];
 
     // MWs that accept WebSocket
-    const mwList: MwFactory[] = [ScrcpyConnection, DeviceProbe, WebsocketMultiplexer];
+    const mwList: MwFactory[] = [ScrcpyConnection, DeviceProbe, MicInject, WebsocketMultiplexer];
 
     // MWs that accept Multiplexer
     const mw2List: MwFactory[] = [HostTracker];

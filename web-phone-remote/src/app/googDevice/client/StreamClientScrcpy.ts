@@ -430,6 +430,9 @@ export class StreamClientScrcpy
             // Mark that the upcoming WebSocket close is user-initiated so
             // onDisconnected does not fire the public onErrorReceived hook.
             this.isStopping = true;
+            this.controlButtons?.querySelectorAll('button.mic-talk').forEach((btn) => {
+                btn.dispatchEvent(new Event('stream-teardown'));
+            });
             const parent = deviceView.parentElement;
             if (parent) parent.removeChild(deviceView);
             this.setHandleKeyboardEvents(false);

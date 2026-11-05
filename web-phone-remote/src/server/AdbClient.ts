@@ -248,8 +248,8 @@ export class AdbClient {
         return this.exec(['-s', serial, 'install', '-r', local], { timeoutMs: DEFAULT_TIMEOUT_MS.install });
     }
 
-    async forward(serial: string, local: string, remote: string): Promise<void> {
-        await this.exec(['-s', serial, 'forward', local, remote], { timeoutMs: DEFAULT_TIMEOUT_MS.forwardOps });
+    async forward(serial: string, local: string, remote: string): Promise<string> {
+        return this.exec(['-s', serial, 'forward', local, remote], { timeoutMs: DEFAULT_TIMEOUT_MS.forwardOps });
     }
 
     async listForwards(serial: string): Promise<{ serial: string; local: string; remote: string }[]> {

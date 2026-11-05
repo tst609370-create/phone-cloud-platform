@@ -8,4 +8,6 @@ export enum ACTION {
     STREAM_SCRCPY = 'stream',
     FILE_LISTING = 'list-files',
     PROBE_DEVICE = 'probe',
+    /** Browser mic → device mic injection. Gated like stream/probe (deviceAccess). */
+    MIC_INJECT = 'mic',
 }

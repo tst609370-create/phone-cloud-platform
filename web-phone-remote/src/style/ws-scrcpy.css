@@ -214,6 +214,21 @@ body[data-embed-entry] {
     transform: translateY(-1px);
 }
 
+.control-button:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.control-button:disabled:hover {
+    opacity: 0.35;
+    transform: none;
+}
+
+.control-button.mic-live {
+    opacity: 1;
+    background-color: #1c6b45;
+}
+
 /* biome-ignore lint/style/noDescendingSpecificity: intentional source order; reordering would change the cascade */
 .control-button > svg {
     fill: var(--svg-button-fill);

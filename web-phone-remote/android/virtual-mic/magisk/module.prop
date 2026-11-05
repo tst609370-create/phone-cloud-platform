@@ -1,0 +1,6 @@
+id=wsphone_virtualmic
+name=虚拟麦克风桥
+version=1.0.0
+versionCode=1
+author=ws-scrcpy-web
+description=安装虚拟麦克风 LSPosed 模块，使电脑麦克风成为手机麦克风输入。

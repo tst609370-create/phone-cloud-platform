@@ -18,6 +18,18 @@ import type { Service } from './Service';
  * session user when locked, or `undefined` when locked and the cookie is missing/invalid
  * (→ the caller closes the socket). Exported for unit testing without a live socket.
  */
+/**
+ * Actions a non-admin renter may open. Each still requires `canAccessDevice`
+ * for the serial on the socket, and the access timer re-checks the rental.
+ * `mic` is the virtual-microphone injector; it must not be reachable for a
+ * phone the account does not hold.
+ */
+export const RENTER_DEVICE_ACTIONS: readonly string[] = ['stream', 'probe', 'mic'];
+
+export function renterDeviceActionAllowed(action: string): boolean {
+    return RENTER_DEVICE_ACTIONS.includes(action);
+}
+
 export function wsSessionUserId(db: Db, cookieHeader: string | undefined): number | undefined {
     if (!isAuthEnabled(db)) return IMPLICIT_ADMIN_ID;
     const token = parseCookie(cookieHeader)[SESSION_COOKIE];
@@ -109,7 +121,7 @@ export class WebSocketServer implements Service {
             const action = url.searchParams.get('action') || '';
             const serial = url.searchParams.get('udid') || url.searchParams.get('device');
             if (user?.role !== 'admin') {
-                if (!serial || !canAccessDevice(db, userId, serial) || !['stream', 'probe'].includes(action)) {
+                if (!serial || !canAccessDevice(db, userId, serial) || !renterDeviceActionAllowed(action)) {
                     ws.close(4403, 'device not assigned');
                     return;
                 }
