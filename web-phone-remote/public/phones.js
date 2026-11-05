@@ -230,7 +230,7 @@
 
         const frame = document.createElement('iframe');
         frame.title = `${name} 控制窗口`;
-        frame.allow = 'clipboard-read; clipboard-write; fullscreen';
+        frame.allow = 'microphone; clipboard-read; clipboard-write; fullscreen';
         frame.src = 'about:blank';
         const nativeInput = document.createElement('div');
         nativeInput.className = 'native-input-layer';

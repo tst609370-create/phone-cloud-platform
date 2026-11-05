@@ -1,7 +1,7 @@
 import { ACTION } from '../../common/Action';
 import { ToolBoxButton } from '../toolbox/ToolBoxButton';
 import SvgImage from '../ui/SvgImage';
-import { captureMicrophone } from './micCapture';
+import { captureMicrophone, describeMicCaptureError } from './micCapture';
 import {
     initialMicGesture,
     insecureMicReason,
@@ -67,13 +67,18 @@ export function createMicTalkButton(udid: string, deps?: MicTalkDeps): ToolBoxBu
 export class MicTalkController {
     private socket: MicSocketLike | undefined;
     private gesture: MicGestureState = initialMicGesture();
-    private supported = false;
-    private serverReason = '正在检测麦克风…';
+    private deviceReady = false;
+    private deviceReason = '正在确认手机能不能注入麦克风';
+    private captureState: 'idle' | 'requesting' | 'capturing' | 'failed' = 'idle';
+    private captureReason = '';
     private captureStop: (() => void) | undefined;
+    private captureInflight: Promise<boolean> | undefined;
+    private captureGen = 0;
     private cancelHold: (() => void) | undefined;
     private sending = false;
     private sentRate = 0;
     private closed = false;
+    private readonly statusEl: HTMLSpanElement;
 
     constructor(
         udid: string,
@@ -81,12 +86,16 @@ export class MicTalkController {
         private readonly deps: MicTalkDeps = defaultDeps,
     ) {
         this.el.classList.add('mic-talk');
+        this.statusEl = document.createElement('span');
+        this.statusEl.className = 'mic-status';
+        this.el.appendChild(this.statusEl);
         const secure = typeof window.isSecureContext === 'boolean' ? window.isSecureContext : true;
         const blocked = insecureMicReason(secure);
         if (blocked) {
-            this.supported = false;
-            this.serverReason = blocked;
+            this.captureState = 'failed';
+            this.captureReason = blocked;
             this.render();
+            this.el.disabled = true;
             this.el.addEventListener('stream-teardown', this.close);
             window.addEventListener('pagehide', this.close);
             window.addEventListener('beforeunload', this.close);
@@ -102,21 +111,21 @@ export class MicTalkController {
         try {
             this.socket = this.deps.connect(udid);
         } catch {
-            this.serverReason = '无法连接麦克风服务';
+            this.deviceReason = '无法连接麦克风服务';
             this.render();
             return;
         }
         this.socket.onmessage = (event) => this.onSocketMessage(event.data);
         this.socket.onclose = () => {
             if (this.closed) return;
-            this.supported = false;
-            this.serverReason = '麦克风连接已断开';
+            this.deviceReady = false;
+            this.deviceReason = '手机端麦克风连接已断开';
             this.stopSending();
             this.render();
         };
         this.socket.onerror = () => {
-            if (this.supported) return;
-            this.serverReason = '无法连接麦克风服务';
+            if (this.deviceReady) return;
+            this.deviceReason = '无法连接手机端麦克风服务';
             this.render();
         };
         this.render();
@@ -139,6 +148,9 @@ export class MicTalkController {
 
     private onPointerDown = (ev: PointerEvent): void => {
         if (ev.button !== 0 || this.el.disabled) return;
+        if (this.captureState !== 'capturing') {
+            void this.ensureCapture();
+        }
         if (typeof this.el.setPointerCapture === 'function') {
             try {
                 this.el.setPointerCapture(ev.pointerId);
@@ -177,20 +189,20 @@ export class MicTalkController {
             return;
         }
         if (msg.type === 'error' && msg.reason) {
-            this.serverReason = msg.reason;
+            this.deviceReady = false;
+            this.deviceReason = msg.reason;
             this.render();
             return;
         }
         if (msg.type !== 'status') return;
-        this.supported = msg.supported === true;
-        this.serverReason = msg.reason || (this.supported ? '按住说话，单击切换通话' : '这台手机不能注入麦克风');
-        if (!this.supported) this.stopSending();
+        this.deviceReady = msg.supported === true;
+        this.deviceReason = msg.reason || (this.deviceReady ? '手机端可以接收电脑麦克风' : '手机端还不能注入麦克风');
+        if (!this.deviceReady) this.sending = false;
         this.render();
     }
 
     private apply(event: { type: 'down' | 'up' | 'hold' | 'cancel'; now: number }): void {
         if (this.closed) return;
-        if (!this.supported && event.type === 'down') return;
         const next = reduceMicGesture(this.gesture, event);
         this.gesture = next.state;
         if (event.type === 'down') {
@@ -211,18 +223,10 @@ export class MicTalkController {
     private onEffect(effect: MicGestureEffect): void {
         if (effect === 'ptt-start' || effect === 'continuous-on') {
             this.sending = true;
-            void this.ensureCapture()
-                .then((opened) => {
-                    if (!opened || !this.sending) return;
-                    this.sendJson({ type: 'start', mode: effect === 'ptt-start' ? 'ptt' : 'continuous' });
-                })
-                .catch((err: unknown) => {
-                    this.gesture = initialMicGesture();
-                    this.sending = false;
-                    this.serverReason = err instanceof Error ? err.message : '无法打开电脑麦克风';
-                    this.sendJson({ type: 'stop' });
-                    this.render();
-                });
+            void this.ensureCapture().then((opened) => {
+                if (!opened || !this.sending) return;
+                this.sendJson({ type: 'start', mode: effect === 'ptt-start' ? 'ptt' : 'continuous' });
+            });
             return;
         }
         this.sending = this.gesture.continuous && this.gesture.phase !== 'idle';
@@ -235,13 +239,38 @@ export class MicTalkController {
 
     private async ensureCapture(): Promise<boolean> {
         if (this.captureStop) return true;
-        const stop = await this.deps.capture((pcm, rate) => this.onPcm(pcm, rate));
-        if (!this.sending || this.closed) {
-            stop();
-            return false;
+        if (this.captureInflight) return this.captureInflight;
+        const gen = ++this.captureGen;
+        this.captureState = 'requesting';
+        this.captureReason = '';
+        this.render();
+        const run = (async () => {
+            try {
+                const stop = await this.deps.capture((pcm, rate) => this.onPcm(pcm, rate));
+                if (gen !== this.captureGen || this.closed) {
+                    stop();
+                    return false;
+                }
+                this.captureStop = stop;
+                this.captureState = 'capturing';
+                this.render();
+                return true;
+            } catch (err) {
+                if (gen !== this.captureGen || this.closed) return false;
+                this.captureState = 'failed';
+                this.captureReason = describeMicCaptureError(err);
+                this.sending = false;
+                this.gesture = initialMicGesture();
+                this.render();
+                return false;
+            }
+        })();
+        this.captureInflight = run;
+        try {
+            return await run;
+        } finally {
+            if (this.captureInflight === run) this.captureInflight = undefined;
         }
-        this.captureStop = stop;
-        return true;
     }
 
     private onPcm(pcm: Int16Array, sampleRate: number): void {
@@ -265,9 +294,11 @@ export class MicTalkController {
     }
 
     private stopCapture(): void {
+        this.captureGen += 1;
         const stop = this.captureStop;
         this.captureStop = undefined;
         this.sentRate = 0;
+        if (this.captureState === 'capturing' || this.captureState === 'requesting') this.captureState = 'idle';
         stop?.();
     }
 
@@ -280,15 +311,28 @@ export class MicTalkController {
     }
 
     private render(): void {
-        const live = this.supported && (this.gesture.continuous || this.gesture.phase === 'ptt' || this.sending);
-        this.el.disabled = !this.supported;
+        const live = this.captureState === 'capturing' && (this.gesture.continuous || this.gesture.phase === 'ptt' || this.sending);
         this.el.classList.toggle('mic-live', live);
-        let title = this.serverReason;
-        if (this.supported && this.gesture.phase === 'ptt') title = '正在用电脑麦克风说话，松开结束';
-        else if (this.supported && this.gesture.continuous) title = '电脑麦克风已作为手机麦克风，再次单击关闭';
-        else if (this.supported && !this.serverReason) title = '按住说话，单击切换通话';
+        let label = '启用麦克风';
+        let title = '点一下请求电脑麦克风。浏览器若已经允许，不会再弹窗。';
+        if (this.captureState === 'requesting') {
+            label = '正在请求';
+            title = '正在向浏览器请求麦克风，请看系统是否弹出权限。';
+        } else if (this.captureState === 'failed') {
+            label = '麦克风未打开';
+            title = this.captureReason;
+        } else if (this.captureState === 'capturing' && !this.deviceReady) {
+            label = '已采集，手机未就绪';
+            title = `电脑麦克风已授权并正在采集。${this.deviceReason}。这不代表微信已经有声。`;
+        } else if (this.captureState === 'capturing') {
+            label = this.sending ? '已采集，送往手机' : '已采集，未发送';
+            title = '电脑麦克风已授权并正在采集。送到手机不等于微信通话或按住说话已经有声。';
+        } else if (!this.deviceReady) {
+            title = `${this.deviceReason}。点一下仍会请求电脑麦克风。`;
+        }
+        this.statusEl.textContent = label;
         this.el.title = title;
-        this.el.setAttribute('aria-label', title);
+        this.el.setAttribute('aria-label', `${label}。${title}`);
         this.el.setAttribute('aria-pressed', live ? 'true' : 'false');
     }
 }

@@ -23,6 +23,26 @@ class WsMicCapture extends AudioWorkletProcessor {
 registerProcessor('ws-mic-capture', WsMicCapture);
 `;
 
+export function describeMicCaptureError(err: unknown): string {
+    const name = err instanceof DOMException ? err.name : err instanceof Error ? err.name : '';
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        return '浏览器没有弹出或已经拒绝麦克风。若之前点过拒绝，请到这个网站的站点设置里改为允许。这里不会自动再请求。';
+    }
+    if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        return '没有找到麦克风。';
+    }
+    if (name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError') {
+        return '系统或其他程序正占用麦克风，这次没有打开。';
+    }
+    if (name === 'SecurityError') {
+        return '浏览器禁止这个页面使用麦克风。公网明文 HTTP 不行；嵌在窗口里时还需要允许麦克风。';
+    }
+    if (name === 'OverconstrainedError') {
+        return '这只麦克风不支持当前采集格式。';
+    }
+    return '无法打开麦克风。';
+}
+
 export async function captureMicrophone(onFrame: (pcm: Int16Array, sampleRate: number) => void): Promise<() => void> {
     const media = navigator.mediaDevices;
     if (!media?.getUserMedia) {
