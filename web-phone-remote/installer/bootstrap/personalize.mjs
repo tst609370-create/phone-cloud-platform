@@ -4,8 +4,8 @@
  *
  *   node personalize.mjs --base PhoneRemoteSetup.exe --out /secure/PhoneRemote-one.exe --store ./enrollment.json
  */
-import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
-import { createInvite, emptyStore, revokeInvite } from './enroll.mjs';
+import { readFileSync, writeFileSync, unlinkSync, existsSync, renameSync } from 'node:fs';
+import { authorizeDevice, bindInvite, canonicalDevices, createInvite, emptyStore, revokeInvite } from './enroll.mjs';
 
 function arg(name) {
     const i = process.argv.indexOf(name);
@@ -32,15 +32,58 @@ function loadStore(file) {
 }
 
 function saveStore(file, store) {
-    writeFileSync(file, JSON.stringify(store));
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(store));
+    renameSync(tmp, file);
 }
 
 if (process.argv[1] && process.argv[1].endsWith('personalize.mjs')) {
     const base = arg('--base');
     const out = arg('--out');
     const storeFile = arg('--store') || './enrollment.json';
+    const bindId = arg('--bind-invite');
+    const authorizeId = arg('--authorize-device');
+    const target = arg('--target-device');
+    if (bindId || authorizeId) {
+        if (base || out) {
+            console.error('绑定和授权不生成安装包');
+            process.exit(2);
+        }
+        const store = loadStore(storeFile);
+        let authorized = null;
+        let bound = null;
+        if (authorizeId) {
+            authorized = authorizeDevice(store, authorizeId);
+            if (!authorized.ok) {
+                console.error(authorized.error);
+                process.exit(1);
+            }
+        }
+        if (bindId) {
+            if (!target) {
+                console.error('绑定恢复邀请需要 --target-device');
+                process.exit(2);
+            }
+            bound = bindInvite(store, bindId, target);
+            if (!bound.ok) {
+                console.error(bound.error);
+                process.exit(1);
+            }
+        }
+        saveStore(storeFile, store);
+        if (authorized) {
+            console.log(`deviceId=${authorized.deviceId}`);
+            console.log('authorized=1');
+        }
+        if (bound) {
+            if (bound.deviceRevoked) console.error('设备仍处于撤销状态，恢复邀请不会使它复活');
+            console.log(`inviteId=${bound.inviteId}`);
+            console.log(`targetDeviceId=${bound.targetDeviceId}`);
+        }
+        process.exit(0);
+    }
     if (!base || !out) {
-        console.error('用法: node personalize.mjs --base 公共exe --out 私有exe --store enrollment.json');
+        console.error('用法: node personalize.mjs --base 公共exe --out 私有exe --store enrollment.json [--target-device 设备ID]');
         process.exit(2);
     }
     if (publicPath(out)) {
@@ -48,7 +91,19 @@ if (process.argv[1] && process.argv[1].endsWith('personalize.mjs')) {
         process.exit(1);
     }
     const store = loadStore(storeFile);
-    const created = createInvite(store);
+    if (target) {
+        if (!/^[a-f0-9]{32}$/.test(target)) {
+            console.error('bad target device');
+            process.exit(2);
+        }
+        const enrolled = canonicalDevices(store.devices).find((row) => row.deviceId === target);
+        if (!enrolled) {
+            console.error('target device not enrolled');
+            process.exit(1);
+        }
+        if (enrolled.revoked === true) console.error('设备仍处于撤销状态，恢复邀请不会使它复活');
+    }
+    const created = createInvite(store, target || null);
     saveStore(storeFile, store);
     try {
         const packed = appendInvite(readFileSync(base), created.secret);

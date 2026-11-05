@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { authorizeFrp, canonicalDevices, createInvite, emptyStore, fetchConfig, hashSecret, redeemInvite, revokeDevice, revokeInvite } from './enroll.mjs';
+import { authorizeDevice, authorizeFrp, bindInvite, canonicalDevices, createInvite, emptyStore, fetchConfig, hashSecret, redeemInvite, revokeDevice, revokeInvite } from './enroll.mjs';
 
 test('unknown device id cannot enroll or fetch config', () => {
     const store = emptyStore();
@@ -59,25 +59,40 @@ test('two new devices get different ports and a revoked device loses authorizati
     assert.equal(tokenOnly.reject, true);
 });
 
-test('a new invite rotates the same device, keeps its port, and revokes the old secret', () => {
+test('an ordinary invite cannot rotate another device or steal its port', () => {
+    const store = emptyStore();
+    const owner = 'a'.repeat(32);
+    const stranger = 'b'.repeat(32);
+    const first = redeemInvite(store, createInvite(store).secret, owner);
+    const attack = createInvite(store);
+    const stolen = redeemInvite(store, attack.secret, owner);
+    assert.equal(stolen.status, 403);
+    assert.equal(store.invites.find((row) => row.id === attack.id).status, 'pending');
+    assert.equal(store.devices.filter((row) => row.deviceId === owner).length, 1);
+    assert.equal(fetchConfig(store, owner, first.deviceSecret).remotePort, 10000);
+    const created = redeemInvite(store, attack.secret, stranger);
+    assert.equal(created.ok, true);
+    assert.equal(created.remotePort, 10001);
+    assert.equal(fetchConfig(store, owner, first.deviceSecret).remotePort, 10000);
+});
+
+test('a bound recovery invite rotates only its target while the device is active', () => {
     const store = emptyStore();
     const deviceId = 'a'.repeat(32);
-    const firstInvite = createInvite(store);
-    const first = redeemInvite(store, firstInvite.secret, deviceId);
-    assert.equal(first.remotePort, 10000);
-    const secondInvite = createInvite(store);
-    const second = redeemInvite(store, secondInvite.secret, deviceId);
+    const otherId = 'b'.repeat(32);
+    const first = redeemInvite(store, createInvite(store).secret, deviceId);
+    redeemInvite(store, createInvite(store).secret, otherId);
+    const recovery = createInvite(store, deviceId);
+    const wrong = redeemInvite(store, recovery.secret, otherId);
+    assert.equal(wrong.status, 403);
+    assert.equal(store.invites.find((row) => row.id === recovery.id).status, 'pending');
+    const second = redeemInvite(store, recovery.secret, deviceId);
     assert.equal(second.ok, true);
     assert.equal(second.remotePort, 10000);
     assert.notEqual(second.deviceSecret, first.deviceSecret);
     assert.equal(store.devices.filter((row) => row.deviceId === deviceId).length, 1);
-    assert.equal(store.devices.length, 1);
     assert.equal(fetchConfig(store, deviceId, first.deviceSecret).status, 403);
     assert.equal(fetchConfig(store, deviceId, second.deviceSecret).remotePort, 10000);
-    assert.equal(redeemInvite(store, firstInvite.secret, deviceId).status, 403);
-    assert.equal(redeemInvite(store, secondInvite.secret, deviceId).status, 403);
-    const other = redeemInvite(store, createInvite(store).secret, 'b'.repeat(32));
-    assert.equal(other.remotePort, 10001);
     const login = authorizeFrp(store, {
         op: 'Login',
         content: { user: deviceId, metas: { deviceSecret: first.deviceSecret } },
@@ -90,22 +105,45 @@ test('a new invite rotates the same device, keeps its port, and revokes the old 
     assert.equal(proxy.reject, false);
 });
 
-test('duplicate rows from an older redeem honor the latest secret until a new invite collapses them', () => {
+test('a revoked device stays revoked even when a recovery invite names it', () => {
     const store = emptyStore();
     const deviceId = 'c'.repeat(32);
-    const oldSecret = '1'.repeat(64);
-    const newSecret = '2'.repeat(64);
+    const first = redeemInvite(store, createInvite(store).secret, deviceId);
+    assert.equal(revokeDevice(store, deviceId).ok, true);
+    const recovery = createInvite(store, deviceId);
+    const attempt = redeemInvite(store, recovery.secret, deviceId);
+    assert.equal(attempt.status, 403);
+    assert.equal(store.devices.find((row) => row.deviceId === deviceId).revoked, true);
+    assert.equal(store.invites.find((row) => row.id === recovery.id).status, 'pending');
+    assert.equal(fetchConfig(store, deviceId, first.deviceSecret).status, 403);
+    assert.equal(authorizeDevice(store, deviceId).ok, true);
+    const restored = redeemInvite(store, recovery.secret, deviceId);
+    assert.equal(restored.remotePort, 10000);
+    assert.equal(fetchConfig(store, deviceId, first.deviceSecret).status, 403);
+    assert.equal(fetchConfig(store, deviceId, restored.deviceSecret).remotePort, 10000);
+});
+
+test('binding an existing invite recovers that device and duplicate rows keep the first secret', () => {
+    const store = emptyStore();
+    const deviceId = 'd'.repeat(32);
+    const ownerSecret = '1'.repeat(64);
+    const attackSecret = '2'.repeat(64);
     store.devices.push(
-        { deviceId, port: 10000, secretHash: hashSecret(oldSecret), inviteId: 'old', revoked: false },
-        { deviceId, port: 10000, secretHash: hashSecret(newSecret), inviteId: 'new', revoked: false },
+        { deviceId, port: 10000, secretHash: hashSecret(ownerSecret), inviteId: 'old', revoked: false },
+        { deviceId, port: 10000, secretHash: hashSecret(attackSecret), inviteId: 'attack', revoked: false },
     );
-    assert.equal(fetchConfig(store, deviceId, oldSecret).status, 403);
-    assert.equal(fetchConfig(store, deviceId, newSecret).remotePort, 10000);
-    assert.equal(canonicalDevices(store.devices).length, 1);
-    const rotated = redeemInvite(store, createInvite(store).secret, deviceId);
-    assert.equal(rotated.remotePort, 10000);
+    assert.equal(fetchConfig(store, deviceId, attackSecret).status, 403);
+    assert.equal(fetchConfig(store, deviceId, ownerSecret).remotePort, 10000);
+    assert.equal(canonicalDevices(store.devices)[0].secretHash, hashSecret(ownerSecret));
+    const pending = createInvite(store);
+    assert.equal(redeemInvite(store, pending.secret, deviceId).status, 403);
+    assert.equal(store.invites.find((row) => row.id === pending.id).status, 'pending');
+    assert.equal(bindInvite(store, pending.id, deviceId).ok, true);
     assert.equal(store.devices.length, 1);
-    assert.equal(fetchConfig(store, deviceId, newSecret).status, 403);
+    const rotated = redeemInvite(store, pending.secret, deviceId);
+    assert.equal(rotated.remotePort, 10000);
+    assert.equal(fetchConfig(store, deviceId, ownerSecret).status, 403);
+    assert.equal(fetchConfig(store, deviceId, attackSecret).status, 403);
     assert.equal(fetchConfig(store, deviceId, rotated.deviceSecret).remotePort, 10000);
 });
 
