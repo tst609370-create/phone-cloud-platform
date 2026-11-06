@@ -213,7 +213,7 @@
         const actions = document.createElement('span');
         actions.className = 'card-actions';
         for (const [action, label, icon] of [
-            ['hear', '听这部手机正在播放的声音。再点一次停止。', '听声音'],
+            ['hear', '听这部手机正在播放的声音。不需要 root，也不是麦克风注入。再点一次停止。', '听声音'],
             ['tools', '展开功能', '功能'],
             ['upload', '安装 APP 或导入图片', '＋'],
             ['reconnect', '重新连接', '↻'],
@@ -525,7 +525,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20260822x',
+            ui: '20261106a',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         return `embed.html?${params}`;

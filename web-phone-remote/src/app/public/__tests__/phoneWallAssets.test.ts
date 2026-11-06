@@ -21,6 +21,8 @@ describe('phone wall snapshot controls', () => {
         expect(source).toContain("frame.allow = 'autoplay; microphone; clipboard-read; clipboard-write; fullscreen'");
         expect(source).toContain("params.set('audio', card.dataset.hear === '1' ? 'true' : 'false')");
         expect(source).toContain('听声音');
+        expect(source).toContain('不需要 root');
+        expect(publicFile('index.html')).toContain('phones.js?v=20261106a');
         expect(source).toContain('抽帧没有手机播放声音');
     });
 
