@@ -111,6 +111,10 @@ function bootstrap(): void {
     }
 
     options.onConnect = (info) => {
+        if (info.audio === 'pending') {
+            show(`connected \u00b7 ${info.codec} \u00b7 ${info.resolution} \u00b7 正在打开播放声`);
+            return;
+        }
         const failed = info.audio === 'disabled' || info.audio === 'error';
         if (failed && info.audioReason) {
             show(info.audioReason, true);

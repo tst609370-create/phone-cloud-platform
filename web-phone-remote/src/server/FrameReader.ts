@@ -26,7 +26,8 @@ export class FrameReader {
     private frameCallback?: ((frame: ScrcpyFrame) => void) | undefined;
     private endCallback?: (() => void) | undefined;
 
-    constructor(private readonly socket: net.Socket) {
+    constructor(private readonly socket: net.Socket, initial?: Buffer) {
+        if (initial && initial.length > 0) this.buffer = initial;
         socket.on('data', this.onData);
         socket.on('end', () => this.endCallback?.());
         socket.on('error', () => this.endCallback?.());
@@ -34,6 +35,7 @@ export class FrameReader {
 
     onFrame(callback: (frame: ScrcpyFrame) => void): void {
         this.frameCallback = callback;
+        this.drain();
     }
 
     onEnd(callback: () => void): void {
@@ -46,6 +48,7 @@ export class FrameReader {
     };
 
     private drain(): void {
+        if (!this.frameCallback) return;
         while (this.buffer.length >= HEADER_SIZE) {
             // v4 added in-stream session packets (rotate/resize events) on the
             // video socket. Distinguish them from media packets by the MSB of

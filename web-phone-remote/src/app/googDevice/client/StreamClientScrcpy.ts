@@ -155,7 +155,9 @@ export class StreamClientScrcpy
     private stopFn?: (() => void) | undefined;
 
     /** Public hook — fires after session metadata is parsed. Used by the public startStream API. */
-    public onMetadataReceived?: ((info: { codec: string; encoder: string; resolution: string }) => void) | undefined;
+    public onMetadataReceived?:
+        | ((info: { codec: string; encoder: string; resolution: string; audio?: string; audioReason?: string }) => void)
+        | undefined;
 
     /** Public hook — fires on async stream errors (WebSocket refused, probe failure, etc.). */
     public onErrorReceived?: ((err: Error) => void) | undefined;
@@ -345,14 +347,20 @@ export class StreamClientScrcpy
             encoder: meta.videoEncoder ?? this.params.encoderName ?? '',
             resolution: `${meta.screenWidth ?? 0}x${meta.screenHeight ?? 0}`,
             audio: meta.audioCodec,
-            audioReason: meta.audioReason,
+            ...(meta.audioReason ? { audioReason: meta.audioReason } : {}),
         });
 
-        if (meta.audioCodec !== 'disabled' && meta.audioCodec !== 'error') {
-            this.audioPlayer = new AudioPlayer(meta.audioCodec);
-            this.audioPlayer.start().catch((err) => {
-                console.error(TAG, 'Failed to start audio:', err.message);
-            });
+        if (meta.audioCodec === 'pending') return;
+        if (meta.audioCodec !== 'disabled' && meta.audioCodec !== 'error' && !meta.audioCodec.startsWith('unknown')) {
+            if (!this.audioPlayer) {
+                this.audioPlayer = new AudioPlayer(meta.audioCodec);
+                this.audioPlayer.start().catch((err) => {
+                    console.error(TAG, 'Failed to start audio:', err.message);
+                });
+            }
+        } else {
+            this.audioPlayer?.stop();
+            this.audioPlayer = undefined;
         }
     };
 
