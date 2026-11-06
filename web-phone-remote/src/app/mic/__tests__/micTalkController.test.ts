@@ -171,6 +171,58 @@ describe('mic talk button', () => {
     });
 });
 
+describe('default browser microphone', () => {
+    it('starts capture from the page message and does not restart after a persistent stop', async () => {
+        let captures = 0;
+        let stopped = false;
+        const rig = deps(async () => {
+            captures += 1;
+            return () => {
+                stopped = true;
+            };
+        });
+        const button = mount(rig);
+        status(rig.socket, false, '未能确认 Android 版本');
+        window.dispatchEvent(new MessageEvent('message', {
+            origin: location.origin,
+            data: { type: 'phone-browser-mic', action: 'start' },
+        }));
+        await flush();
+        expect(captures).toBe(1);
+        expect(button.querySelector('.mic-status')?.textContent).toBe('已采集，手机未就绪');
+        expect(button.title).not.toContain('站点设置');
+        window.dispatchEvent(new MessageEvent('message', {
+            origin: location.origin,
+            data: { type: 'phone-browser-mic', action: 'stop', persist: true },
+        }));
+        expect(stopped).toBe(true);
+        expect(button.querySelector('.mic-status')?.textContent).toBe('麦克风已关');
+        window.dispatchEvent(new MessageEvent('message', {
+            origin: location.origin,
+            data: { type: 'phone-browser-mic', action: 'start' },
+        }));
+        await flush();
+        expect(captures).toBe(1);
+    });
+
+    it('shows a browser denial instead of a phone-not-ready message', async () => {
+        const rig = deps(async () => {
+            const denied = new Error('no');
+            denied.name = 'NotAllowedError';
+            throw denied;
+        });
+        const button = mount(rig);
+        window.dispatchEvent(new MessageEvent('message', {
+            origin: location.origin,
+            data: { type: 'phone-browser-mic', action: 'start' },
+        }));
+        await flush();
+        expect(button.querySelector('.mic-status')?.textContent).toBe('麦克风未打开');
+        expect(button.title).toContain('站点设置');
+        expect(button.title).not.toContain('手机未就绪');
+    });
+});
+
 describe('mic occupancy message', () => {
     it('keeps the exact busy sentence visible and does not treat it as capture success', async () => {
         const rig = deps(async () => () => undefined);

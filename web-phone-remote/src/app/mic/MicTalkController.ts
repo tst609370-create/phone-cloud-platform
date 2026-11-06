@@ -78,7 +78,28 @@ export class MicTalkController {
     private sending = false;
     private sentRate = 0;
     private closed = false;
+    private userPaused = false;
     private readonly statusEl: HTMLSpanElement;
+    private readonly onBrowserMic = (event: MessageEvent): void => {
+        if (event.origin !== location.origin) return;
+        const data = event.data as { type?: string; action?: string; persist?: boolean } | null;
+        if (!data || data.type !== 'phone-browser-mic') return;
+        if (data.action === 'start') {
+            if (this.userPaused || this.closed) return;
+            void this.beginBrowserMic();
+            return;
+        }
+        if (data.action === 'stop') {
+            if (data.persist) this.userPaused = true;
+            this.sending = false;
+            this.gesture = initialMicGesture();
+            this.cancelHold?.();
+            this.cancelHold = undefined;
+            this.stopCapture();
+            this.sendJson({ type: 'stop' });
+            this.render();
+        }
+    };
 
     constructor(
         udid: string,
@@ -101,6 +122,7 @@ export class MicTalkController {
             window.addEventListener('beforeunload', this.close);
             return;
         }
+        window.addEventListener('message', this.onBrowserMic);
         this.el.addEventListener('pointerdown', this.onPointerDown);
         this.el.addEventListener('pointerup', this.onPointerUp);
         this.el.addEventListener('pointercancel', this.onPointerCancel);
@@ -144,10 +166,12 @@ export class MicTalkController {
         this.el.removeEventListener('stream-teardown', this.close);
         window.removeEventListener('pagehide', this.close);
         window.removeEventListener('beforeunload', this.close);
+        window.removeEventListener('message', this.onBrowserMic);
     };
 
     private onPointerDown = (ev: PointerEvent): void => {
         if (ev.button !== 0 || this.el.disabled) return;
+        if (this.userPaused) this.userPaused = false;
         if (this.captureState !== 'capturing') {
             void this.ensureCapture();
         }
@@ -198,6 +222,18 @@ export class MicTalkController {
         this.deviceReady = msg.supported === true;
         this.deviceReason = msg.reason || (this.deviceReady ? '手机端可以接收电脑麦克风' : '手机端还不能注入麦克风');
         if (!this.deviceReady) this.sending = false;
+        else if (this.captureState === 'capturing' && !this.userPaused && !this.sending) {
+            this.sending = true;
+            this.sendJson({ type: 'start', mode: 'continuous' });
+        }
+        this.render();
+    }
+
+    private async beginBrowserMic(): Promise<void> {
+        const opened = await this.ensureCapture();
+        if (!opened || this.userPaused || this.closed) return;
+        this.sending = this.deviceReady;
+        if (this.sending) this.sendJson({ type: 'start', mode: 'continuous' });
         this.render();
     }
 
@@ -315,14 +351,19 @@ export class MicTalkController {
         const live = this.deviceReady && this.captureState === 'capturing' && (this.gesture.continuous || this.gesture.phase === 'ptt' || this.sending);
         this.el.disabled = false;
         this.el.classList.toggle('mic-live', live);
-        let label = '启用麦克风';
-        let title = '点一下请求电脑麦克风。浏览器若已经允许，不会再弹窗。';
+        let label = this.userPaused ? '麦克风已关' : '启用麦克风';
+        let title = this.userPaused
+            ? '浏览器麦克风已关闭，不会自动重新打开。点此再开。这不是手机注入失败。'
+            : '点一下请求电脑麦克风。浏览器若已经允许，不会再弹窗。';
         if (this.captureState === 'requesting') {
             label = '正在请求';
             title = '正在向浏览器请求麦克风，请看系统是否弹出权限。';
         } else if (this.captureState === 'failed') {
             label = '麦克风未打开';
             title = this.captureReason;
+        } else if (this.userPaused) {
+            label = '麦克风已关';
+            title = '浏览器麦克风已关闭，不会自动重新打开。点此再开。这不是手机注入失败。';
         } else if (phoneBusy) {
             label = this.captureState === 'capturing' ? '已采集，手机被占用' : '手机被占用';
             title = `${MIC_BUSY_REASON}。这只表示已有控制端占着送音名额。电脑可以单独采集，但不会把声音送进手机，也不代表微信有声。`;
@@ -340,5 +381,16 @@ export class MicTalkController {
         this.el.title = title;
         this.el.setAttribute('aria-label', `${label}。${title}`);
         this.el.setAttribute('aria-pressed', live ? 'true' : 'false');
+        if (window.parent !== window) {
+            window.parent.postMessage(
+                {
+                    type: 'phone-browser-mic-state',
+                    capture: this.userPaused ? 'closed-by-user' : this.captureState,
+                    deviceReady: this.deviceReady,
+                    phoneReason: this.deviceReason,
+                },
+                location.origin,
+            );
+        }
     }
 }
