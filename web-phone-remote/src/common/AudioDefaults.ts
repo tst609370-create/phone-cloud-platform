@@ -30,6 +30,14 @@ export function audioCaptureSupported(sdkInt: number): boolean {
     return Number.isFinite(sdkInt) && sdkInt >= 30;
 }
 
+/** Why phone playback cannot be sent to the browser, when the user asked for it. */
+export function playbackAudioBlockReason(sdkInt: number): string | undefined {
+    if (sdkInt > 0 && sdkInt < 30) {
+        return `Android API ${sdkInt} 低于 11，不能把手机播放声送到浏览器`;
+    }
+    return undefined;
+}
+
 /** `--audio-dup` (keeps device audio playing during capture) requires Android 13+. */
 export function audioDupSupported(sdkInt: number): boolean {
     return Number.isFinite(sdkInt) && sdkInt >= 33;

@@ -111,10 +111,14 @@ function bootstrap(): void {
     }
 
     options.onConnect = (info) => {
-        const audio = info.audio ? ` \u00b7 audio ${info.audio}` : '';
         const failed = info.audio === 'disabled' || info.audio === 'error';
-        show(`connected \u00b7 ${info.codec} \u00b7 ${info.resolution}${audio}`, failed);
-        if (!failed) setTimeout(hide, 2000);
+        if (failed && info.audioReason) {
+            show(info.audioReason, true);
+            return;
+        }
+        const audio = info.audio && info.audio !== 'disabled' ? ` \u00b7 audio ${info.audio}` : '';
+        show(`connected \u00b7 ${info.codec} \u00b7 ${info.resolution}${audio}`);
+        setTimeout(hide, 2000);
     };
     options.onDisconnect = (reason) => show(`disconnected${reason ? ` (${reason})` : ''}`, true);
     options.onError = (err) => show(`error: ${err.message}`, true);

@@ -5,6 +5,7 @@ import type WS from 'ws';
 import { ACTION } from '../common/Action';
 import { ChannelId } from '../common/ChannelId';
 import { DEVICE_SERVER_PATH, SERVER_PACKAGE } from '../common/Constants';
+import { playbackAudioBlockReason } from '../common/AudioDefaults';
 import { AUDIO_DISABLED, AUDIO_ERROR, codecName } from '../common/ScrcpyCodec';
 import { AdbClient } from './AdbClient';
 import { Config } from './Config';
@@ -39,6 +40,7 @@ interface SessionMetadata {
     screenWidth: number;
     screenHeight: number;
     audioCodec: string;
+    audioReason?: string;
     videoEncoder?: string;
 }
 
@@ -113,7 +115,9 @@ export class ScrcpyConnection extends Mw {
         //    user's opt-in to "keep device audio" can't be honored — force off
         //    rather than surprise them with silence.
         //  (Default source is `output`, which works on every audio-capable SDK.)
-        if (sdkInt > 0 && sdkInt < 30) {
+        const requestedAudio = options.audio !== false;
+        const audioBlock = requestedAudio ? playbackAudioBlockReason(sdkInt) : undefined;
+        if (audioBlock) {
             options.audio = false;
         } else if (sdkInt > 0 && sdkInt < 33 && options.audioSource === 'playback') {
             options.audio = false;
@@ -142,7 +146,7 @@ export class ScrcpyConnection extends Mw {
 
         // 3. Parse initial metadata
         log.info(`Parsing stream metadata for ${this.serial}`);
-        const metadata = await this.parseMetadata();
+        const metadata = await this.parseMetadata(requestedAudio, audioBlock);
         if (options.videoEncoder) {
             metadata.videoEncoder = options.videoEncoder;
         }
@@ -374,7 +378,7 @@ export class ScrcpyConnection extends Mw {
         });
     }
 
-    private async parseMetadata(): Promise<SessionMetadata> {
+    private async parseMetadata(requestedAudio: boolean, audioBlock?: string): Promise<SessionMetadata> {
         // Video socket (scrcpy v4+):
         //   @0-63:  device name (64 bytes, null-padded UTF-8) — unchanged from v3
         //   @64-67: video codec ID (4 bytes BE) — unchanged from v3
@@ -416,10 +420,13 @@ export class ScrcpyConnection extends Mw {
         const audioCodecId = audioMeta.readUInt32BE(0);
 
         let audioCodec: string;
+        let audioReason: string | undefined;
         if (audioCodecId === AUDIO_DISABLED) {
             audioCodec = 'disabled';
+            if (requestedAudio) audioReason = audioBlock ?? '手机没有送出可播放的声音';
         } else if (audioCodecId === AUDIO_ERROR) {
             audioCodec = 'error';
+            audioReason = '手机音频采集失败';
         } else {
             audioCodec = codecName(audioCodecId);
         }
@@ -430,6 +437,7 @@ export class ScrcpyConnection extends Mw {
             screenWidth,
             screenHeight,
             audioCodec,
+            ...(audioReason ? { audioReason } : {}),
         };
     }
 

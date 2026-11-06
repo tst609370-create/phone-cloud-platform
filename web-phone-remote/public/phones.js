@@ -213,6 +213,7 @@
         const actions = document.createElement('span');
         actions.className = 'card-actions';
         for (const [action, label, icon] of [
+            ['hear', '听这部手机正在播放的声音。再点一次停止。', '听声音'],
             ['tools', '展开功能', '功能'],
             ['upload', '安装 APP 或导入图片', '＋'],
             ['reconnect', '重新连接', '↻'],
@@ -279,6 +280,7 @@
         void refreshScreenLockButton(card);
         restorePosition(card, index);
         enableDragging(card);
+        card.querySelector('[data-action="hear"]').addEventListener('click', () => toggleHear(card));
         card.querySelector('[data-action="tools"]').addEventListener('click', () => {
             const open = card.classList.toggle('tools-open');
             card.querySelector('[data-action="tools"]').classList.toggle('active', open);
@@ -525,7 +527,40 @@
             secure: location.protocol === 'https:' ? 'true' : 'false',
             ui: '20260822x',
         });
+        params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         return `embed.html?${params}`;
+    }
+
+    function paintHear(card) {
+        const button = card.querySelector('[data-action="hear"]');
+        if (!button) return;
+        const on = card.dataset.hear === '1';
+        button.textContent = on ? '停止' : '听声音';
+        button.classList.toggle('active', on);
+        button.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+
+    function toggleHear(card) {
+        if (streamMode === 'snapshot') {
+            logOperation(card, '抽帧没有手机播放声音');
+            return;
+        }
+        const enable = card.dataset.hear !== '1';
+        if (enable) {
+            for (const other of cards) {
+                if (other === card || other.dataset.hear !== '1') continue;
+                delete other.dataset.hear;
+                paintHear(other);
+                if (other.dataset.streaming === '1') connect(other, true);
+            }
+            card.dataset.hear = '1';
+        } else {
+            delete card.dataset.hear;
+        }
+        paintHear(card);
+        logOperation(card, enable ? '正在打开这部手机的播放声音' : '已停止听音');
+        if (card.dataset.streaming === '1') connect(card, true);
+        else activate(card);
     }
 
     function applyStreamProfile(card) {
@@ -1025,6 +1060,8 @@
         clearFrameObservers(card);
         card.querySelector('iframe').src = 'about:blank';
         card.dataset.streaming = '0';
+        delete card.dataset.hear;
+        paintHear(card);
         card.classList.add('closed');
         card.classList.remove('paused');
         setState(card, '', '已关闭');

@@ -19,7 +19,9 @@ describe('phone wall snapshot controls', () => {
         expect(source).toContain('frameRect.left - cardRect.left + canvasRect.left');
         expect(source).toContain('frameRect.top - cardRect.top + canvasRect.top');
         expect(source).toContain("frame.allow = 'autoplay; microphone; clipboard-read; clipboard-write; fullscreen'");
-        expect(source).not.toContain("audio: 'false'");
+        expect(source).toContain("params.set('audio', card.dataset.hear === '1' ? 'true' : 'false')");
+        expect(source).toContain('听声音');
+        expect(source).toContain('抽帧没有手机播放声音');
     });
 
     it('shows the shared APK library and installs into the active phone', () => {

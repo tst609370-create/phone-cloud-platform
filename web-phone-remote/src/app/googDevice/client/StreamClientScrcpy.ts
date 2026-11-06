@@ -345,6 +345,7 @@ export class StreamClientScrcpy
             encoder: meta.videoEncoder ?? this.params.encoderName ?? '',
             resolution: `${meta.screenWidth ?? 0}x${meta.screenHeight ?? 0}`,
             audio: meta.audioCodec,
+            audioReason: meta.audioReason,
         });
 
         if (meta.audioCodec !== 'disabled' && meta.audioCodec !== 'error') {

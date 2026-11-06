@@ -53,6 +53,8 @@ export interface StreamInfo {
     resolution: string;
     /** scrcpy audio codec, or `disabled` / `error` when the phone sent no playable stream. */
     audio?: string;
+    /** Why playback audio is absent after the user asked to hear it. */
+    audioReason?: string;
 }
 
 export interface StreamProfile {
