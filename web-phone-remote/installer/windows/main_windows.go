@@ -25,16 +25,23 @@ func main() {
 	defer releaseInstallLock()
 	elevated := false
 	action := ""
-	for _, arg := range os.Args[1:] {
-		switch arg {
-		case "--elevated":
+	taskUser := ""
+	for i := 1; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		switch {
+		case arg == "--elevated":
 			elevated = true
-		case "--uninstall":
+		case arg == "--uninstall":
 			action = "uninstall"
-		case "--install":
+		case arg == "--install":
 			action = "install"
-		case "--stop":
+		case arg == "--stop":
 			action = "stop"
+		case arg == "--task-user" && i+1 < len(os.Args):
+			i++
+			taskUser = os.Args[i]
+		case strings.HasPrefix(arg, "--task-user="):
+			taskUser = strings.TrimPrefix(arg, "--task-user=")
 		}
 	}
 	if elevated {
@@ -61,12 +68,17 @@ func main() {
 			return
 		}
 		if !isAdmin() {
-			params, err := elevatedParameters(action)
+			user, err := currentTaskUser(os.Getenv("USERDOMAIN"), os.Getenv("USERNAME"))
 			if err != nil {
 				errorBox("没有完成", err.Error())
 				return
 			}
-			line, _ := handoffLine(action)
+			params, err := elevatedParameters(action, user)
+			if err != nil {
+				errorBox("没有完成", err.Error())
+				return
+			}
+			line, _ := handoffLine(action, user)
 			logPath := noteInstallLog(line)
 			releaseInstallLock()
 			fmt.Println("正在请求管理员权限。请在系统窗口里选择“是”。不要关闭本窗口。")
@@ -84,6 +96,19 @@ func main() {
 	if action == "" {
 		action = "install"
 	}
+	if taskUser == "" {
+		resolved, userErr := currentTaskUser(os.Getenv("USERDOMAIN"), os.Getenv("USERNAME"))
+		if userErr != nil && action == "install" {
+			errorBox("没有完成", userErr.Error())
+			os.Exit(1)
+		}
+		taskUser = resolved
+	}
+	if userErr := validateTaskUser(taskUser); userErr != nil && action == "install" {
+		errorBox("没有完成", "没有安装前记下的登录用户，拒绝改用提升后的账号注册开机任务："+userErr.Error())
+		os.Exit(1)
+	}
+	logonTaskUser = taskUser
 	var err error
 	switch action {
 	case "uninstall":

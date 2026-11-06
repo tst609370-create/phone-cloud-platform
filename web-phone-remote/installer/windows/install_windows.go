@@ -503,18 +503,35 @@ func writeFrpc(root, genRoot, logs, deviceID, deviceSecret string, boot Bootstra
 	return registerTask("PhoneRemote-Frpc", frpcCmd)
 }
 
+var logonTaskUser string
+
 func registerTask(name, cmdPath string) error {
+	if err := validateTaskUser(logonTaskUser); err != nil {
+		return fmt.Errorf("没有安装前记下的登录用户，拒绝改用提升后的账号注册开机任务：%w", err)
+	}
 	vbsPath := strings.TrimSuffix(cmdPath, filepath.Ext(cmdPath)) + ".vbs"
 	body := "CreateObject(\"Wscript.Shell\").Run \"cmd /c \"\"" + cmdPath + "\"\"\", 0, False\r\n"
 	if err := os.WriteFile(vbsPath, []byte(body), 0o644); err != nil {
 		return err
 	}
-	_ = runHidden("schtasks", "/End", "/TN", name)
-	_ = runHidden("schtasks", "/Delete", "/TN", name, "/F")
-	tr := fmt.Sprintf(`wscript.exe //B //Nologo "%s"`, vbsPath)
-	out, err := exec.Command("schtasks", "/Create", "/TN", name, "/TR", tr, "/SC", "ONLOGON", "/RL", "LIMITED", "/F").CombinedOutput()
+	taskArgs, err := taskArguments(vbsPath)
 	if err != nil {
-		return fmt.Errorf("注册开机登录启动“%s”失败：%s", name, strings.TrimSpace(string(out)))
+		return err
+	}
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", logonTaskScript())
+	hide(cmd)
+	cmd.Env = append(os.Environ(),
+		"PHONE_REMOTE_TASK_USER="+logonTaskUser,
+		"PHONE_REMOTE_TASK_NAME="+name,
+		"PHONE_REMOTE_TASK_ARGS="+taskArgs,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		code := 1
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			code = exitErr.ExitCode()
+		}
+		return fmt.Errorf("%s", formatTaskFailure(name, code, string(out)))
 	}
 	return nil
 }

@@ -150,6 +150,10 @@ const front: webpack.Configuration = {
             path.resolve(CLIENT_DIST_PATH, 'phones.js'),
         ),
         new CopyFilePlugin(
+            path.resolve(PROJECT_ROOT, 'public/browserMicPolicy.js'),
+            path.resolve(CLIENT_DIST_PATH, 'browserMicPolicy.js'),
+        ),
+        new CopyFilePlugin(
             path.resolve(PROJECT_ROOT, 'public/snapshot.html'),
             path.resolve(CLIENT_DIST_PATH, 'snapshot.html'),
         ),

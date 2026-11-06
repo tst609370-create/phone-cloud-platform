@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { MicSocketLike, MicTalkDeps } from '../MicTalkController';
 import { MicTalkController, micSocketUrl } from '../MicTalkController';
+import { MIC_BUSY_REASON } from '../../../common/micProtocol';
 
 class FakeSocket implements MicSocketLike {
     readyState = 1;
@@ -23,6 +24,10 @@ class FakeSocket implements MicSocketLike {
 
 const sockets: FakeSocket[] = [];
 const cleanups: HTMLButtonElement[] = [];
+
+beforeEach(() => {
+    Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true });
+});
 
 afterEach(() => {
     while (cleanups.length) {
@@ -83,13 +88,55 @@ describe('mic talk button', () => {
         expect(url.searchParams.get('udid')).toBe('phone:1');
     });
 
-    it('disables the button and shows the server reason when injection is unavailable', () => {
-        const rig = deps();
+    it('keeps the enable action when the phone cannot inject yet', async () => {
+        let captures = 0;
+        const rig = deps(async () => {
+            captures += 1;
+            return () => undefined;
+        });
         const button = mount(rig);
         status(rig.socket, false, '未安装虚拟麦克风模块，Android API 28 低于 13');
-        expect(button.disabled).toBe(true);
+        expect(button.disabled).toBe(false);
+        expect(button.querySelector('.mic-status')?.textContent).toBe('手机未就绪');
         expect(button.title).toContain('未安装虚拟麦克风模块');
-        expect(button.classList.contains('mic-talk')).toBe(true);
+        button.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1 }));
+        await flush();
+        expect(captures).toBe(1);
+        expect(button.querySelector('.mic-status')?.textContent).toBe('已采集，手机未就绪');
+        expect(button.title).toContain('不代表微信已经有声');
+    });
+
+    it('requests the microphone once from pointerdown and explains a refusal', async () => {
+        let captures = 0;
+        let stopped = false;
+        const rig = deps(async () => {
+            captures += 1;
+            if (captures === 1) {
+                const denied = new Error('denied');
+                denied.name = 'NotAllowedError';
+                throw denied;
+            }
+            return () => {
+                stopped = true;
+            };
+        });
+        const button = mount(rig);
+        button.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1 }));
+        button.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 2 }));
+        await flush();
+        expect(captures).toBe(1);
+        expect(button.querySelector('.mic-status')?.textContent).toBe('麦克风未打开');
+        expect(button.title).toContain('站点设置');
+        button.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 3 }));
+        await flush();
+        expect(captures).toBe(2);
+        expect(button.querySelector('.mic-status')?.textContent).toBe('已采集，手机未就绪');
+        button.dispatchEvent(new PointerEvent('pointerup', { button: 0, pointerId: 3 }));
+        button.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 4 }));
+        button.dispatchEvent(new PointerEvent('pointerup', { button: 0, pointerId: 4 }));
+        await flush();
+        expect(stopped).toBe(true);
+        expect(captures).toBe(2);
     });
 
     it('toggles continuous mode on a short click and press-to-talk on a hold', async () => {
@@ -121,6 +168,77 @@ describe('mic talk button', () => {
         await flush();
         expect(jsons(rig.socket)).toContainEqual({ type: 'start', mode: 'ptt' });
         expect(jsons(rig.socket).some((msg) => msg.type === 'stop')).toBe(true);
+    });
+});
+
+describe('default browser microphone', () => {
+    it('starts capture from the page message and does not restart after a persistent stop', async () => {
+        let captures = 0;
+        let stopped = false;
+        const rig = deps(async () => {
+            captures += 1;
+            return () => {
+                stopped = true;
+            };
+        });
+        const button = mount(rig);
+        status(rig.socket, false, '未能确认 Android 版本');
+        window.dispatchEvent(new MessageEvent('message', {
+            origin: location.origin,
+            data: { type: 'phone-browser-mic', action: 'start' },
+        }));
+        await flush();
+        expect(captures).toBe(1);
+        expect(button.querySelector('.mic-status')?.textContent).toBe('已采集，手机未就绪');
+        expect(button.title).not.toContain('站点设置');
+        window.dispatchEvent(new MessageEvent('message', {
+            origin: location.origin,
+            data: { type: 'phone-browser-mic', action: 'stop', persist: true },
+        }));
+        expect(stopped).toBe(true);
+        expect(button.querySelector('.mic-status')?.textContent).toBe('麦克风已关');
+        window.dispatchEvent(new MessageEvent('message', {
+            origin: location.origin,
+            data: { type: 'phone-browser-mic', action: 'start' },
+        }));
+        await flush();
+        expect(captures).toBe(1);
+    });
+
+    it('shows a browser denial instead of a phone-not-ready message', async () => {
+        const rig = deps(async () => {
+            const denied = new Error('no');
+            denied.name = 'NotAllowedError';
+            throw denied;
+        });
+        const button = mount(rig);
+        window.dispatchEvent(new MessageEvent('message', {
+            origin: location.origin,
+            data: { type: 'phone-browser-mic', action: 'start' },
+        }));
+        await flush();
+        expect(button.querySelector('.mic-status')?.textContent).toBe('麦克风未打开');
+        expect(button.title).toContain('站点设置');
+        expect(button.title).not.toContain('手机未就绪');
+    });
+});
+
+describe('mic occupancy message', () => {
+    it('keeps the exact busy sentence visible and does not treat it as capture success', async () => {
+        const rig = deps(async () => () => undefined);
+        const button = document.createElement('button');
+        button.disabled = true;
+        new MicTalkController('PHONE1', button, rig.deps);
+        cleanups.push(button);
+        status(rig.socket, false, MIC_BUSY_REASON);
+        expect(button.disabled).toBe(false);
+        expect(button.querySelector('.mic-status')?.textContent).toBe('手机被占用');
+        expect(button.title).toContain(MIC_BUSY_REASON);
+        expect(button.title).not.toContain('送往手机');
+        button.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1 }));
+        await flush();
+        expect(button.querySelector('.mic-status')?.textContent).toBe('已采集，手机被占用');
+        expect(button.title).toContain('不会把声音送进手机');
     });
 });
 

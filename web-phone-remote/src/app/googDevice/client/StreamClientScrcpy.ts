@@ -155,7 +155,9 @@ export class StreamClientScrcpy
     private stopFn?: (() => void) | undefined;
 
     /** Public hook — fires after session metadata is parsed. Used by the public startStream API. */
-    public onMetadataReceived?: ((info: { codec: string; encoder: string; resolution: string }) => void) | undefined;
+    public onMetadataReceived?:
+        | ((info: { codec: string; encoder: string; resolution: string; audio?: string; audioReason?: string }) => void)
+        | undefined;
 
     /** Public hook — fires on async stream errors (WebSocket refused, probe failure, etc.). */
     public onErrorReceived?: ((err: Error) => void) | undefined;
@@ -344,13 +346,21 @@ export class StreamClientScrcpy
             codec: meta.videoCodec ?? '',
             encoder: meta.videoEncoder ?? this.params.encoderName ?? '',
             resolution: `${meta.screenWidth ?? 0}x${meta.screenHeight ?? 0}`,
+            audio: meta.audioCodec,
+            ...(meta.audioReason ? { audioReason: meta.audioReason } : {}),
         });
 
-        if (meta.audioCodec !== 'disabled' && meta.audioCodec !== 'error') {
-            this.audioPlayer = new AudioPlayer(meta.audioCodec);
-            this.audioPlayer.start().catch((err) => {
-                console.error(TAG, 'Failed to start audio:', err.message);
-            });
+        if (meta.audioCodec === 'pending') return;
+        if (meta.audioCodec !== 'disabled' && meta.audioCodec !== 'error' && !meta.audioCodec.startsWith('unknown')) {
+            if (!this.audioPlayer) {
+                this.audioPlayer = new AudioPlayer(meta.audioCodec);
+                this.audioPlayer.start().catch((err) => {
+                    console.error(TAG, 'Failed to start audio:', err.message);
+                });
+            }
+        } else {
+            this.audioPlayer?.stop();
+            this.audioPlayer = undefined;
         }
     };
 
@@ -436,6 +446,7 @@ export class StreamClientScrcpy
             const parent = deviceView.parentElement;
             if (parent) parent.removeChild(deviceView);
             this.setHandleKeyboardEvents(false);
+            document.removeEventListener('pointerdown', resumeAudio);
             document.removeEventListener('click', resumeAudio);
             document.removeEventListener('keydown', resumeAudio);
             this.demuxer?.close();
@@ -470,9 +481,11 @@ export class StreamClientScrcpy
         // Resume audio on first user interaction (autoplay policy)
         const resumeAudio = () => {
             this.audioPlayer?.resume();
+            document.removeEventListener('pointerdown', resumeAudio);
             document.removeEventListener('click', resumeAudio);
             document.removeEventListener('keydown', resumeAudio);
         };
+        document.addEventListener('pointerdown', resumeAudio, { once: true });
         document.addEventListener('click', resumeAudio, { once: true });
         document.addEventListener('keydown', resumeAudio, { once: true });
 
