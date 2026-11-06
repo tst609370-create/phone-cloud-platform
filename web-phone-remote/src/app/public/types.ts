@@ -51,6 +51,8 @@ export interface StreamInfo {
     codec: string;
     encoder: string;
     resolution: string;
+    /** scrcpy audio codec, or `disabled` / `error` when the phone sent no playable stream. */
+    audio?: string;
 }
 
 export interface StreamProfile {

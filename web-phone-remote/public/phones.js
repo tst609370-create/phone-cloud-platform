@@ -230,7 +230,7 @@
 
         const frame = document.createElement('iframe');
         frame.title = `${name} 控制窗口`;
-        frame.allow = 'microphone; clipboard-read; clipboard-write; fullscreen';
+        frame.allow = 'autoplay; microphone; clipboard-read; clipboard-write; fullscreen';
         frame.src = 'about:blank';
         const nativeInput = document.createElement('div');
         nativeInput.className = 'native-input-layer';
@@ -522,7 +522,6 @@
             bitrate: String(profile.bitrate),
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
-            audio: 'false',
             secure: location.protocol === 'https:' ? 'true' : 'false',
             ui: '20260822x',
         });

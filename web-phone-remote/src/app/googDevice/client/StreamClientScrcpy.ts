@@ -344,6 +344,7 @@ export class StreamClientScrcpy
             codec: meta.videoCodec ?? '',
             encoder: meta.videoEncoder ?? this.params.encoderName ?? '',
             resolution: `${meta.screenWidth ?? 0}x${meta.screenHeight ?? 0}`,
+            audio: meta.audioCodec,
         });
 
         if (meta.audioCodec !== 'disabled' && meta.audioCodec !== 'error') {
@@ -436,6 +437,7 @@ export class StreamClientScrcpy
             const parent = deviceView.parentElement;
             if (parent) parent.removeChild(deviceView);
             this.setHandleKeyboardEvents(false);
+            document.removeEventListener('pointerdown', resumeAudio);
             document.removeEventListener('click', resumeAudio);
             document.removeEventListener('keydown', resumeAudio);
             this.demuxer?.close();
@@ -470,9 +472,11 @@ export class StreamClientScrcpy
         // Resume audio on first user interaction (autoplay policy)
         const resumeAudio = () => {
             this.audioPlayer?.resume();
+            document.removeEventListener('pointerdown', resumeAudio);
             document.removeEventListener('click', resumeAudio);
             document.removeEventListener('keydown', resumeAudio);
         };
+        document.addEventListener('pointerdown', resumeAudio, { once: true });
         document.addEventListener('click', resumeAudio, { once: true });
         document.addEventListener('keydown', resumeAudio, { once: true });
 
