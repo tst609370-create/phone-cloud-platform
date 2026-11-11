@@ -557,7 +557,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261112a',
+                ui: '20261112m',
             });
             return `snapshot.html?${params}`;
         }
@@ -571,7 +571,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261112a',
+            ui: '20261112m',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         return `embed.html?${params}`;
@@ -605,11 +605,19 @@
         let label = '开麦克风';
         if (paused || (mine && browserMic.phase === 'closed-by-user')) label = '麦克风关';
         else if (mine && browserMic.phase === 'requesting') label = '正在请求';
-        else if (mine && browserMic.phase === 'capturing') label = '采集中';
+        else if (mine && browserMic.phase === 'capturing') {
+            const phone = card._micPhone;
+            label = phone && phone.ready ? '送往手机' : phone ? '手机未就绪' : '采集中';
+        }
         else if (mine && browserMic.phase === 'denied') label = '允许麦克风';
         button.textContent = label;
-        button.classList.toggle('active', label === '采集中');
-        button.title = label === '采集中'
+        button.classList.toggle('active', label === '采集中' || label === '送往手机' || label === '手机未就绪');
+        button.classList.toggle('warn', label === '手机未就绪');
+        button.title = label === '手机未就绪'
+            ? `电脑麦克风在采集，但手机还收不到：${card._micPhone?.reason || '手机端未就绪'}。点此关闭。`
+            : label === '送往手机'
+            ? '电脑麦克风的声音正在送进这部手机。微信等 App 是否有声取决于它们是否在用麦克风。点此关闭，关闭后不会自动再开。'
+            : label === '采集中'
             ? '浏览器正在采集麦克风。手机能否注入看功能菜单里的状态，不代表微信有声。点此关闭，关闭后不会自动再开。'
             : label === '允许麦克风'
                 ? '浏览器还没有允许麦克风。点此再请求一次。这不是手机未就绪。'
@@ -1273,6 +1281,7 @@
         card.querySelector('iframe').src = 'about:blank';
         card.dataset.streaming = '0';
         delete card.dataset.hear;
+        delete card._micPhone;
         paintHear(card);
         applyBrowserMic({ type: 'disconnect', serial: card.dataset.device });
         card.classList.add('closed');
@@ -1673,6 +1682,14 @@
             if (topic === 'rentals') void updateAdminVisibility();
             if (topic === 'apks' && appLibrary.open) void loadAppLibrary();
         } catch { /* reconnect delivers the next valid event */ }
+    });
+    window.addEventListener('message', (event) => {
+        if (event.origin !== location.origin || event.data?.type !== 'phone-browser-mic-state') return;
+        const card = cards.find((item) => item.querySelector('iframe').contentWindow === event.source);
+        if (!card) return;
+        const reason = typeof event.data.phoneReason === 'string' ? event.data.phoneReason.slice(0, 200) : '';
+        card._micPhone = { ready: event.data.deviceReady === true, reason };
+        paintBrowserMic(card);
     });
     window.addEventListener('message', (event) => {
         if (event.origin !== location.origin || event.data?.type !== 'phone-operation-log') return;

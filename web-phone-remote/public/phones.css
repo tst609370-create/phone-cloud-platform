@@ -163,6 +163,7 @@ svg { flex: 0 0 auto; }
 .card-actions button:hover { color: var(--tx-fg); background: var(--tx-wash-4); }
 .card-actions button[data-action="close"]:hover { color: var(--tx-err); background: rgb(242 85 90 / .1); }
 .card-actions button.active, .card-actions button[aria-pressed="true"] { color: var(--tx-bg); background: var(--tx-fg); }
+.card-actions button.active.warn { color: var(--tx-bg); background: var(--tx-warn); }
 .sync-controls { display: flex; align-items: center; gap: 2px; margin-left: auto; font-size: 10px; }
 .sync-controls label { display: flex; align-items: center; cursor: pointer; }
 .sync-controls input { position: absolute; opacity: 0; pointer-events: none; }

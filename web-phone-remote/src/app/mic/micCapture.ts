@@ -1,12 +1,19 @@
 import { downmixToMono, floatToS16le } from './floatToS16le';
 
+// Batches the 128-frame render quanta into ~20 ms packets so the socket
+// carries 50 messages a second instead of ~375.
 const WORKLET = `
 class WsMicCapture extends AudioWorkletProcessor {
+    constructor() {
+        super();
+        this.size = Math.max(128, Math.round(sampleRate / 50));
+        this.buf = new Int16Array(this.size);
+        this.fill = 0;
+    }
     process(inputs) {
         const channels = inputs[0];
         if (!channels || !channels[0]) return true;
         const frames = channels[0].length;
-        const pcm = new Int16Array(frames);
         const count = channels.length;
         for (let i = 0; i < frames; i++) {
             let sum = 0;
@@ -14,9 +21,14 @@ class WsMicCapture extends AudioWorkletProcessor {
             let s = sum / count;
             if (s < -1) s = -1;
             else if (s > 1) s = 1;
-            pcm[i] = s < 0 ? Math.round(s * 32768) : Math.round(s * 32767);
+            this.buf[this.fill++] = s < 0 ? Math.round(s * 32768) : Math.round(s * 32767);
+            if (this.fill === this.size) {
+                const out = this.buf;
+                this.port.postMessage(out.buffer, [out.buffer]);
+                this.buf = new Int16Array(this.size);
+                this.fill = 0;
+            }
         }
-        this.port.postMessage(pcm.buffer, [pcm.buffer]);
         return true;
     }
 }
@@ -63,9 +75,22 @@ export async function captureMicrophone(onFrame: (pcm: Int16Array, sampleRate: n
         stopStream(stream);
         throw new Error('浏览器不支持音频处理');
     }
-    const ctx = new Ctx();
+    // Ask the browser for 48 kHz directly: its resampler is better than the
+    // server's linear one, and 48 kHz is what the phone side expects.
+    // Firefox refuses a stream whose rate differs from the context, so fall back.
+    let ctx: AudioContext;
+    let source: MediaStreamAudioSourceNode;
+    let first: AudioContext | undefined;
+    try {
+        first = new Ctx({ sampleRate: 48000, latencyHint: 'interactive' });
+        ctx = first;
+        source = ctx.createMediaStreamSource(stream);
+    } catch {
+        void first?.close().catch(() => undefined);
+        ctx = new Ctx();
+        source = ctx.createMediaStreamSource(stream);
+    }
     await ctx.resume().catch(() => undefined);
-    const source = ctx.createMediaStreamSource(stream);
     const silent = ctx.createGain();
     silent.gain.value = 0;
     silent.connect(ctx.destination);
@@ -119,7 +144,7 @@ function attachScriptProcessor(
     silent: GainNode,
     onFrame: (pcm: Int16Array, sampleRate: number) => void,
 ): void {
-    const processor = ctx.createScriptProcessor(1024, 1, 1);
+    const processor = ctx.createScriptProcessor(1024, 1, 1); // ~21 ms at 48 kHz
     processor.onaudioprocess = (event) => {
         const input = event.inputBuffer;
         const channels: Float32Array[] = [];

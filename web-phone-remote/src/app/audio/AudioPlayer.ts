@@ -36,16 +36,25 @@ export class AudioPlayer {
         // Raw PCM doesn't need a decoder
         if (this.codec === 'raw') return;
 
-        // Configure audio decoder
+        this.createDecoder();
+    }
+
+    /** A decoder error closes the WebCodecs decoder for good, so build a fresh one. */
+    private createDecoder(): void {
         this.decoder = new AudioDecoder({
             output: (audioData: AudioData) => {
                 this.postDecodedAudio(audioData);
             },
             error: (err: DOMException) => {
                 console.error('[AudioPlayer] Decoder error:', err.message);
+                if (!this.started) return;
+                try {
+                    this.createDecoder();
+                } catch {
+                    // the codec is gone entirely; stay silent
+                }
             },
         });
-
         this.configureDecoder();
     }
 

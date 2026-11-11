@@ -253,3 +253,77 @@ async function flush(): Promise<void> {
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
 }
+
+describe('mic socket reconnect', () => {
+    it('reopens the socket after a drop and resumes continuous sending with the format', async () => {
+        const opened: FakeSocket[] = [];
+        const retries: Array<{ ms: number; fn: () => void }> = [];
+        let emit: ((pcm: Int16Array, rate: number) => void) | undefined;
+        const button = document.createElement('button');
+        new MicTalkController('PHONE1', button, {
+            connect: () => {
+                const socket = new FakeSocket();
+                opened.push(socket);
+                return socket;
+            },
+            capture: async (onFrame) => {
+                emit = onFrame;
+                return () => undefined;
+            },
+            now: () => 0,
+            schedule: () => () => undefined,
+            retry: (ms, fn) => {
+                retries.push({ ms, fn });
+                return () => undefined;
+            },
+        });
+        cleanups.push(button);
+        const first = opened[0]!;
+        status(first, true, '已就绪');
+        button.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1 }));
+        button.dispatchEvent(new PointerEvent('pointerup', { button: 0, pointerId: 1 }));
+        await flush();
+        expect(jsons(first)).toContainEqual({ type: 'start', mode: 'continuous' });
+
+        first.close();
+        expect(button.querySelector('.mic-status')?.textContent).toBe('已采集，手机未就绪');
+        expect(button.title).toContain('正在重连');
+        expect(retries).toHaveLength(1);
+        expect(retries[0]!.ms).toBe(1000);
+
+        retries[0]!.fn();
+        const second = opened[1]!;
+        expect(second).toBeDefined();
+        status(second, true, '已就绪');
+        expect(jsons(second)).toContainEqual({ type: 'start', mode: 'continuous' });
+        emit?.(new Int16Array(960), 48000);
+        expect(jsons(second)).toContainEqual({ type: 'format', sampleRate: 48000 });
+    });
+
+    it('backs off and stops retrying once the button is torn down', () => {
+        const retries: number[] = [];
+        let connects = 0;
+        const button = document.createElement('button');
+        new MicTalkController('PHONE1', button, {
+            connect: () => {
+                connects += 1;
+                const socket = new FakeSocket();
+                queueMicrotask(() => socket.close());
+                return socket;
+            },
+            capture: async () => () => undefined,
+            now: () => 0,
+            schedule: () => () => undefined,
+            retry: (ms, fn) => {
+                retries.push(ms);
+                if (retries.length < 4) queueMicrotask(fn);
+                return () => undefined;
+            },
+        });
+        return new Promise<void>((resolve) => setTimeout(resolve, 5)).then(() => {
+            expect(retries).toEqual([1000, 2000, 4000, 8000]);
+            button.dispatchEvent(new Event('stream-teardown'));
+            expect(connects).toBe(4);
+        });
+    });
+});

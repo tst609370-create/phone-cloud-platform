@@ -7,7 +7,8 @@ import type { MicProbeFacts, MicRoutePlan } from './route';
 import { selectMicRoute } from './route';
 
 const log = Logger.for('MicSession');
-const QUEUE_SAMPLES = MIC_PCM_RATE;
+// Audio said while the route is still opening; older speech is dropped so it cannot add lag.
+const QUEUE_SAMPLES = Math.round(MIC_PCM_RATE * 0.25);
 
 export interface MicTalkDeps {
     probe(): Promise<MicProbeFacts>;

@@ -27,7 +27,11 @@ export interface MicTalkDeps {
     capture(onFrame: (pcm: Int16Array, sampleRate: number) => void): Promise<() => void>;
     now(): number;
     schedule(ms: number, fn: () => void): () => void;
+    /** Timer for socket reconnects; kept apart from the hold timer. Defaults to setTimeout. */
+    retry?(ms: number, fn: () => void): () => void;
 }
+
+const RECONNECT_MS = [1000, 2000, 4000, 8000];
 
 const defaultDeps: MicTalkDeps = {
     connect: (udid) => {
@@ -79,6 +83,8 @@ export class MicTalkController {
     private sentRate = 0;
     private closed = false;
     private userPaused = false;
+    private reconnects = 0;
+    private cancelReconnect: (() => void) | undefined;
     private readonly statusEl: HTMLSpanElement;
     private readonly onBrowserMic = (event: MessageEvent): void => {
         if (event.origin !== location.origin) return;
@@ -102,7 +108,7 @@ export class MicTalkController {
     };
 
     constructor(
-        udid: string,
+        private readonly udid: string,
         private readonly el: HTMLButtonElement,
         private readonly deps: MicTalkDeps = defaultDeps,
     ) {
@@ -130,32 +136,68 @@ export class MicTalkController {
         this.el.addEventListener('stream-teardown', this.close);
         window.addEventListener('pagehide', this.close);
         window.addEventListener('beforeunload', this.close);
+        this.openSocket();
+        this.render();
+    }
+
+    private openSocket(): void {
+        let socket: MicSocketLike;
         try {
-            this.socket = this.deps.connect(udid);
+            socket = this.deps.connect(this.udid);
         } catch {
             this.deviceReason = '无法连接麦克风服务';
-            this.render();
+            this.scheduleReconnect();
             return;
         }
-        this.socket.onmessage = (event) => this.onSocketMessage(event.data);
-        this.socket.onclose = () => {
-            if (this.closed) return;
+        this.socket = socket;
+        socket.onmessage = (event) => {
+            if (this.socket !== socket) return;
+            this.reconnects = 0;
+            this.onSocketMessage(event.data);
+        };
+        socket.onclose = () => {
+            if (this.closed || this.socket !== socket) return;
+            this.socket = undefined;
             this.deviceReady = false;
-            this.deviceReason = '手机端麦克风连接已断开';
-            this.stopSending();
+            this.deviceReason = '手机端麦克风连接已断开，正在重连';
+            // A held press-to-talk ends here; continuous mode keeps the browser
+            // microphone open and resumes sending once the new socket is ready.
+            this.sending = false;
+            this.sentRate = 0;
+            if (!this.gesture.continuous && this.gesture.phase !== 'idle') this.stopSending();
+            this.scheduleReconnect();
             this.render();
         };
-        this.socket.onerror = () => {
-            if (this.deviceReady) return;
+        socket.onerror = () => {
+            if (this.deviceReady || this.socket !== socket) return;
             this.deviceReason = '无法连接手机端麦克风服务';
             this.render();
         };
-        this.render();
+    }
+
+    private scheduleReconnect(): void {
+        if (this.closed || this.cancelReconnect) return;
+        const delay = RECONNECT_MS[Math.min(this.reconnects, RECONNECT_MS.length - 1)] ?? 8000;
+        this.reconnects += 1;
+        const retry =
+            this.deps.retry ??
+            ((ms: number, fn: () => void) => {
+                const timer = setTimeout(fn, ms);
+                return () => clearTimeout(timer);
+            });
+        this.cancelReconnect = retry(delay, () => {
+            this.cancelReconnect = undefined;
+            if (this.closed) return;
+            this.openSocket();
+            this.render();
+        });
     }
 
     close = (): void => {
         if (this.closed) return;
         this.closed = true;
+        this.cancelReconnect?.();
+        this.cancelReconnect = undefined;
         this.cancelHold?.();
         this.stopSending();
         this.socket?.close();
