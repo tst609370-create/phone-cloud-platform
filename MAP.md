@@ -11,6 +11,7 @@
 | `启动手机SK5.cmd` | Windows 双击启动 `pythonw phone_socks_manager.py` | cmd |
 | `mac-phoneproxy/` | macOS 版手机代理管理（`manager.rb` 逻辑、`ui.rb` 界面、AppleScript 启动/授权/升级） | Ruby |
 | `tools/xiaomi-router-proxy.mjs` | 小米路由器代理辅助脚本 | Node |
+| `tools/update-local-windows.ps1` | 把 Windows 本机已装的手机远控（%LOCALAPPDATA%\PhoneRemote）更新到 main：下载源码 → 构建 → 备份并替换 app\dist → 重启任务 PhoneRemote-Node | PowerShell |
 | `tools/deskflow/` | Deskflow 键鼠共享配置（Win 服务端 / Mac 客户端） | conf |
 | `web-phone-remote/` | **主体**。上游 [ws-scrcpy-web](https://github.com/bilbospocketses/ws-scrcpy-web)（GPL-3.0）+ 本仓库定制：租用/登录鉴权、APK 库、快照墙、虚拟麦克风、Windows 一键安装包、邀请注册服务 | TS/Rust/Go/Java |
 
