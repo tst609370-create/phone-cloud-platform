@@ -587,7 +587,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261112w',
+                ui: '20261112x',
             });
             return `snapshot.html?${params}`;
         }
@@ -601,9 +601,13 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261112w',
+            ui: '20261112x',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
+        if (card.dataset.hear === '1' && audioSourceFor(card.dataset.device) === 'playback') {
+            params.set('audioSource', 'playback');
+            params.set('audioDup', 'false');
+        }
         // http:// public addresses have no WebCodecs audio decoder; ask the
         // phone for plain PCM, which the page can play without decoding.
         if (card.dataset.hear === '1' && (!window.isSecureContext || typeof window.AudioDecoder === 'undefined')) {
@@ -612,10 +616,25 @@
         return `embed.html?${params}`;
     }
 
+    // 「整机输出」(REMOTE_SUBMIX) 在部分机型（实测一加 ColorOS 14）只采到静音；
+    // 「应用播放」(Android 13+ playback capture) 能采到。采到静音就自动换一次并按设备记住。
+    function audioSourceFor(serial) {
+        try { return localStorage.getItem(`phone-audio-source:${serial}`) || ''; } catch { return ''; }
+    }
+    function switchToPlaybackOnSilence(card, problem) {
+        const serial = card.dataset.device;
+        if (!problem.startsWith('收到的全是静音') || audioSourceFor(serial) === 'playback') return false;
+        try { localStorage.setItem(`phone-audio-source:${serial}`, 'playback'); } catch { return false; }
+        logOperation(card, '整机输出采到的是静音，已自动改用「应用播放」采集并重连声音');
+        connect(card, true);
+        return true;
+    }
+
     function paintAudioNote(card, note) {
         const button = card.querySelector('[data-action="hear"]');
         if (!button) return;
         const problem = card.dataset.hear === '1' && note && !note.hidden ? note.textContent.trim() : '';
+        if (problem && switchToPlaybackOnSilence(card, problem)) return;
         button.classList.toggle('warn', Boolean(problem));
         button.title = problem || '听这部手机正在播放的声音。不需要 root，也不是麦克风注入。再点一次停止。';
         if (problem && problem !== card._audioProblem) logOperation(card, `没有声音：${problem.replace(/^没有声音：/, '')}`);
@@ -625,6 +644,7 @@
     // A click anywhere on the console is a user gesture: let the listening
     // stream retry its AudioContext (browsers start it muted otherwise).
     document.addEventListener('pointerdown', () => {
+        snapshotAudio?.handle.resume?.();
         for (const card of cards) {
             if (card.dataset.hear !== '1') continue;
             card.querySelector('iframe')?.contentWindow?.postMessage({ type: 'phone-audio-resume' }, location.origin);
@@ -747,12 +767,50 @@
         applyBrowserMic(capturing ? { type: 'user-off', serial } : { type: 'user-on', serial });
     }
 
-    function toggleHear(card) {
-        if (streamMode === 'snapshot') {
-            logOperation(card, '抽帧没有手机播放声音');
+    // 抽帧远控没有视频流：声音单独走一条只要声音的会话，在这次点击里开 AudioContext。
+    let snapshotAudio = null;
+    function stopSnapshotAudio() {
+        if (!snapshotAudio) return;
+        snapshotAudio.handle.stop();
+        snapshotAudio = null;
+    }
+    function startSnapshotAudio(card) {
+        stopSnapshotAudio();
+        if (!window.PhoneAudio) {
+            logOperation(card, '声音组件没加载，刷新页面再试');
             return;
         }
+        const serial = card.dataset.device;
+        const handle = window.PhoneAudio.start(serial, (text, problem) => {
+            if (!snapshotAudio || snapshotAudio.serial !== serial) return;
+            const button = card.querySelector('[data-action="hear"]');
+            button?.classList.toggle('warn', Boolean(problem));
+            if (button) button.title = text || '正在播放手机声音，再点一次停止';
+            if (text && text !== card._audioProblem) logOperation(card, text);
+            card._audioProblem = text;
+        });
+        snapshotAudio = { serial, handle };
+    }
+
+    function toggleHear(card) {
         const enable = card.dataset.hear !== '1';
+        if (streamMode === 'snapshot') {
+            for (const other of cards) {
+                if (other === card || other.dataset.hear !== '1') continue;
+                delete other.dataset.hear;
+                paintHear(other);
+            }
+            if (enable) card.dataset.hear = '1';
+            else delete card.dataset.hear;
+            paintHear(card);
+            saveHearPreference(enable ? card.dataset.device : '');
+            if (enable) startSnapshotAudio(card);
+            else {
+                stopSnapshotAudio();
+                logOperation(card, '已停止听音');
+            }
+            return;
+        }
         if (enable) {
             for (const other of cards) {
                 if (other === card || other.dataset.hear !== '1') continue;
@@ -1357,6 +1415,7 @@
         clearFrameObservers(card);
         card.querySelector('iframe').src = 'about:blank';
         card.dataset.streaming = '0';
+        if (snapshotAudio?.serial === card.dataset.device) stopSnapshotAudio();
         delete card.dataset.hear;
         delete card._micPhone;
         paintHear(card);
@@ -1385,6 +1444,10 @@
     function setStreamMode(mode, reconnect = true) {
         const changed = streamMode !== mode;
         streamMode = mode;
+        if (changed) {
+            stopSnapshotAudio();
+            cards.forEach((card) => { delete card.dataset.hear; paintHear(card); });
+        }
         videoModeButton.classList.toggle('active', mode === 'video');
         snapshotModeButton.classList.toggle('active', mode === 'snapshot');
         videoModeButton.setAttribute('aria-pressed', mode === 'video' ? 'true' : 'false');

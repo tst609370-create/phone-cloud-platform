@@ -4,6 +4,8 @@ export interface StreamParamsInput {
     audioCodec?: string | undefined;
     audioEnabled?: boolean | undefined;
     audioSource?: 'playback' | 'output' | 'mic' | undefined;
+    /** With playback: false keeps the phone's speaker quiet. */
+    audioDup?: boolean | undefined;
     encoderName?: string | undefined;
 }
 
@@ -51,6 +53,7 @@ export function applyStreamParams(url: URL, params: StreamParamsInput, videoSett
 
     if (params.audioSource) {
         url.searchParams.set('audioSource', params.audioSource);
+        if (typeof params.audioDup === 'boolean') url.searchParams.set('audioDup', params.audioDup ? 'true' : 'false');
     }
 
     if (params.encoderName) {

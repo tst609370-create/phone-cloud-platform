@@ -274,6 +274,7 @@ export class StreamClientScrcpy
                 audioCodec: this.params.audioCodec,
                 audioEnabled: this.params.audioEnabled,
                 audioSource: this.params.audioSource,
+                audioDup: this.params.audioDup,
                 encoderName: this.params.encoderName,
             },
             vs
@@ -468,6 +469,8 @@ export class StreamClientScrcpy
             document.removeEventListener('pointerdown', resumeAudio, true);
             document.removeEventListener('click', resumeAudio, true);
             document.removeEventListener('keydown', resumeAudio, true);
+            document.removeEventListener('touchend', resumeAudio, true);
+            document.removeEventListener('pointerup', resumeAudio, true);
             window.removeEventListener('message', resumeFromParent);
             this.demuxer?.close();
             this.audioPlayer?.stop();
@@ -511,6 +514,9 @@ export class StreamClientScrcpy
         document.addEventListener('pointerdown', resumeAudio, true);
         document.addEventListener('click', resumeAudio, true);
         document.addEventListener('keydown', resumeAudio, true);
+        // iOS/WebKit only counts touchend/pointerup as the unlocking gesture.
+        document.addEventListener('touchend', resumeAudio, true);
+        document.addEventListener('pointerup', resumeAudio, true);
         window.addEventListener('message', resumeFromParent);
 
         if (this.params.videoCodec) {

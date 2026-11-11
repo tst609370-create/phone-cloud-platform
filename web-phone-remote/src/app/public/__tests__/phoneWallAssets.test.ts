@@ -28,7 +28,8 @@ describe('phone wall snapshot controls', () => {
         expect(source).toContain('开麦克风');
         expect(source).toContain("type: 'user-off'");
         expect(source).toContain('这不是手机未就绪');
-        expect(source).toContain('抽帧没有手机播放声音');
+        expect(source).toContain('startSnapshotAudio');
+        expect(publicFile('index.html')).toMatch(/phoneAudio\.js\?v=\d{8}\w*/);
     });
 
     it('shows the shared APK library and installs into the active phone', () => {

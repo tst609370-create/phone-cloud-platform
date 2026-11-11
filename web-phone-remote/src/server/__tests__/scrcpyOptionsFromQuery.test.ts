@@ -36,6 +36,12 @@ describe('scrcpyOptionsFromQuery — audioSource param', () => {
         expect(opts.audioDup).toBe(true);
     });
 
+    it('playback with audioDup=false keeps the phone speaker quiet', () => {
+        const opts = scrcpyOptionsFromQuery(qp({ audioSource: 'playback', audioDup: 'false' }), 's');
+        expect(opts.audioSource).toBe('playback');
+        expect(opts.audioDup).toBe(false);
+    });
+
     it('accepts output without audioDup', () => {
         const opts = scrcpyOptionsFromQuery(qp({ audioSource: 'output' }), 's');
         expect(opts.audioSource).toBe('output');

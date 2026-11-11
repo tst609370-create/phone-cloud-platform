@@ -174,6 +174,10 @@ const front: webpack.Configuration = {
         ),
         new CopyFilePlugin(path.resolve(PROJECT_ROOT, 'public/phones.js'), path.resolve(CLIENT_DIST_PATH, 'phones.js')),
         new CopyFilePlugin(
+            path.resolve(PROJECT_ROOT, 'public/phoneAudio.js'),
+            path.resolve(CLIENT_DIST_PATH, 'phoneAudio.js'),
+        ),
+        new CopyFilePlugin(
             path.resolve(PROJECT_ROOT, 'public/browserMicPolicy.js'),
             path.resolve(CLIENT_DIST_PATH, 'browserMicPolicy.js'),
         ),

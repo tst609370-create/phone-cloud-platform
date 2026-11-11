@@ -11,5 +11,6 @@ export interface ParamsStreamScrcpy extends ParamsStream {
     audioCodec?: string | undefined;
     audioEnabled?: boolean | undefined;
     audioSource?: 'playback' | 'output' | 'mic' | undefined;
+    audioDup?: boolean | undefined;
     encoderName?: string | undefined;
 }

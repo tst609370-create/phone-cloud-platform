@@ -41,8 +41,10 @@ export function scrcpyOptionsFromQuery(params: URLSearchParams, scid: string): S
         // --audio-dup requires --audio-source=playback (and Android 13+). The
         // server-side SDK gate in ScrcpyConnection will force audio off entirely
         // if the device can't handle it; at this layer we just pair them.
+        // Callers may pass audioDup=false to keep the phone's own speaker quiet
+        // (the same as the default `output` source does).
         if (audioSource === 'playback') {
-            options.audioDup = true;
+            options.audioDup = params.get('audioDup') !== 'false';
         }
     }
 

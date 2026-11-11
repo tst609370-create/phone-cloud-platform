@@ -114,7 +114,10 @@ export class ScrcpyConnection extends Mw {
         if (audioBlock) {
             options.audio = false;
         } else if (sdkInt > 0 && sdkInt < 33 && options.audioSource === 'playback') {
-            options.audio = false;
+            // playback capture needs Android 13+: use the whole-output source instead
+            // of going silent (the browser may ask for playback after hearing silence).
+            options.audioSource = 'output';
+            options.audioDup = false;
         }
         if (useTunnelForward) {
             options.tunnelForward = true;

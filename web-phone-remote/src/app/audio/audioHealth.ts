@@ -10,8 +10,9 @@ export const AUDIO_SILENT_PEAK = 0.0005;
 
 export const REASON_GESTURE = '浏览器拦住了自动播放：点这里开声音';
 export const REASON_NO_DATA = '手机没有送来声音数据（手机端音频采集没启动，重连或重插 USB 再试）';
-export const REASON_SILENT =
-    '收到的全是静音：手机现在没在放声音，或系统不让录制播放声（一加/ColorOS 常见：手机设置里关掉「杜比/音效」再试，或在手机上放一段视频）';
+/** Starts with SILENT_PREFIX: phones.js keys the automatic source switch on it. */
+export const SILENT_PREFIX = '收到的全是静音';
+export const REASON_SILENT = `${SILENT_PREFIX}：手机现在没在放声音，或手机媒体音量为 0`;
 
 export interface AudioHealthState {
     startedAt: number;

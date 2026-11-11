@@ -70,6 +70,7 @@ export function startStream(container: HTMLElement, deviceId: string, options: S
         ...(options.encoder !== undefined ? { encoderName: options.encoder } : {}),
         ...(typeof options.audio === 'boolean' ? { audioEnabled: options.audio } : {}),
         ...(options.audioSource !== undefined ? { audioSource: options.audioSource } : {}),
+        ...(typeof options.audioDup === 'boolean' ? { audioDup: options.audioDup } : {}),
         ...(options.audioCodec !== undefined ? { audioCodec: options.audioCodec } : {}),
     };
 

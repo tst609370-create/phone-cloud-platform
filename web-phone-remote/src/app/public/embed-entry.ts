@@ -74,6 +74,7 @@ export function parseEmbedParams(params: URLSearchParams): {
 
     readBool('secure');
     readBool('audio');
+    readBool('audioDup');
     readBool('keyboard');
 
     return { deviceId: deviceId ?? null, options };

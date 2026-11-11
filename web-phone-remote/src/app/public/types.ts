@@ -27,6 +27,8 @@ export interface StartStreamOptions {
      *   - `mic` — captures the device microphone.
      */
     audioSource?: 'playback' | 'output' | 'mic' | undefined;
+    /** With audioSource=playback: false keeps the phone's speaker quiet. */
+    audioDup?: boolean | undefined;
     /**
      * Audio codec to request from scrcpy-server. `opus` is scrcpy's default;
      * `aac` is a common fallback when a device's Opus encoder fails.
