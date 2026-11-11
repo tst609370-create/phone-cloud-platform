@@ -1,6 +1,6 @@
 # Connect this PC's phone-remote service to an frps relay (works on any PC that has the
 # PhoneRemote installer, with or without an existing frpc setup):
-#   $env:RELAY='1.2.3.4'; irm https://raw.githubusercontent.com/tst609370-create/phone-cloud-platform/main/tools/switch-relay-windows.ps1 | iex
+#   $env:RELAY='1.2.3.4'; $env:TOKEN='<token>'; irm https://raw.githubusercontent.com/tst609370-create/phone-cloud-platform/main/tools/switch-relay-windows.ps1 | iex
 # - asks for the frps token (hidden input, never printed or logged)
 # - reuses frpc.exe from the installer, or downloads it (GitHub, then CN mirrors)
 # - keeps the existing remote port; without one it picks a free port in 10000-10100
@@ -52,9 +52,13 @@ if (-not (Test-Path $exe)) {
 Write-Host "frpc: $exe"
 
 # --- token ---
-$sec = Read-Host -AsSecureString 'Paste the frps token printed by the server script'
-$token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)).Trim()
-if ($token -notmatch '^[0-9a-fA-F]{16,}$') { throw 'token looks wrong (expected hex)' }
+# One-step use: set $env:TOKEN before running. Otherwise ask (right-click pastes in the console).
+$token = "$env:TOKEN"
+if (-not $token.Trim()) { $token = Read-Host 'Paste the frps token (right-click to paste), then Enter' }
+# Tokens are hex: drop quotes, spaces, line breaks and invisible characters picked up by copy/paste.
+$token = $token -replace '[^0-9A-Fa-f]', ''
+Remove-Item Env:TOKEN -ErrorAction SilentlyContinue
+if ($token.Length -lt 16) { throw "token looks wrong: got $($token.Length) hex characters, expected 48. Copy the line under 'frpc token' on the server." }
 
 # --- existing config ---
 $backup = $null
