@@ -72,6 +72,13 @@ export class CommandControlMessage extends ControlMessage {
         return event;
     }
 
+    /** scrcpy TYPE_RESET_VIDEO: restart the encoder so a fresh config + keyframe arrive. */
+    public static createResetVideoCommand(): CommandControlMessage {
+        const event = new CommandControlMessage(ControlMessage.TYPE_RESET_VIDEO);
+        event.buffer = new BinaryWriter(1).writeUInt8(event.type).toUint8Array();
+        return event;
+    }
+
     public static createSetScreenPowerModeCommand(mode: boolean): CommandControlMessage {
         const event = new CommandControlMessage(ControlMessage.TYPE_SET_SCREEN_POWER_MODE);
         event.buffer = new BinaryWriter(1 + 1)

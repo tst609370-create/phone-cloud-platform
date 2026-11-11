@@ -425,6 +425,10 @@ export class StreamClientScrcpy
             player = p;
         }
         this.player = player;
+        // The player asks for a fresh keyframe when the picture stalls (e.g. a
+        // keyframe was dropped on a slow relay and the screen is static).
+        (player as Partial<WebCodecsPlayer>).onNeedKeyframe = () =>
+            this.sendMessage(CommandControlMessage.createResetVideoCommand());
         this.setTouchListeners(player);
 
         if (!videoSettings) {

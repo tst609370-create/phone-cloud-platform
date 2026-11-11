@@ -1,6 +1,7 @@
 # 把本机已安装的“手机远程控制”（%LOCALAPPDATA%\PhoneRemote）更新到 GitHub main 的最新代码。
 # 只换 app\dist（前端页面 + 服务端打包），不动配置、账号、租用数据、FRP；旧 dist 会备份。
 # 用法（PowerShell）：irm https://raw.githubusercontent.com/tst609370-create/phone-cloud-platform/main/tools/update-local-windows.ps1 | iex
+# 连不上 GitHub 的电脑：中转服务器先跑 tools/serve-update.sh，电脑执行它最后打印的那条命令（设 $env:PR_SRC，只下载已构建好的 dist.zip）
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 # 很多电脑执行策略是 Restricted，会拦住 npm.ps1 之类的脚本；只放宽本进程，不改系统设置
@@ -45,43 +46,57 @@ Write-Host "app 目录：$appDir"
 $work = Join-Path $env:TEMP ("phone-remote-update-" + (Get-Date -Format 'yyyyMMddHHmmss'))
 New-Item -ItemType Directory -Path $work | Out-Null
 
-Step '准备 Node 24（构建用，不影响已安装的运行时）'
-$nodeDir = Join-Path $work 'node'
-# PowerShell 5.1 的 Invoke-RestMethod 会把 JSON 数组当成一个整体送进管道，所以先 @() 展开再逐个找
-$ver = $null
-try {
-    $index = @(Invoke-RestMethod 'https://nodejs.org/dist/index.json' -TimeoutSec 15)
-    foreach ($item in $index) { foreach ($entry in @($item)) { if (-not $ver -and "$($entry.version)" -like 'v24.*') { $ver = "$($entry.version)" } } }
-} catch { Write-Host "读取 Node 版本列表失败，改用固定版本：$($_.Exception.Message)" }
-if (-not $ver -or $ver -notmatch '^v24\.\d+\.\d+$') { $ver = 'v24.22.2' }
-$zip = Join-Path $work 'node.zip'
-Get-FileWithFallback @("https://nodejs.org/dist/$ver/node-$ver-win-x64.zip", "https://npmmirror.com/mirrors/node/$ver/node-$ver-win-x64.zip") $zip
-Expand-Archive $zip -DestinationPath $work
-Rename-Item (Join-Path $work "node-$ver-win-x64") 'node'
-$env:PATH = "$nodeDir;$env:PATH"
-Write-Host "Node $ver"
+$prSrc = "$env:PR_SRC".TrimEnd('/')
+$commit = ''
+if ($prSrc) {
+    # 国内电脑连不上 GitHub/npm：直接下载广州服务器上已构建好的 dist（tools/serve-update.sh 生成）
+    Step "下载已构建好的程序包（$prSrc）"
+    $distZip = Join-Path $work 'dist.zip'
+    Get-FileWithFallback @("$prSrc/dist.zip") $distZip
+    try { $commit = (Invoke-WebRequest "$prSrc/version.txt" -UseBasicParsing -TimeoutSec 15).Content } catch {}
+    if ($commit -is [byte[]]) { $commit = [Text.Encoding]::ASCII.GetString($commit) }
+    $commit = "$commit".Trim()
+    Expand-Archive $distZip -DestinationPath (Join-Path $work 'pkg')
+    $newDist = Join-Path $work 'pkg\dist'
+} else {
+    Step '准备 Node 24（构建用，不影响已安装的运行时）'
+    $nodeDir = Join-Path $work 'node'
+    # PowerShell 5.1 的 Invoke-RestMethod 会把 JSON 数组当成一个整体送进管道，所以先 @() 展开再逐个找
+    $ver = $null
+    try {
+        $index = @(Invoke-RestMethod 'https://nodejs.org/dist/index.json' -TimeoutSec 15)
+        foreach ($item in $index) { foreach ($entry in @($item)) { if (-not $ver -and "$($entry.version)" -like 'v24.*') { $ver = "$($entry.version)" } } }
+    } catch { Write-Host "读取 Node 版本列表失败，改用固定版本：$($_.Exception.Message)" }
+    if (-not $ver -or $ver -notmatch '^v24\.\d+\.\d+$') { $ver = 'v24.22.2' }
+    $zip = Join-Path $work 'node.zip'
+    Get-FileWithFallback @("https://nodejs.org/dist/$ver/node-$ver-win-x64.zip", "https://npmmirror.com/mirrors/node/$ver/node-$ver-win-x64.zip") $zip
+    Expand-Archive $zip -DestinationPath $work
+    Rename-Item (Join-Path $work "node-$ver-win-x64") 'node'
+    $env:PATH = "$nodeDir;$env:PATH"
+    Write-Host "Node $ver"
 
-Step '下载 main 最新代码'
-$src = Join-Path $work 'src.zip'
-Get-FileWithFallback @('https://codeload.github.com/tst609370-create/phone-cloud-platform/zip/refs/heads/main',
-    'https://ghfast.top/https://github.com/tst609370-create/phone-cloud-platform/archive/refs/heads/main.zip',
-    'https://gh-proxy.com/https://github.com/tst609370-create/phone-cloud-platform/archive/refs/heads/main.zip') $src
-Expand-Archive $src -DestinationPath $work
-$repo = Join-Path $work 'phone-cloud-platform-main\web-phone-remote'
+    Step '下载 main 最新代码'
+    $src = Join-Path $work 'src.zip'
+    Get-FileWithFallback @('https://codeload.github.com/tst609370-create/phone-cloud-platform/zip/refs/heads/main',
+        'https://ghfast.top/https://github.com/tst609370-create/phone-cloud-platform/archive/refs/heads/main.zip',
+        'https://gh-proxy.com/https://github.com/tst609370-create/phone-cloud-platform/archive/refs/heads/main.zip') $src
+    Expand-Archive $src -DestinationPath $work
+    $repo = Join-Path $work 'phone-cloud-platform-main\web-phone-remote'
 
-Step '构建（npm ci + webpack，约 2–5 分钟）'
-Push-Location $repo
-try {
-    & npm.cmd ci --ignore-scripts --no-audit --no-fund
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host 'npm 官方源失败，改用国内镜像 registry.npmmirror.com 重试' -ForegroundColor Yellow
-        & npm.cmd ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmmirror.com
-        if ($LASTEXITCODE -ne 0) { throw 'npm ci 失败' }
-    }
-    & npx.cmd webpack --config webpack/ws-scrcpy-web.prod.ts
-    if ($LASTEXITCODE -ne 0) { throw 'webpack 构建失败' }
-} finally { Pop-Location }
-$newDist = Join-Path $repo 'dist'
+    Step '构建（npm ci + webpack，约 2–5 分钟）'
+    Push-Location $repo
+    try {
+        & npm.cmd ci --ignore-scripts --no-audit --no-fund
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host 'npm 官方源失败，改用国内镜像 registry.npmmirror.com 重试' -ForegroundColor Yellow
+            & npm.cmd ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmmirror.com
+            if ($LASTEXITCODE -ne 0) { throw 'npm ci 失败' }
+        }
+        & npx.cmd webpack --config webpack/ws-scrcpy-web.prod.ts
+        if ($LASTEXITCODE -ne 0) { throw 'webpack 构建失败' }
+    } finally { Pop-Location }
+    $newDist = Join-Path $repo 'dist'
+}
 foreach ($f in 'index.js', 'public\tianxi.css', 'public\login-assets\globe.js') {
     if (-not (Test-Path (Join-Path $newDist $f))) { throw "构建结果缺少 $f" }
 }
@@ -167,7 +182,7 @@ if ($browser) {
 } else { Write-Host '没找到 Edge 或 Chrome，快捷方式保持不变。' }
 
 if ($ok) {
-    Write-Host "`n更新完成：http://127.0.0.1:$port/admin-login 已是新登录页。" -ForegroundColor Green
+    Write-Host "`n更新完成（版本 $(if ($commit) { $commit } else { '未知' })）：http://127.0.0.1:$port/admin-login 已是新登录页。" -ForegroundColor Green
     Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
 } else {
     Write-Host "`n服务没有在 60 秒内用新页面响应。回滚方法：删除 $appDir\dist，把 $backup 改名回 dist，再运行 schtasks /Run /TN PhoneRemote-Node。日志：$root\logs\node.log" -ForegroundColor Yellow

@@ -8,6 +8,7 @@ import { BaseCanvasBasedPlayer } from './BaseCanvasBasedPlayer';
 import { BasePlayer } from './BasePlayer';
 import { parseSPS, stripEmulationPrevention } from './h264-utils';
 import { HEVC_NAL_TYPE, hevcNalType, parseHevcSPS } from './h265-utils';
+import { MseVideoDecoder, mseSupported } from './mseDecoder';
 import { findFirstNaluOffset, findNaluByHeader } from './naluScanner';
 import { buildDecoderConfig } from './webCodecsConfig';
 
@@ -30,7 +31,16 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
     });
 
     public static override isSupported(): boolean {
+        return WebCodecsPlayer.hasWebCodecs() || mseSupported();
+    }
+
+    /** WebCodecs exists only in secure contexts (https / localhost); http://<public IP> falls back to MSE. */
+    public static hasWebCodecs(): boolean {
         return typeof VideoDecoder === 'function' && typeof VideoDecoder.isConfigSupported === 'function';
+    }
+
+    private static chunk(init: { type: 'key' | 'delta'; timestamp: number; data: Uint8Array }): EncodedVideoChunk {
+        return WebCodecsPlayer.hasWebCodecs() ? new EncodedVideoChunk(init) : (init as unknown as EncodedVideoChunk);
     }
 
     private static parseSPSCodecString(data: Uint8Array): { codec: string; width: number; height: number } {
@@ -77,6 +87,10 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
     private decodeErrors = 0;
     private outputWatchdog?: ReturnType<typeof setTimeout> | undefined;
     private gotOutput = false;
+    private stallTimer?: ReturnType<typeof setTimeout> | undefined;
+    private stallCount = 0;
+    /** Set by StreamClientScrcpy: sends scrcpy RESET_VIDEO so the phone re-sends config + keyframe. */
+    public onNeedKeyframe?: (() => void) | undefined;
     private static readonly SOFTWARE_KEY = 'webcodecs-prefer-software';
     private static readonly OUTPUT_TIMEOUT_MS = 3000;
 
@@ -108,7 +122,8 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
     }
 
     private createDecoder(): VideoDecoder {
-        return new VideoDecoder({
+        const DecoderClass = (WebCodecsPlayer.hasWebCodecs() ? VideoDecoder : MseVideoDecoder) as typeof VideoDecoder;
+        return new DecoderClass({
             output: (frame) => {
                 if (!this.loggedFrameSize) {
                     console.log(
@@ -118,7 +133,9 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
                 }
                 this.gotOutput = true;
                 this.decodeErrors = 0;
+                this.stallCount = 0;
                 this.clearOutputWatchdog();
+                this.clearStallTimer();
                 this.onFrameDecoded(frame.displayWidth, frame.displayHeight, frame);
             },
             error: (error: DOMException) => {
@@ -136,8 +153,35 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
         if (!this.decoderConfig) return;
         if (this.decoder.state === 'closed') this.decoder = this.createDecoder();
         else if (this.decoder.state === 'configured') this.decoder.reset();
+        if (this.configData && this.decoder instanceof MseVideoDecoder) this.decoder.setConfigData(this.configData);
         this.decoder.configure(this.withAcceleration(this.decoderConfig));
         this.needKeyframe = true;
+    }
+
+    private clearStallTimer(): void {
+        if (this.stallTimer !== undefined) clearTimeout(this.stallTimer);
+        this.stallTimer = undefined;
+    }
+
+    /**
+     * Config arrived but no picture yet: a keyframe may have been lost on a slow
+     * relay, or the phone's screen is off / on a secure lock screen. Ask the
+     * phone for a new keyframe and say so on the canvas instead of plain black.
+     */
+    private armStallTimer(): void {
+        if (this.gotOutput || this.stallTimer !== undefined || this.stallCount >= 5) return;
+        this.stallTimer = setTimeout(() => {
+            this.stallTimer = undefined;
+            if (this.gotOutput) return;
+            this.stallCount++;
+            try {
+                this.onNeedKeyframe?.();
+            } catch {
+                /* control channel not ready yet */
+            }
+            this.drawNotice(this.stallCount >= 2 ? '手机没有出画面：可能息屏或停在锁屏，点「全部亮屏」' : '等待手机画面…');
+            this.armStallTimer();
+        }, 2500);
     }
 
     private clearOutputWatchdog(): void {
@@ -224,8 +268,10 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
                     codedHeight: codedH,
                     configData: data,
                 });
+                this.configData = new Uint8Array(data);
                 this.configureDecoder();
                 this.droppingUntilKeyframe = false;
+                this.armStallTimer();
             }
             this.configData = new Uint8Array(data);
             return;
@@ -256,7 +302,7 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
                 chunkData.set(data, this.configData.length);
             }
             this.decoder.decode(
-                new EncodedVideoChunk({
+                WebCodecsPlayer.chunk({
                     type: 'key',
                     timestamp: Number(pts),
                     data: chunkData,
@@ -273,7 +319,7 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
         if (!this.receivedFirstFrame || this.needKeyframe) return;
 
         this.decoder.decode(
-            new EncodedVideoChunk({
+            WebCodecsPlayer.chunk({
                 type: isKeyframe ? 'key' : 'delta',
                 timestamp: Number(pts),
                 data,
@@ -387,7 +433,7 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
                 } else {
                     this.context.drawImage(frame, 0, 0);
                 }
-                frame.close();
+                frame.close?.();
             }
         }
         if (this.decodedFrames.length) {
@@ -398,7 +444,7 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
     };
 
     protected override dropFrame(frame: VideoFrame): void {
-        frame.close();
+        frame.close?.();
     }
 
     public override getFitToScreenStatus(): boolean {
@@ -419,7 +465,7 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
 
     /** No picture within a few seconds of a keyframe → hardware decoder is stuck; retry in software. */
     private armOutputWatchdog(): void {
-        if (this.gotOutput || this.outputWatchdog !== undefined || WebCodecsPlayer.preferSoftware()) return;
+        if (this.gotOutput || this.outputWatchdog !== undefined || !WebCodecsPlayer.hasWebCodecs() || WebCodecsPlayer.preferSoftware()) return;
         this.outputWatchdog = setTimeout(() => {
             this.outputWatchdog = undefined;
             if (!this.gotOutput) this.recoverDecoder('硬件解码无画面');
@@ -429,6 +475,7 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
     public override stop(): void {
         super.stop();
         this.clearOutputWatchdog();
+        this.clearStallTimer();
         if (this.decoder.state !== 'closed') {
             this.decoder.close();
         }
