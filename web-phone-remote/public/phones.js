@@ -24,7 +24,8 @@
     let masterSerial = localStorage.getItem('phone-sync-master') || '';
     let activeSerial = localStorage.getItem('phone-active-device') || '';
     let layoutMode = localStorage.getItem('phone-layout-mode') === 'flat' ? 'flat' : 'carousel';
-    let streamMode = localStorage.getItem('phone-stream-mode') === 'video' ? 'video' : 'snapshot';
+    // 每次打开都从流畅视频开始：抽帧远控帧率低，租用者不知道会以为操作卡。
+    let streamMode = 'video';
     let visibleDevices = [];
     let rentalByDevice = new Map();
     let rentalSignature = '';
@@ -556,7 +557,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261111x',
+                ui: '20261111y',
             });
             return `snapshot.html?${params}`;
         }
@@ -570,7 +571,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261111x',
+            ui: '20261111y',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         return `embed.html?${params}`;
@@ -1256,7 +1257,6 @@
     function setStreamMode(mode, reconnect = true) {
         const changed = streamMode !== mode;
         streamMode = mode;
-        localStorage.setItem('phone-stream-mode', mode);
         videoModeButton.classList.toggle('active', mode === 'video');
         snapshotModeButton.classList.toggle('active', mode === 'snapshot');
         videoModeButton.setAttribute('aria-pressed', mode === 'video' ? 'true' : 'false');

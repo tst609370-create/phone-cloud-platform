@@ -60,6 +60,12 @@ describe('phone wall snapshot controls', () => {
         expect(source).toContain('requestedSize > 1600 ? 8000000 : requestedSize > 1080 ? 4000000 : 2000000');
     });
 
+    it('always opens in smooth video mode', () => {
+        const source = publicFile('phones.js');
+        expect(source).toContain("let streamMode = 'video';");
+        expect(source).not.toContain("localStorage.getItem('phone-stream-mode')");
+    });
+
     it('streams at the chosen quality and reconnects to upgrade (scrcpy 4.1 ignores live settings)', () => {
         const source = publicFile('phones.js');
         expect(source).toContain('maxSize: requestedSize,');
