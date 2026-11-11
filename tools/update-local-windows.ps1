@@ -3,6 +3,8 @@
 # 用法（PowerShell）：irm https://raw.githubusercontent.com/tst609370-create/phone-cloud-platform/main/tools/update-local-windows.ps1 | iex
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# Windows PowerShell 5.1 默认可能没开 TLS 1.2
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 function Step($t) { Write-Host "`n== $t" -ForegroundColor Cyan }
 
 $root = Join-Path $env:LOCALAPPDATA 'PhoneRemote'
@@ -21,11 +23,17 @@ New-Item -ItemType Directory -Path $work | Out-Null
 
 Step '准备 Node 24（构建用，不影响已安装的运行时）'
 $nodeDir = Join-Path $work 'node'
-$ver = (Invoke-RestMethod 'https://nodejs.org/dist/index.json' | Where-Object { $_.version -like 'v24.*' } | Select-Object -First 1).version
+# PowerShell 5.1 的 Invoke-RestMethod 会把 JSON 数组当成一个整体送进管道，所以先 @() 展开再逐个找
+$ver = $null
+try {
+    $index = @(Invoke-RestMethod 'https://nodejs.org/dist/index.json')
+    foreach ($item in $index) { foreach ($entry in @($item)) { if (-not $ver -and "$($entry.version)" -like 'v24.*') { $ver = "$($entry.version)" } } }
+} catch { Write-Host "读取 Node 版本列表失败，改用固定版本：$($_.Exception.Message)" }
+if (-not $ver -or $ver -notmatch '^v24\.\d+\.\d+$') { $ver = 'v24.22.2' }
 $zip = Join-Path $work 'node.zip'
 Invoke-WebRequest "https://nodejs.org/dist/$ver/node-$ver-win-x64.zip" -OutFile $zip
 Expand-Archive $zip -DestinationPath $work
-Rename-Item (Join-Path $work "node-$ver-win-x64") $nodeDir
+Rename-Item (Join-Path $work "node-$ver-win-x64") 'node'
 $env:PATH = "$nodeDir;$env:PATH"
 Write-Host "Node $ver"
 
@@ -49,11 +57,14 @@ foreach ($f in 'index.js', 'public\tianxi.css', 'public\login-assets\globe.js') 
 }
 
 Step '停止服务、备份并替换 dist'
-schtasks /End /TN 'PhoneRemote-Node' 2>$null | Out-Null
+# 5.1 下给原生命令重定向 stderr 会触发 Stop，这里临时放宽
+$ErrorActionPreference = 'Continue'
+schtasks /End /TN 'PhoneRemote-Node' 2>&1 | Out-Null
+$ErrorActionPreference = 'Stop'
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -ieq $nodeExe } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Start-Sleep -Seconds 2
 $backup = Join-Path $appDir ("dist.bak-" + (Get-Date -Format 'yyyyMMddHHmmss'))
-Move-Item (Join-Path $appDir 'dist') $backup
+Move-Item (Join-Path $appDir 'dist') $backup  # 若提示文件被占用，说明服务还没停，等几秒重跑即可
 Copy-Item $newDist (Join-Path $appDir 'dist') -Recurse
 Write-Host "旧版本备份在：$backup"
 
