@@ -9,9 +9,10 @@
 
 :root,
 [data-theme="dark"] {
-    --control-buttons-bg-color: #202832;
-    --svg-button-fill: #ffffff;
-    --svg-checkbox-bg-color: #3b91f5;
+    /* Tianxi UI：surface 底、白色线稿图标、ice-blue 选中 */
+    --control-buttons-bg-color: #0f1011;
+    --svg-button-fill: #c8ccd2;
+    --svg-checkbox-bg-color: #5b9cff;
     --control-bar-width: 2rem;
 }
 

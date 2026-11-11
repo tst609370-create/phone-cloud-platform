@@ -141,6 +141,15 @@ const front: webpack.Configuration = {
             path.resolve(PROJECT_ROOT, 'public/admin.html'),
             path.resolve(CLIENT_DIST_PATH, 'admin.html'),
         ),
+        // Tianxi UI 静态版：令牌 + Select/Tooltip/Toast/确认框，设备墙和后台共用
+        new CopyFilePlugin(
+            path.resolve(PROJECT_ROOT, 'public/tianxi.css'),
+            path.resolve(CLIENT_DIST_PATH, 'tianxi.css'),
+        ),
+        new CopyFilePlugin(
+            path.resolve(PROJECT_ROOT, 'public/tianxi.js'),
+            path.resolve(CLIENT_DIST_PATH, 'tianxi.js'),
+        ),
         new CopyFilePlugin(
             path.resolve(PROJECT_ROOT, 'public/phones.css'),
             path.resolve(CLIENT_DIST_PATH, 'phones.css'),

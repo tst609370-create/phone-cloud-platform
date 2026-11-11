@@ -5,68 +5,70 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>手机远程控制</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="phones.css?v=20261111m">
+    <link rel="stylesheet" href="tianxi.css?v=20261111t">
+    <link rel="stylesheet" href="phones.css?v=20261111t">
 </head>
-<body>
+<body class="tx-scroll">
     <div class="app">
         <aside class="sidebar">
             <div class="brand">
-                <span class="brand-icon">控</span>
+                <span class="brand-icon" aria-hidden="true">控</span>
                 <div class="sidebar-label"><strong>手机控制台</strong><small id="device-count">0 台设备</small></div>
-                <button id="collapse" class="icon-button" type="button" title="收起侧栏">‹</button>
+                <button id="collapse" class="icon-button" type="button" title="收起侧栏"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
             </div>
-            <section class="controls">
-                <button id="reconnect-all" type="button"><span>↻</span><b class="sidebar-label">全部重连</b></button>
-                <button id="expand-first" type="button"><span>⛶</span><b class="sidebar-label">首台放大</b></button>
-                <button id="refresh-page" type="button" hidden><span>⟳</span><b class="sidebar-label">刷新页面</b></button>
-                <button id="install-app" type="button" title="打开软件库"><span>▦</span><b class="sidebar-label">软件库</b></button>
-                <button id="sync-toggle" type="button" aria-pressed="false"><span>◎</span><b class="sidebar-label">同步关闭</b></button>
-                <button id="screen-off-all" type="button"><span>◐</span><b class="sidebar-label">全部熄屏</b></button>
-                <button id="screen-on-all" type="button"><span>●</span><b class="sidebar-label">全部亮屏</b></button>
-                <button id="close-all" type="button"><span>×</span><b class="sidebar-label">关闭全部</b></button>
+            <section class="controls" aria-label="批量操作">
+                <button id="reconnect-all" type="button" title="全部重连"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg><b class="sidebar-label">全部重连</b></button>
+                <button id="expand-first" type="button" title="首台放大"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg><b class="sidebar-label">首台放大</b></button>
+                <button id="refresh-page" type="button" title="刷新页面" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.36-6.36L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.36 6.36L3 16"/><path d="M3 21v-5h5"/></svg><b class="sidebar-label">刷新页面</b></button>
+                <button id="install-app" type="button" title="打开软件库"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><b class="sidebar-label">软件库</b></button>
+                <button id="sync-toggle" type="button" title="同步操作" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg><b class="sidebar-label">同步关闭</b></button>
+                <button id="screen-off-all" type="button" title="全部熄屏"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg><b class="sidebar-label">全部熄屏</b></button>
+                <button id="screen-on-all" type="button" title="全部亮屏"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg><b class="sidebar-label">全部亮屏</b></button>
+                <button id="close-all" type="button" title="关闭全部"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg><b class="sidebar-label">关闭全部</b></button>
             </section>
             <input id="app-package" type="file" accept=".apk,application/vnd.android.package-archive" hidden>
-            <section class="settings sidebar-label">
-                <label>窗口大小 <output id="size-value">300</output></label>
-                <input id="tile-size" type="range" min="260" max="620" step="20" value="300">
-                <label for="quality">画质</label>
-                <select id="quality"><option value="1080">极速 480p</option><option value="1600" selected>流畅 720p</option><option value="2400">清晰 1080p</option></select>
-                <label for="fps">帧率</label>
-                <select id="fps"><option value="1">省流 1 FPS</option><option value="15">操作 15 FPS</option><option value="30" selected>流畅 30 FPS</option></select>
+            <section class="settings sidebar-label" aria-label="画面设置">
+                <div class="setting-row"><label for="tile-size" class="tx-eyebrow">窗口大小</label><output id="size-value">300</output></div>
+                <input id="tile-size" class="tx-slider" type="range" min="260" max="620" step="20" value="300">
+                <label for="quality" class="tx-eyebrow">画质</label>
+                <select id="quality" data-tx-select><option value="1080">极速 480p</option><option value="1600" selected>流畅 720p</option><option value="2400">清晰 1080p</option></select>
+                <label for="fps" class="tx-eyebrow">帧率</label>
+                <select id="fps" data-tx-select><option value="1">省流 1 FPS</option><option value="15">操作 15 FPS</option><option value="30" selected>流畅 30 FPS</option></select>
             </section>
-            <nav class="device-nav sidebar-label" aria-label="设备"><h2>我的设备</h2></nav>
-            <a class="admin sidebar-label" href="admin.html?v=20260822g" hidden>管理员设置</a>
+            <nav class="device-nav sidebar-label tx-scroll" aria-label="设备"><h2 class="tx-eyebrow">我的设备</h2></nav>
+            <a class="admin sidebar-label" href="admin.html?v=20261111t" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg><span>管理员设置</span></a>
         </aside>
         <main class="workspace">
             <header class="topbar">
-                <strong>设备窗口</strong><span>普通模式可拖动，旋转模式点击侧边设备切换</span>
+                <div class="topbar-title"><strong>设备窗口</strong><span>普通模式可拖动，旋转模式点击侧边设备切换</span></div>
                 <div class="stream-switch" role="group" aria-label="远控画面模式">
                     <button id="stream-video" type="button">流畅视频</button>
                     <button id="stream-snapshot" type="button">抽帧远控</button>
                 </div>
                 <div class="layout-switch" role="group" aria-label="设备墙样式">
-                    <button id="layout-flat" type="button">▦ 普通</button>
-                    <button id="layout-carousel" type="button">◫ 旋转</button>
+                    <button id="layout-flat" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18M12 3v18"/></svg>普通</button>
+                    <button id="layout-carousel" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="4" width="10" height="16" rx="2"/><path d="M3 7v10M21 7v10"/></svg>旋转</button>
                 </div>
-                <button id="tile-all" type="button">▦ 自动平铺</button><select id="mobile-device-picker" aria-label="切换设备"></select>
+                <button id="tile-all" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>自动平铺</button><select id="mobile-device-picker" data-tx-select data-tx-class="mobile-picker" aria-label="切换设备"></select>
             </header>
             <section id="phone-grid" class="phone-grid" aria-label="手机控制窗口"></section>
             <div class="carousel-nav" aria-label="旋转设备墙导航">
-                <button id="carousel-prev" type="button" title="向左旋转">‹</button>
-                <button id="carousel-next" type="button" title="向右旋转">›</button>
+                <button id="carousel-prev" type="button" title="向左旋转"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+                <button id="carousel-next" type="button" title="向右旋转"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
             </div>
         </main>
     </div>
     <div id="viewer-backdrop" aria-hidden="true"></div>
     <dialog id="app-library" class="app-library" aria-labelledby="app-library-title">
         <header>
-            <div><strong id="app-library-title">软件库</strong><small>安装到 <b id="app-library-target">当前云机</b></small></div>
-            <button id="app-library-close" type="button" aria-label="关闭">×</button>
+            <div><span class="tx-eyebrow">APK LIBRARY</span><strong id="app-library-title">软件库</strong><small>安装到 <b id="app-library-target">当前云机</b></small></div>
+            <button id="app-library-close" type="button" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
         </header>
-        <div id="app-library-list" class="app-library-list"><p>正在读取软件列表…</p></div>
-        <footer><button id="app-local-install" type="button">选择本地 APK 安装</button></footer>
+        <div id="app-library-list" class="app-library-list tx-scroll"><p>正在读取软件列表…</p></div>
+        <footer><button id="app-local-install" class="tx-btn tx-btn-secondary" type="button">选择本地 APK 安装</button></footer>
     </dialog>
-    <script src="browserMicPolicy.js?v=20261111m"></script>
-    <script src="phones.js?v=20261111m"></script>
+    <script src="tianxi.js?v=20261111t"></script>
+    <script src="browserMicPolicy.js?v=20261111t"></script>
+    <script src="phones.js?v=20261111t"></script>
 </body>
 </html>
