@@ -151,6 +151,16 @@
     const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
     const names = {HD1925:'一加 7T Pro 迈凯伦','Pixel 8':'谷歌 Pixel 8',A101BM:'巴慕达 Phone',CPH2211:'OPPO Find X3 Pro','SM-F926B':'三星 Galaxy Z Fold3'};
     let connected = [], rentals = [], apks = [], owners = {}, editingId = null, refreshing = false, refreshQueued = false;
+    // 设备状态推送很频繁（每台手机最快 300ms 一次），以前每次都重建列表 DOM，点击按下和松开落在不同元素上就丢了，表现为勾选框勾不上。
+    // 现在列表内容（不含勾选状态）没变就不动 DOM；变了也保留渲染那一刻的勾选。
+    const checkedValues = (selector) => [...document.querySelectorAll(`${selector} input:checked`)].map((input) => input.value);
+    function renderChecks(element, key, html, selected, force) {
+        if (!force && element.dataset.key === key) return false;
+        element.innerHTML = html;
+        element.dataset.key = key;
+        element.querySelectorAll('input[type=checkbox]').forEach((input) => { input.checked = selected.includes(input.value); });
+        return true;
+    }
     const displayName = (device) => device.label || names[device.model] || device.model || device.serial;
     const randomCode = () => { const bytes=crypto.getRandomValues(new Uint8Array(8)); return String.fromCharCode(97+bytes[0]%26,97+bytes[1]%26)+[...bytes.slice(2)].map((byte)=>String(byte%10)).join(''); };
     const expiryText = (rental) => rental.expiresAt ? new Date(rental.expiresAt).toLocaleString('zh-CN',{hour12:false}) : '永久有效';
@@ -163,21 +173,25 @@
         rentals.flatMap((rental) => rental.devices).forEach((serial) => { if (!map.has(serial)) map.set(serial, {serial, model:serial, offline:true}); });
         return [...map.values()];
     }
-    function renderPicks(selected = []) {
+    function renderPicks(selected, force = true) {
+        const box = $('#device-picks');
+        if (!selected) selected = force ? [] : checkedValues('#device-picks');
         const devices = allDevices();
-        $('#device-picks').innerHTML = devices.length ? devices.map((device) => {
+        const html = devices.length ? devices.map((device) => {
             const owner = owners[device.serial];
             const occupied = owner && owner !== editingId;
             const ownerName = rentals.find((rental) => rental.id === owner)?.label;
-            return `<label class="device-pick"><input class="tx-check" type="checkbox" value="${esc(device.serial)}" ${selected.includes(device.serial)?'checked':''}><span><b>${esc(displayName(device))}</b><br><small>${esc(device.serial)}${occupied?` · 当前分配给 ${esc(ownerName)}`:''}</small></span><i class="${device.offline?'offline':'online'}"></i></label>`;
+            return `<label class="device-pick"><input class="tx-check" type="checkbox" value="${esc(device.serial)}"><span><b>${esc(displayName(device))}</b><br><small>${esc(device.serial)}${occupied?` · 当前分配给 ${esc(ownerName)}`:''}</small></span><i class="${device.offline?'offline':'online'}"></i></label>`;
         }).join('') : '<div class="empty">当前没有连接的手机</div>';
+        renderChecks(box, html, html, selected, force);
     }
     function renderRentals() {
         $('#online-count').textContent = connected.length;
         $('#rental-count').textContent = rentals.length;
         $('#assigned-count').textContent = Object.keys(owners).length;
         const devices = allDevices();
-        $('#rental-table').innerHTML = rentals.length ? '<div class="row head"><span>租用用户</span><span>设备快捷管理</span><span>租用期限</span><span>操作</span></div>' + rentals.map((rental) => {
+        const table = $('#rental-table');
+        const tableHtml = rentals.length ? '<div class="row head"><span>租用用户</span><span>设备快捷管理</span><span>租用期限</span><span>操作</span></div>' + rentals.map((rental) => {
             const assigned = rental.devices.map((serial) => {
                 const device=devices.find((item)=>item.serial===serial) || {serial,model:serial,offline:true};
                 return `<span class="device-chip"><span title="${esc(serial)}">${esc(displayName(device))}${device.offline?'（离线）':''}</span><button type="button" data-remove-device="${esc(serial)}" title="移除设备" aria-label="移除设备"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></span>`;
@@ -187,7 +201,7 @@
             const state=rental.expired?'已到期':rental.disabled?'已停用':'租用中';
             return `<div class="row ${rental.disabled?'disabled':''} ${rental.expired?'expired':''}" data-id="${rental.id}"><span class="user-cell"><b>${esc(rental.label)}</b><span class="code">${esc(rental.code)}</span><small>${esc(loginText(rental))}</small></span><span class="device-manager"><span class="device-chips">${assigned}</span><span class="quick-assign"><select data-add-select data-tx-select ${available.length?'':'disabled'}>${options || '<option>暂无可增加设备</option>'}</select><button class="primary" type="button" data-add-device ${available.length?'':'disabled'}>增加设备</button></span></span><span class="expiry">${esc(expiryText(rental))}<small>${state}</small></span><span class="actions"><button class="secondary" data-copy>复制租用信息</button><button class="secondary" data-qr>二维码</button><button class="secondary" data-edit>${rental.expired?'续租':'编辑'}</button><button class="${rental.disabled?'primary':'danger'}" data-toggle ${rental.expired?'disabled':''}>${rental.expired?'已到期':rental.disabled?'启用':'停用'}</button><button class="danger" data-delete>删除</button></span></div>`;
         }).join('') : '<div class="empty">还没有租用识别码</div>';
-        window.TX.enhance($('#rental-table'));
+        if (table.dataset.key !== tableHtml) { table.innerHTML = tableHtml; table.dataset.key = tableHtml; window.TX.enhance(table); }
         document.querySelectorAll('[data-id]').forEach((row) => {
             const rental = rentals.find((item) => item.id === Number(row.dataset.id));
             row.querySelectorAll('[data-remove-device]').forEach((button) => button.onclick = () => patch(rental.id, {devices:rental.devices.filter((serial)=>serial!==button.dataset.removeDevice)}, '已移除设备'));
@@ -199,8 +213,9 @@
             row.querySelector('[data-delete]').onclick = () => remove(rental);
         });
     }
-    function renderApkDevices(selected = []) {
-        $('#apk-devices').innerHTML = connected.length ? connected.map((device) => `<label class="apk-device"><input class="tx-check" type="checkbox" value="${esc(device.serial)}" ${selected.includes(device.serial)?'checked':''}><span><b>${esc(displayName(device))}</b><small>${esc(device.serial)}</small></span></label>`).join('') : '<div class="empty">当前没有连接的手机</div>';
+    function renderApkDevices() {
+        const html = connected.length ? connected.map((device) => `<label class="apk-device"><input class="tx-check" type="checkbox" value="${esc(device.serial)}"><span><b>${esc(displayName(device))}</b><small>${esc(device.serial)}</small></span></label>`).join('') : '<div class="empty">当前没有连接的手机</div>';
+        renderChecks($('#apk-devices'), html, html, checkedValues('#apk-devices'), false);
     }
     function renderApks() {
         $('#apk-list').innerHTML = apks.length ? apks.map((item) => `<div class="apk-item"><span class="apk-info"><b title="${esc(item.name)}">${esc(item.name)}</b><small>${sizeText(item.size)} · ${new Date(item.modifiedAt).toLocaleString('zh-CN',{hour12:false})}</small></span><span class="apk-actions"><button class="primary" type="button" data-install-apk="${esc(item.name)}">安装到所选手机</button><button class="danger" type="button" data-delete-apk="${esc(item.name)}">删除</button></span></div>`).join('') : '<div class="empty">还没有上传 APK</div>';
@@ -210,16 +225,14 @@
     async function refresh() {
         if (refreshing) { refreshQueued = true; return; }
         refreshing = true;
-        const selected=[...document.querySelectorAll('#device-picks input:checked')].map((input)=>input.value);
-        const apkSelected=[...document.querySelectorAll('#apk-devices input:checked')].map((input)=>input.value);
         try {
             const me = await api('/api/auth/me');
             if (me.user?.role !== 'admin') { location.href='/'; return; }
             const [deviceData, rentalData, apkData] = await Promise.all([api('/api/devices/connected'), api('/api/rentals'), api('/api/apks')]);
             connected = deviceData; rentals = rentalData.rentals; apks = apkData.apks; owners = rentalData.assignmentOwners;
             renderRentals();
-            renderPicks(selected);
-            renderApkDevices(apkSelected);
+            renderPicks(undefined, false);
+            renderApkDevices();
             renderApks();
         } catch (error) { toast(error.message, true); }
         finally {
@@ -259,7 +272,8 @@
         if(proxy && !$('#proxy-frame').src) $('#proxy-frame').src='http://127.0.0.1:8099/';
     });
     const events=new EventSource('/api/events');
-    events.addEventListener('update',()=>refresh());
+    let refreshTimer=0;
+    events.addEventListener('update',()=>{ clearTimeout(refreshTimer); refreshTimer=setTimeout(()=>refresh(),400); });
     $('#rental-code').value=randomCode(); refresh();
 })();
 </script>
