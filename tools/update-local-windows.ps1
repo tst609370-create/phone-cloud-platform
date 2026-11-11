@@ -3,6 +3,8 @@
 # 用法（PowerShell）：irm https://raw.githubusercontent.com/tst609370-create/phone-cloud-platform/main/tools/update-local-windows.ps1 | iex
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# 很多电脑执行策略是 Restricted，会拦住 npm.ps1 之类的脚本；只放宽本进程，不改系统设置
+try { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force } catch {}
 # Windows PowerShell 5.1 默认可能没开 TLS 1.2
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 function Step($t) { Write-Host "`n== $t" -ForegroundColor Cyan }
@@ -70,13 +72,13 @@ $repo = Join-Path $work 'phone-cloud-platform-main\web-phone-remote'
 Step '构建（npm ci + webpack，约 2–5 分钟）'
 Push-Location $repo
 try {
-    & npm ci --ignore-scripts --no-audit --no-fund
+    & npm.cmd ci --ignore-scripts --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) {
         Write-Host 'npm 官方源失败，改用国内镜像 registry.npmmirror.com 重试' -ForegroundColor Yellow
-        & npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmmirror.com
+        & npm.cmd ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmmirror.com
         if ($LASTEXITCODE -ne 0) { throw 'npm ci 失败' }
     }
-    & npx webpack --config webpack/ws-scrcpy-web.prod.ts
+    & npx.cmd webpack --config webpack/ws-scrcpy-web.prod.ts
     if ($LASTEXITCODE -ne 0) { throw 'webpack 构建失败' }
 } finally { Pop-Location }
 $newDist = Join-Path $repo 'dist'
