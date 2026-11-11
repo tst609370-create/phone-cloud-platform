@@ -10,6 +10,8 @@ export default defineConfig({
     test: {
         // CSS imports are stubbed out (no stylesheet processing needed in tests)
         css: false,
+        // installer/**/*.test.mjs use node:test, run them with `node --test`.
+        exclude: ['**/node_modules/**', '**/dist/**', 'installer/**'],
         // The default 5s per-test timeout is too tight for tests that lazily
         // `await import()` a heavy module: under full-suite parallel load the
         // on-demand esbuild transform can momentarily exceed 5s and time the
