@@ -18,6 +18,12 @@ export interface ScrcpyOptions {
     tunnelForward?: boolean;
     cleanup?: boolean;
     videoEncoder?: string;
+    /**
+     * scrcpy 4.x only aligns the video size to what the encoder reports (often
+     * 2px), e.g. 486x1080. Some Qualcomm encoders (OnePlus/ColorOS) then emit
+     * frames that decode to solid black. 16 is safe for every encoder/decoder.
+     */
+    minSizeAlignment?: 1 | 2 | 4 | 8 | 16;
 }
 
 const DEFAULTS: Omit<Required<ScrcpyOptions>, 'scid' | 'videoEncoder'> = {
@@ -51,6 +57,7 @@ export function serializeOptions(options: ScrcpyOptions): string[] {
             args.push(`${toSnakeCase(key)}=${value}`);
         }
     }
+    args.push(`min_size_alignment=${options.minSizeAlignment ?? 16}`);
     // scid is always emitted
     args.push(`scid=${options.scid}`);
     if (options.videoEncoder) {

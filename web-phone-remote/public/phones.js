@@ -545,7 +545,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261112m',
+                ui: '20261112p',
             });
             return `snapshot.html?${params}`;
         }
@@ -559,7 +559,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261112m',
+            ui: '20261112p',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         return `embed.html?${params}`;

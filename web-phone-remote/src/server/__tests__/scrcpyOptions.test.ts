@@ -34,6 +34,11 @@ describe('serializeOptions — scid + base fields still work', () => {
         expect(args[args.length - 1]).toBe('scid=deadbeef');
     });
 
+    it('aligns the video size to 16px by default (black frames on ColorOS at 486px)', () => {
+        expect(serializeOptions({ scid: 's' })).toContain('min_size_alignment=16');
+        expect(serializeOptions({ scid: 's', minSizeAlignment: 8 })).toContain('min_size_alignment=8');
+    });
+
     it('omits video_codec when it matches default (h264)', () => {
         const args = serializeOptions({ scid: 's', videoCodec: 'h264' });
         expect(args.some((a) => a.startsWith('video_codec'))).toBe(false);

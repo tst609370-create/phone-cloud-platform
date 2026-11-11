@@ -65,7 +65,8 @@ export function createStaticHandler(publicDir: string): (req: IncomingMessage, r
             }
             const ext = path.extname(filePath).toLowerCase();
             const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-            res.writeHead(200, { 'Content-Type': contentType, ...SECURITY_HEADERS });
+            // Always revalidate: after an update the app window must not keep old JS.
+            res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache', ...SECURITY_HEADERS });
             fs.createReadStream(filePath).pipe(res);
         });
     };

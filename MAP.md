@@ -61,6 +61,7 @@ node --test installer/setup-auth.test.mjs installer/bootstrap/*.test.mjs   # 安
 - 谁能看/控哪台手机 → `src/server/auth/deviceAccess.ts`、`AuthGate.ts`
 - 麦克风 → 服务端 `src/server/mic/`、前端 `src/app/mic/`、手机侧 `android/virtual-mic/`
 - scrcpy 版本/参数 → `src/server/ScrcpyOptions.ts`、`scrcpyServerVersion.ts`
+- 视频尺寸对齐 → `src/server/ScrcpyOptions.ts` 默认 `min_size_alignment=16`（scrcpy 4.x 默认按编码器报的 2px 对齐，一加 ColorOS 出 486 宽黑帧）
 - http://公网IP（非安全上下文）没有 WebCodecs → `src/app/player/mseDecoder.ts` + `fmp4.ts` 用 MSE 回退（仅 H.264）；画面卡住要关键帧 → `WebCodecsPlayer.armStallTimer` + `onNeedKeyframe`（RESET_VIDEO）
 - 画面黑屏/解码失败自愈 → `web-phone-remote/src/app/player/WebCodecsPlayer.ts`（`recoverDecoder`、`armOutputWatchdog`：出错或 3 秒无输出改软件解码，记在 localStorage `webcodecs-prefer-software`）
 - 网速跟不上时的丢帧/追帧 → `src/server/videoBackpressure.ts`（阈值），接入点 `ScrcpyConnection.ts` 的 `onVideoFrame`；WebSocket 心跳 → `services/WebSocketServer.ts` 的 `startHeartbeat`
