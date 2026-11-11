@@ -25,7 +25,7 @@
 | `src/server/mic/` + `MicInject.ts` | 电脑麦克风 → 手机麦克风：`route` WS 路由（action=`mic`）、`hub`/`session` 会话、`deviceBridge` 选 LSPosed 或 shell 通道 |
 | `src/server/ScrcpyOptions.ts`, `scrcpyServerVersion.ts`, `ensureScrcpyServerPushed.ts` | scrcpy-server 启动参数与版本 |
 | `src/app/` | 前端（webpack 打包）：`mic/` 麦克风按钮、`audio/` 播放声、`player/` 解码、`googDevice/` 控制工具栏 |
-| `public/` | 静态页：`admin.html` 租用后台、`index.html`/`phones.js` 手机墙、`snapshot.*` 快照模式 |
+| `public/` | 静态页：`admin.html` 租用后台、`index.html`/`phones.js`/`phones.css` 手机墙、`snapshot.*` 快照模式；`tianxi.css`/`tianxi.js` 是 Tianxi UI 的静态移植（令牌 + Select/Tooltip/Toast/确认框），所有页面共用 |
 | `android/virtual-mic/` | 手机侧虚拟麦克风：LSPosed 模块、Magisk 包装、shell 注入 jar |
 | `installer/windows/` | Go 写的单文件 Windows 安装器（UAC、开机任务、向注册服务换配置） |
 | `installer/bootstrap/` | 服务器侧邀请/注册服务（`enroll`、`assignPort`、`server.mjs`，配 frps 插件与 Caddy） |
@@ -52,6 +52,7 @@ node --test installer/setup-auth.test.mjs installer/bootstrap/*.test.mjs   # 安
 
 ## 常见改动去哪改
 
+- 界面风格（Tianxi UI，暗色）→ 令牌和通用控件改 `public/tianxi.css`、`public/tianxi.js`；页面布局改 `public/phones.css`、`admin.html` 内联样式；登录页（双栏 + 地球，照 tianxi-ui `#/login`）在 `src/server/auth/AuthGate.ts` 的 `authPage()`；地球脚本 `public/login-assets/globe.js` 由 `globe.src.js` 用 esbuild 打包 cobe@2.0.1 生成（`npx esbuild globe.src.js --bundle --minify --format=iife`），走免登录白名单 `/login-assets/`；内嵌画面工具栏色在 `src/style/ws-scrcpy.css`。下拉一律 `<select data-tx-select>`，提示用 `TX.toast`/`TX.confirm`，不用 alert/confirm
 - 租用识别码、有效期、外网域名 → `src/server/api/RentalsApi.ts`、`public/admin.html`、`src/server/auth/rentalExpiry.ts`
 - 谁能看/控哪台手机 → `src/server/auth/deviceAccess.ts`、`AuthGate.ts`
 - 麦克风 → 服务端 `src/server/mic/`、前端 `src/app/mic/`、手机侧 `android/virtual-mic/`

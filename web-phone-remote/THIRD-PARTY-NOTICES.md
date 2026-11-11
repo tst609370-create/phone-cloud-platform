@@ -55,6 +55,12 @@ limitations under the License.
 
 ---
 
+## cobe
+
+`public/login-assets/globe.js` bundles [cobe](https://github.com/shuding/cobe) 2.0.1 for the login-page globe.
+
+MIT License — Copyright (c) 2021 Shu Ding
+
 ## Bundled runtime dependencies (npm)
 
 The release artifacts bundle the following MIT-licensed npm packages: `ws` and

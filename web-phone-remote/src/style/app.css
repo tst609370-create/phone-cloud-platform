@@ -2,42 +2,44 @@
 
 :root {
     --font-size: 14px;
-    --font-mono: Consolas, "Segoe UI Mono", "SF Mono", Menlo, "Liberation Mono", "DejaVu Sans Mono", monospace;
+    --font-sans: "Inter Variable", Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    --font-mono:
+        "JetBrains Mono", Consolas, "Segoe UI Mono", "SF Mono", Menlo, "Liberation Mono", "DejaVu Sans Mono", monospace;
 }
 
-/* Dark theme (default) */
+/* Dark theme (default) — Tianxi UI 令牌 */
 :root,
 [data-theme="dark"] {
-    --main-bg-color: #2a2a2a;
-    --stream-bg-color: #333333;
+    --main-bg-color: #08090a;
+    --stream-bg-color: #0f1011;
     --shell-bg-color: #000000;
-    --text-shadow-color: hsl(218, 17%, 18%);
-    --header-bg-color: #333333;
-    --controls-bg-color: rgba(45, 55, 65, 0.8);
-    --text-color: #e0e0e0;
-    --text-color-light: #a8a8a8;
-    --success-color: #4ade80;
-    --success-hover-bg: rgba(74, 222, 128, 0.1);
-    --danger-color: #f06c75;
-    --danger-hover-bg: rgba(240, 108, 117, 0.1);
-    --warning-color: #fb923c;
-    --info-color: #60a5fa;
-    --link-color: hsl(218, 63%, 70%);
+    --text-shadow-color: #16171a;
+    --header-bg-color: #0f1011;
+    --controls-bg-color: rgba(22, 23, 26, 0.85);
+    --text-color: #f7f8f8;
+    --text-color-light: #9097a0;
+    --success-color: #3ecf8e;
+    --success-hover-bg: rgba(62, 207, 142, 0.1);
+    --danger-color: #f2555a;
+    --danger-hover-bg: rgba(242, 85, 90, 0.1);
+    --warning-color: #f5a524;
+    --info-color: #5b9cff;
+    --link-color: #5b9cff;
     --link-color-light: hsl(218, 63%, 50%);
-    --link-color-visited: hsl(267, 31%, 47%);
+    --link-color-visited: #8b7cff;
     --link-color-visited-light: hsl(267, 31%, 27%);
-    --kill-button-hover-color: #f06c75;
-    --url-color: #888888;
-    --button-text-color: hsl(214, 82%, 76%);
-    --button-border-color: #444444;
+    --kill-button-hover-color: #f2555a;
+    --url-color: #646a73;
+    --button-text-color: #c8ccd2;
+    --button-border-color: rgba(255, 255, 255, 0.1);
     --progress-background-color: rgba(50, 100, 255, 0.2);
     --progress-background-error-color: rgba(255, 50, 50, 0.2);
-    --accent-color: #5b9aff;
-    --accent-rgb: 91, 154, 255;
-    --danger-rgb: 240, 108, 117;
-    --success-rgb: 74, 222, 128;
-    --modal-divider: rgba(255, 255, 255, 0.08);
-    --border-muted: rgba(255, 255, 255, 0.2);
+    --accent-color: #5b9cff;
+    --accent-rgb: 91, 156, 255;
+    --danger-rgb: 242, 85, 90;
+    --success-rgb: 62, 207, 142;
+    --modal-divider: rgba(255, 255, 255, 0.09);
+    --border-muted: rgba(255, 255, 255, 0.15);
 }
 
 /* Light theme */
@@ -106,6 +108,7 @@ a:visited {
 }
 
 body {
+    font-family: var(--font-sans);
     color: var(--text-color);
     background-color: var(--main-bg-color);
     position: absolute;

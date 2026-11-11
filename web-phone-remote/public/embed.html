@@ -15,11 +15,14 @@
         body { display: flex; }
         #status {
             position: fixed; top: 8px; left: 8px;
-            font: 12px monospace;
-            color: #ddd;
-            background: rgba(0,0,0,0.5);
+            font: 11px/1.4 "JetBrains Mono", ui-monospace, Consolas, monospace;
+            letter-spacing: .02em;
+            color: #c8ccd2;
+            background: rgba(15, 16, 17, .82);
+            border: 1px solid rgba(255, 255, 255, .15);
             padding: 4px 8px;
-            border-radius: 4px;
+            border-radius: 6px;
+            backdrop-filter: blur(8px);
             pointer-events: none;
             z-index: 1000;
         }

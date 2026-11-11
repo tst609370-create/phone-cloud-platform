@@ -4,20 +4,96 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>云手机后台总控</title>
+    <link rel="stylesheet" href="tianxi.css?v=20261111b">
     <style>
-        :root{color-scheme:dark;--bg:#07111f;--panel:#0d1a2c;--line:#233751;--muted:#89a0ba;--text:#eaf3ff;--blue:#3892ff;--green:#2dcf7c;--red:#ff6f7d}
-        *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,select{font:inherit}button{cursor:pointer}
-        .shell{display:grid;grid-template-columns:224px minmax(0,1fr);min-height:100vh}.side{padding:22px 16px;border-right:1px solid var(--line);background:#091525}.brand{display:flex;align-items:center;gap:11px;margin-bottom:28px}.logo{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:var(--blue);font-size:21px;font-weight:800}.brand strong{display:block;font-size:18px}.brand small{color:var(--muted)}
-        .nav{display:grid;gap:7px}.nav button,.nav a{display:flex;align-items:center;width:100%;height:42px;padding:0 13px;border:0;border-radius:9px;color:#afc0d5;background:transparent;text-decoration:none;text-align:left}.nav button:hover,.nav a:hover,.nav .active{color:white;background:#142943}.nav .bottom{margin-top:18px;border-top:1px solid var(--line);padding-top:16px}
-        main{min-width:0;padding:24px 28px}.top{display:flex;align-items:center;gap:12px;margin-bottom:20px}.top h1{font-size:24px;margin:0}.top p{color:var(--muted);margin:4px 0 0}.top .refresh{margin-left:auto;color:var(--muted)}
-        .stats{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:12px;margin-bottom:18px}.stat,.card{border:1px solid var(--line);background:var(--panel);border-radius:14px}.stat{padding:15px 17px}.stat small{display:block;color:var(--muted);margin-bottom:7px}.stat strong{font-size:25px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:6px}
-        .content{display:grid;grid-template-columns:minmax(340px,.78fr) minmax(520px,1.45fr);gap:14px}.card{padding:18px}.card h2{font-size:17px;margin:0 0 15px}.field{margin-bottom:13px}.field label{display:block;color:#b9c9dc;font-weight:650;margin-bottom:7px}.field input,.field select{width:100%;height:42px;padding:0 12px;border:1px solid #304863;border-radius:9px;background:#081525;color:white;outline:none}.field input:focus,.field select:focus{border-color:var(--blue);box-shadow:0 0 0 3px #3892ff25}.code-row{display:grid;grid-template-columns:1fr auto;gap:7px}.secondary,.primary,.danger{height:38px;padding:0 13px;border-radius:8px;font-weight:700}.secondary{border:1px solid #38506c;background:#12243a;color:#d9e8fa}.primary{border:0;background:var(--blue);color:#fff}.danger{border:1px solid #63313b;background:#321b25;color:#ff9ca6}.form-actions{display:flex;gap:8px;margin-top:15px}.form-actions .primary{flex:1}
-        .device-picks{display:grid;gap:7px;max-height:310px;overflow:auto}.device-pick{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:9px;padding:10px;border:1px solid #253a53;border-radius:9px;background:#0a1728}.device-pick input{accent-color:var(--blue);width:17px;height:17px}.device-pick small{color:var(--muted)}.online,.offline{width:7px;height:7px;border-radius:50%}.online{background:var(--green)}.offline{background:#65778e}
-        .table{border:1px solid var(--line);border-radius:11px;overflow:auto}.row{display:grid;grid-template-columns:minmax(150px,.8fr) minmax(260px,1.45fr) minmax(145px,.7fr) minmax(250px,1.1fr);gap:12px;align-items:center;min-width:870px;padding:12px;border-top:1px solid #1d3048}.row:first-child{border-top:0}.head{color:var(--muted);font-size:12px;background:#101f33}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#a9d0ff}.user-cell{display:grid;gap:4px;min-width:0}.user-cell b,.user-cell span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.user-cell small{color:var(--muted);font-size:12px}.device-manager{display:grid;gap:8px;min-width:0}.device-chips{display:flex;flex-wrap:wrap;gap:6px}.device-chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;padding:5px 6px 5px 8px;border:1px solid #304863;border-radius:7px;background:#0a1728;color:#c8d8ea}.device-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.device-chip button{display:grid;place-items:center;width:21px;height:21px;padding:0;border:0;border-radius:5px;background:#3a2029;color:#ff9ca6;font-weight:800;line-height:1}.device-empty{color:var(--muted)}.quick-assign{display:flex;gap:6px}.quick-assign select{min-width:0;flex:1;height:32px;padding:0 8px;border:1px solid #304863;border-radius:7px;background:#081525;color:#d9e8fa}.quick-assign button{height:32px;padding:0 10px;white-space:nowrap}.expiry{display:grid;gap:3px;color:#b8c8da}.expiry small{color:var(--green)}.expired .expiry small{color:var(--red)}.disabled,.expired{opacity:.58}.actions{display:flex;flex-wrap:wrap;gap:6px}.actions button{height:30px;padding:0 9px}.empty{padding:35px 10px;text-align:center;color:var(--muted)}.toast{position:fixed;right:22px;bottom:22px;padding:11px 15px;border-radius:9px;background:#183a2d;color:#8ff0b9;box-shadow:0 12px 40px #0008;display:none}.toast.error{background:#47232b;color:#ff9da8}
-        dialog{width:min(390px,calc(100vw - 28px));padding:22px;border:1px solid #304863;border-radius:15px;color:var(--text);background:#0d1a2c;box-shadow:0 28px 90px #000b}dialog::backdrop{background:#020812c9;backdrop-filter:blur(4px)}dialog h3{margin:0 0 9px;font-size:19px}dialog p{margin:8px 0;color:var(--muted);line-height:1.55}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.qr-image{display:block;width:260px;height:260px;margin:14px auto;border-radius:10px;background:#fff}.qr-code{text-align:center;font:700 22px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;color:#a9d0ff}
-        #proxy-panel{display:none;padding:0;height:calc(100vh - 48px)}#proxy-frame{width:100%;height:100%;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
-        #apks-panel{display:none}.apk-layout{display:grid;grid-template-columns:minmax(280px,.7fr) minmax(360px,1fr);gap:14px}.apk-library-card{grid-column:1/-1}.apk-upload{display:grid;gap:11px}.apk-upload p{margin:0;color:var(--muted);line-height:1.55}.apk-upload button{justify-self:start}.apk-device-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}.apk-device{display:flex;align-items:center;gap:9px;padding:10px;border:1px solid #253a53;border-radius:9px;background:#0a1728}.apk-device input{width:17px;height:17px;accent-color:var(--blue)}.apk-device span{display:grid;gap:2px;min-width:0}.apk-device b,.apk-device small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.apk-device small{color:var(--muted)}.apk-list{display:grid;gap:8px}.apk-item{display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:12px;align-items:center;padding:12px;border:1px solid #253a53;border-radius:9px;background:#0a1728}.apk-info{display:grid;gap:4px;min-width:0}.apk-info b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.apk-info small{color:var(--muted)}.apk-actions{display:flex;gap:7px;flex-wrap:wrap}.apk-actions button{height:32px}.section-head{display:flex;align-items:center;gap:8px;margin-bottom:15px}.section-head h2{margin:0}.section-head button{margin-left:auto;height:30px}
-        @media(max-width:900px){.shell{grid-template-columns:1fr}.side{position:sticky;top:0;z-index:4;padding:10px 13px;border:0;border-bottom:1px solid var(--line)}.brand{margin:0}.brand small{display:none}.nav{display:flex;margin-top:9px;overflow:auto}.nav button,.nav a{width:auto;white-space:nowrap}.nav .bottom{margin:0;padding:0;border:0}main{padding:16px}.stats{grid-template-columns:repeat(2,1fr)}.content,.apk-layout{grid-template-columns:1fr}.row{grid-template-columns:1fr 1fr;min-width:0}.head{display:none}.device-manager,.actions{grid-column:1/-1}.apk-item{grid-template-columns:1fr}.shell.proxy main{padding:8px}#proxy-panel{height:calc(100vh - 132px)}}
+        /* 后台总控 — Tianxi UI 暗色风格；颜色/圆角/字体只用 tianxi.css 的 --tx-* 令牌 */
+        *{box-sizing:border-box}
+        body{margin:0;background:var(--tx-bg);color:var(--tx-fg);font:var(--tx-text-body)/1.5 var(--tx-font-sans);-webkit-font-smoothing:antialiased}
+        button,input,select{font:inherit}button{cursor:pointer}
+        svg{flex:0 0 auto}
+        .shell{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh}
+        .side{position:sticky;top:0;height:100vh;padding:14px 10px;border-right:1px solid var(--tx-line);background:var(--tx-bg);display:flex;flex-direction:column}
+        .brand{display:flex;align-items:center;gap:10px;padding:2px 6px;margin-bottom:22px}
+        .logo{display:grid;place-items:center;width:32px;height:32px;border:1px solid transparent;border-radius:var(--tx-radius-md);background:linear-gradient(var(--tx-surface-2),var(--tx-surface-2)) padding-box,linear-gradient(135deg,var(--tx-accent),var(--tx-accent-2)) border-box;box-shadow:0 0 14px -4px rgb(91 156 255 / .55);font-size:14px;font-weight:600}
+        .brand strong{display:block;font-size:var(--tx-text-title);font-weight:600;letter-spacing:-.01em}.brand small{color:var(--tx-fg-4);font:11px/1.3 var(--tx-font-mono);letter-spacing:.04em}
+        .nav{display:flex;flex-direction:column;gap:2px;flex:1}
+        .nav-label{margin:0 8px 6px}
+        .nav button,.nav a{display:flex;align-items:center;gap:9px;width:100%;height:32px;padding:0 9px;border:0;border-radius:var(--tx-radius-md);color:var(--tx-fg-3);background:transparent;text-decoration:none;text-align:left;font-size:var(--tx-text-body);transition:color .15s,background-color .15s}
+        .nav svg{width:15px;height:15px}
+        .nav button:hover,.nav a:hover{color:var(--tx-fg);background:var(--tx-wash-3)}
+        .nav .active{color:var(--tx-fg);background:var(--tx-surface-3);box-shadow:var(--tx-shadow-raised)}
+        .nav .bottom{margin-top:auto}
+        main{min-width:0;padding:28px 32px}
+        .top{display:flex;align-items:flex-end;gap:12px;margin-bottom:22px}
+        .top .tx-eyebrow{display:block;margin-bottom:8px}
+        .top h1{font-size:var(--tx-text-page);font-weight:600;letter-spacing:-.025em;line-height:1.15;margin:0}
+        .top p{color:var(--tx-fg-3);margin:6px 0 0}
+        .top .refresh{margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border:1px solid rgb(62 207 142 / .2);border-radius:999px;color:var(--tx-ok);background:rgb(62 207 142 / .1);font-size:11px;font-weight:500}
+        .top .refresh::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor;animation:pulse 2.4s cubic-bezier(.4,0,.6,1) infinite}
+        @keyframes pulse{50%{opacity:.35}}
+        .stats{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+        .stat,.card{border:1px solid var(--tx-line);background:var(--tx-surface);border-radius:var(--tx-radius-lg);box-shadow:var(--tx-shadow-raised)}
+        .stat{position:relative;overflow:hidden;padding:14px 16px}
+        .stat::after{content:"";position:absolute;inset:auto 0 0;height:1px;background:linear-gradient(90deg,transparent,rgb(91 156 255 / .35),transparent)}
+        .stat small{display:block;margin-bottom:8px;color:var(--tx-fg-4);font:500 var(--tx-text-label)/1.25 var(--tx-font-mono);letter-spacing:.12em;text-transform:uppercase}
+        .stat strong{font-size:26px;font-weight:600;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+        .stat strong.mono{display:block;font:500 14px/1.6 var(--tx-font-mono);letter-spacing:0;color:var(--tx-fg-2);overflow-wrap:anywhere}
+        .content{display:grid;grid-template-columns:minmax(340px,.78fr) minmax(520px,1.45fr);gap:12px}
+        .card{padding:18px}.card h2{font-size:var(--tx-text-title);font-weight:600;letter-spacing:-.01em;margin:0 0 14px}
+        .field{margin-bottom:14px}.field>label{display:block;color:var(--tx-fg-2);font-size:var(--tx-text-sub);font-weight:500;margin-bottom:6px}
+        .field input:not([type=checkbox]){width:100%;height:34px;padding:0 10px;border:1px solid var(--tx-line);border-radius:var(--tx-radius-md);background:var(--tx-field);box-shadow:var(--tx-shadow-field);color:var(--tx-fg);outline:none;transition:border-color .15s,box-shadow .15s}
+        .field input::placeholder{color:var(--tx-fg-4)}
+        .field input:focus{border-color:rgb(91 156 255 / .6);box-shadow:0 0 0 3px rgb(91 156 255 / .15)}
+        .field .tx-select-trigger{height:34px}
+        #rental-code{font-family:var(--tx-font-mono);letter-spacing:.06em}
+        .code-row{display:grid;grid-template-columns:1fr auto;gap:6px}
+        .secondary,.primary,.danger{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;padding:0 12px;border:1px solid transparent;border-radius:var(--tx-radius-md);font-size:var(--tx-text-body);font-weight:500;white-space:nowrap;transition:background-color .15s,border-color .15s,color .15s,transform .15s}
+        .secondary:active,.primary:active,.danger:active{transform:scale(.98)}
+        .secondary:disabled,.primary:disabled,.danger:disabled{opacity:.5;pointer-events:none}
+        .primary{color:var(--tx-bg);background:var(--tx-fg);box-shadow:var(--tx-shadow-primary)}.primary:hover{background:rgb(247 248 248 / .9)}
+        .secondary{color:var(--tx-fg-2);background:transparent;border-color:var(--tx-wash-5)}.secondary:hover{color:var(--tx-fg);border-color:var(--tx-wash-6);background:var(--tx-wash-3)}
+        .danger{color:var(--tx-err);background:rgb(242 85 90 / .1);border-color:rgb(242 85 90 / .25)}.danger:hover{background:rgb(242 85 90 / .15);border-color:rgb(242 85 90 / .4)}
+        .form-actions{display:flex;gap:8px;margin-top:16px}.form-actions .primary{flex:1}
+        .device-picks{display:grid;gap:6px;max-height:310px;overflow:auto}
+        .device-pick,.apk-device{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--tx-line);border-radius:var(--tx-radius-md);background:var(--tx-inset);cursor:pointer;transition:border-color .15s,background-color .15s}
+        .device-pick:hover,.apk-device:hover{border-color:var(--tx-line-strong);background:var(--tx-wash-2)}
+        .device-pick:has(input:checked),.apk-device:has(input:checked){border-color:rgb(91 156 255 / .35);background:rgb(91 156 255 / .06)}
+        .device-pick small,.apk-device small{color:var(--tx-fg-4);font:11px/1.4 var(--tx-font-mono)}
+        .online,.offline{width:6px;height:6px;border-radius:50%}.online{background:var(--tx-ok);box-shadow:0 0 6px var(--tx-ok)}.offline{background:var(--tx-fg-4)}
+        .table{border:1px solid var(--tx-line);border-radius:var(--tx-radius-md);overflow:auto}
+        .row{display:grid;grid-template-columns:minmax(150px,.8fr) minmax(260px,1.45fr) minmax(145px,.7fr) minmax(250px,1.1fr);gap:12px;align-items:center;min-width:870px;padding:10px 12px;border-top:1px solid var(--tx-line);transition:background-color .15s}
+        .row:not(.head):hover{background:var(--tx-wash-2)}
+        .row:first-child{border-top:0}
+        .head{color:var(--tx-fg-4);font:500 var(--tx-text-label)/1.25 var(--tx-font-mono);letter-spacing:.12em;text-transform:uppercase;background:var(--tx-inset)}
+        .code{font-family:var(--tx-font-mono);color:var(--tx-accent);font-size:12px}
+        .user-cell{display:grid;gap:3px;min-width:0}.user-cell b{font-weight:500}.user-cell b,.user-cell span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.user-cell small{color:var(--tx-fg-4);font-size:11px}
+        .device-manager{display:grid;gap:8px;min-width:0}.device-chips{display:flex;flex-wrap:wrap;gap:5px}
+        .device-chip{display:inline-flex;align-items:center;gap:4px;max-width:100%;height:24px;padding:0 3px 0 8px;border:1px solid var(--tx-line);border-radius:999px;background:var(--tx-wash-2);color:var(--tx-fg-2);font-size:12px}
+        .device-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .device-chip button{display:grid;place-items:center;width:18px;height:18px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--tx-fg-4)}
+        .device-chip button svg{width:12px;height:12px}.device-chip button:hover{color:var(--tx-err);background:rgb(242 85 90 / .12)}
+        .device-empty{color:var(--tx-fg-4);font-size:12px}
+        .quick-assign{display:flex;gap:6px}.quick-assign .tx-select{flex:1}.quick-assign .tx-select-trigger{height:28px;font-size:12px}
+        .quick-assign button{height:28px;padding:0 10px;font-size:12px}
+        .expiry{display:grid;gap:4px;color:var(--tx-fg-2);font:12px/1.4 var(--tx-font-mono)}
+        .expiry small{width:fit-content;padding:0 7px;border:1px solid rgb(62 207 142 / .2);border-radius:999px;color:var(--tx-ok);background:rgb(62 207 142 / .1);font:500 11px/18px var(--tx-font-sans)}
+        .expired .expiry small,.disabled .expiry small{color:var(--tx-err);border-color:rgb(242 85 90 / .2);background:rgb(242 85 90 / .1)}
+        .disabled,.expired{opacity:.62}
+        .actions{display:flex;flex-wrap:wrap;gap:5px}.actions button{height:28px;padding:0 9px;font-size:12px}
+        .empty{padding:36px 10px;text-align:center;color:var(--tx-fg-4)}
+        dialog.tx-dialog .qr-image{display:block;width:240px;height:240px;margin:16px auto 10px;padding:10px;border-radius:var(--tx-radius-lg);background:#fff}
+        .qr-code{text-align:center;font:600 20px var(--tx-font-mono);letter-spacing:.12em;color:var(--tx-fg)}
+        #proxy-panel{display:none;padding:0;height:calc(100vh - 56px)}#proxy-frame{width:100%;height:100%;border:1px solid var(--tx-line);border-radius:var(--tx-radius-lg);background:var(--tx-surface)}
+        #apks-panel{display:none}.apk-layout{display:grid;grid-template-columns:minmax(280px,.7fr) minmax(360px,1fr);gap:12px}.apk-library-card{grid-column:1/-1}
+        .apk-upload{display:grid;gap:12px;align-content:start}.apk-upload h2{margin:0}.apk-upload p{margin:0;color:var(--tx-fg-3);line-height:1.6}.apk-upload button{justify-self:start}
+        .apk-device-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:6px}.apk-device{grid-template-columns:auto 1fr}
+        .apk-device span{display:grid;gap:2px;min-width:0}.apk-device b,.apk-device small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.apk-device b{font-weight:500}
+        .apk-list{display:grid;gap:6px}.apk-item{display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--tx-line);border-radius:var(--tx-radius-md);background:var(--tx-inset)}
+        .apk-item:hover{border-color:var(--tx-line-strong)}
+        .apk-info{display:grid;gap:3px;min-width:0}.apk-info b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}.apk-info small{color:var(--tx-fg-4);font:11px/1.4 var(--tx-font-mono)}
+        .apk-actions{display:flex;gap:6px;flex-wrap:wrap}.apk-actions button{height:30px;font-size:12px}
+        .section-head{display:flex;align-items:center;gap:8px;margin-bottom:14px}.section-head h2{margin:0}.section-head button{margin-left:auto;height:28px;font-size:12px}
+        @media(max-width:900px){.shell{grid-template-columns:minmax(0,1fr)}.side{min-width:0;position:sticky;top:0;z-index:4;height:auto;padding:10px 12px;border:0;border-bottom:1px solid var(--tx-line);background:rgb(8 9 10 / .85);backdrop-filter:blur(12px)}.brand{margin:0}.brand small,.nav-label{display:none}.nav{flex-direction:row;margin-top:10px;overflow:auto;scrollbar-width:none}.nav button,.nav a{width:auto;height:36px;white-space:nowrap}.nav .bottom{margin:0}main{padding:18px 16px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.content,.apk-layout{grid-template-columns:minmax(0,1fr)}.row{grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-width:0}.head{display:none}.device-manager,.actions{grid-column:1/-1}.apk-item{grid-template-columns:1fr}.shell.proxy main{padding:8px}#proxy-panel{height:calc(100vh - 132px)}.top{flex-wrap:wrap}.top .refresh{margin-left:0}}
     </style>
 </head>
 <body>
@@ -25,28 +101,29 @@
     <aside class="side">
         <div class="brand"><span class="logo">控</span><div><strong>云手机总控</strong><small>Mac 管理端</small></div></div>
         <nav class="nav">
-            <button class="active" data-panel="rentals">设备与租用</button>
-            <button data-panel="apks">APK 软件库</button>
-            <button data-panel="proxy">SOCKS5 代理</button>
-            <a href="/">打开设备墙</a>
-            <button class="bottom" id="logout">退出管理端</button>
+            <span class="nav-label tx-eyebrow">控制台</span>
+            <button class="active" data-panel="rentals"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>设备与租用</button>
+            <button data-panel="apks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5Z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>APK 软件库</button>
+            <button data-panel="proxy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>SOCKS5 代理</button>
+            <a href="/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>打开设备墙</a>
+            <button class="bottom" id="logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg>退出管理端</button>
         </nav>
     </aside>
     <main>
         <section id="rentals-panel">
-            <header class="top"><div><h1>后台总控</h1><p>创建识别码并分配可操作的云手机</p></div><span class="refresh">实时更新</span></header>
+            <header class="top"><div><span class="tx-eyebrow">SYS / RENTALS</span><h1>后台总控</h1><p>创建识别码并分配可操作的云手机</p></div><span class="refresh">实时更新</span></header>
             <div class="stats">
                 <div class="stat"><small>在线手机</small><strong id="online-count">0</strong></div>
                 <div class="stat"><small>租用识别码</small><strong id="rental-count">0</strong></div>
                 <div class="stat"><small>已分配手机</small><strong id="assigned-count">0</strong></div>
-                <div class="stat"><small>外网入口</small><strong style="font-size:16px">phone.anyuekf.cn</strong></div>
+                <div class="stat"><small>外网入口</small><strong class="mono">phone.anyuekf.cn</strong></div>
             </div>
             <div class="content">
                 <form class="card" id="rental-form">
                     <h2 id="form-title">新建租用识别码</h2>
                     <div class="field"><label for="rental-label">客户备注</label><input id="rental-label" maxlength="64" placeholder="例如：客户张三" required></div>
                     <div class="field"><label for="rental-code">唯一识别码（2 个小写字母 + 6 位数字）</label><div class="code-row"><input id="rental-code" minlength="8" maxlength="8" pattern="[a-z]{2}[0-9]{6}" inputmode="text" required><button class="secondary" id="generate" type="button">随机生成</button></div></div>
-                    <div class="field"><label for="rental-duration">租用时间</label><select id="rental-duration"><option value="keep" hidden>保持当前到期时间</option><option value="1">1 小时</option><option value="6">6 小时</option><option value="24">1 天</option><option value="72">3 天</option><option value="168" selected>7 天</option><option value="720">30 天</option><option value="0">永久有效</option></select></div>
+                    <div class="field"><label for="rental-duration">租用时间</label><select id="rental-duration" data-tx-select><option value="keep" hidden>保持当前到期时间</option><option value="1">1 小时</option><option value="6">6 小时</option><option value="24">1 天</option><option value="72">3 天</option><option value="168" selected>7 天</option><option value="720">30 天</option><option value="0">永久有效</option></select></div>
                     <div class="field"><label>分配云手机</label><div class="device-picks" id="device-picks"><div class="empty">正在读取设备…</div></div></div>
                     <div class="form-actions"><button class="primary" type="submit">保存并生效</button><button class="secondary" id="cancel-edit" type="button" hidden>取消编辑</button></div>
                 </form>
@@ -54,7 +131,7 @@
             </div>
         </section>
         <section id="apks-panel">
-            <header class="top"><div><h1>APK 软件库</h1><p>上传一次，可重复安装到一台或多台手机</p></div><span class="refresh">实时更新</span></header>
+            <header class="top"><div><span class="tx-eyebrow">SYS / APK</span><h1>APK 软件库</h1><p>上传一次，可重复安装到一台或多台手机</p></div><span class="refresh">实时更新</span></header>
             <div class="apk-layout">
                 <section class="card apk-upload"><h2>上传安装包</h2><p>APK 保存在 Mac，不会因为浏览器关闭或手机刷机而丢失。</p><input id="apk-file" type="file" accept=".apk,application/vnd.android.package-archive" hidden><button class="primary" id="apk-upload" type="button">选择并上传 APK</button><small id="apk-upload-status" class="device-empty">单个文件最大 512 MB</small></section>
                 <section class="card"><div class="section-head"><h2>安装目标</h2><button class="secondary" id="apk-select-all" type="button">全选</button></div><div class="apk-device-list" id="apk-devices"><div class="empty">正在读取设备…</div></div></section>
@@ -64,9 +141,9 @@
         <section id="proxy-panel"><iframe id="proxy-frame" title="SOCKS5 代理管理"></iframe></section>
     </main>
 </div>
-<dialog id="qr-dialog"><h3>扫码打开云手机登录页</h3><p>二维码不包含识别码，客户扫码后仍需手动输入。</p><img class="qr-image" id="qr-image" alt="云手机登录二维码"><div class="qr-code" id="qr-code"></div><form class="dialog-actions" method="dialog"><button class="primary" value="close">关闭</button></form></dialog>
-<dialog id="delete-dialog"><h3>确认删除租用</h3><p id="delete-message"></p><p>删除后识别码立即失效，已登录的客户也会退出。</p><form class="dialog-actions" method="dialog"><button class="secondary" value="cancel">取消</button><button class="danger" value="delete">确认删除</button></form></dialog>
-<div class="toast" id="toast"></div>
+<dialog id="qr-dialog" class="tx-dialog"><h3>扫码打开云手机登录页</h3><p>二维码不包含识别码，客户扫码后仍需手动输入。</p><img class="qr-image" id="qr-image" alt="云手机登录二维码"><div class="qr-code" id="qr-code"></div><form class="tx-dialog-actions" method="dialog"><button class="primary" value="close">关闭</button></form></dialog>
+<dialog id="delete-dialog" class="tx-dialog"><h3>确认删除租用</h3><p id="delete-message"></p><p>删除后识别码立即失效，已登录的客户也会退出。</p><form class="tx-dialog-actions" method="dialog"><button class="secondary" value="cancel">取消</button><button class="danger" value="delete">确认删除</button></form></dialog>
+<script src="tianxi.js?v=20261111b"></script>
 <script>
 (() => {
     const $ = (selector) => document.querySelector(selector);
@@ -78,7 +155,7 @@
     const expiryText = (rental) => rental.expiresAt ? new Date(rental.expiresAt).toLocaleString('zh-CN',{hour12:false}) : '永久有效';
     const loginText = (rental) => rental.lastLogin ? `最近登录：${new Date(rental.lastLogin).toLocaleString('zh-CN',{hour12:false})}` : '从未登录';
     const sizeText = (bytes) => bytes < 1024*1024 ? `${Math.max(1,Math.round(bytes/1024))} KB` : `${(bytes/1024/1024).toFixed(1)} MB`;
-    const toast = (message, error = false) => { const el=$('#toast'); el.textContent=message; el.className=`toast${error?' error':''}`; el.style.display='block'; clearTimeout(el.timer); el.timer=setTimeout(()=>el.style.display='none',2600); };
+    const toast = (message, error = false) => window.TX.toast(message, error ? 'err' : 'ok');
     async function api(url, options) { const response=await fetch(url,{cache:'no-store',...options}); const data=await response.json().catch(()=>({})); if(!response.ok) throw Error(data.error || `HTTP ${response.status}`); return data; }
     function allDevices() {
         const map = new Map(connected.map((device) => [device.serial, device]));
@@ -91,7 +168,7 @@
             const owner = owners[device.serial];
             const occupied = owner && owner !== editingId;
             const ownerName = rentals.find((rental) => rental.id === owner)?.label;
-            return `<label class="device-pick"><input type="checkbox" value="${esc(device.serial)}" ${selected.includes(device.serial)?'checked':''}><span><b>${esc(displayName(device))}</b><br><small>${esc(device.serial)}${occupied?` · 当前分配给 ${esc(ownerName)}`:''}</small></span><i class="${device.offline?'offline':'online'}"></i></label>`;
+            return `<label class="device-pick"><input class="tx-check" type="checkbox" value="${esc(device.serial)}" ${selected.includes(device.serial)?'checked':''}><span><b>${esc(displayName(device))}</b><br><small>${esc(device.serial)}${occupied?` · 当前分配给 ${esc(ownerName)}`:''}</small></span><i class="${device.offline?'offline':'online'}"></i></label>`;
         }).join('') : '<div class="empty">当前没有连接的手机</div>';
     }
     function renderRentals() {
@@ -102,13 +179,14 @@
         $('#rental-table').innerHTML = rentals.length ? '<div class="row head"><span>租用用户</span><span>设备快捷管理</span><span>租用期限</span><span>操作</span></div>' + rentals.map((rental) => {
             const assigned = rental.devices.map((serial) => {
                 const device=devices.find((item)=>item.serial===serial) || {serial,model:serial,offline:true};
-                return `<span class="device-chip"><span title="${esc(serial)}">${esc(displayName(device))}${device.offline?'（离线）':''}</span><button type="button" data-remove-device="${esc(serial)}" title="移除设备">×</button></span>`;
+                return `<span class="device-chip"><span title="${esc(serial)}">${esc(displayName(device))}${device.offline?'（离线）':''}</span><button type="button" data-remove-device="${esc(serial)}" title="移除设备" aria-label="移除设备"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></span>`;
             }).join('') || '<span class="device-empty">未分配设备</span>';
             const available=devices.filter((device)=>!owners[device.serial]);
             const options=available.map((device)=>`<option value="${esc(device.serial)}">${esc(displayName(device))}</option>`).join('');
             const state=rental.expired?'已到期':rental.disabled?'已停用':'租用中';
-            return `<div class="row ${rental.disabled?'disabled':''} ${rental.expired?'expired':''}" data-id="${rental.id}"><span class="user-cell"><b>${esc(rental.label)}</b><span class="code">${esc(rental.code)}</span><small>${esc(loginText(rental))}</small></span><span class="device-manager"><span class="device-chips">${assigned}</span><span class="quick-assign"><select data-add-select ${available.length?'':'disabled'}>${options || '<option>暂无可增加设备</option>'}</select><button class="primary" type="button" data-add-device ${available.length?'':'disabled'}>增加设备</button></span></span><span class="expiry">${esc(expiryText(rental))}<small>${state}</small></span><span class="actions"><button class="secondary" data-copy>复制租用信息</button><button class="secondary" data-qr>二维码</button><button class="secondary" data-edit>${rental.expired?'续租':'编辑'}</button><button class="${rental.disabled?'primary':'danger'}" data-toggle ${rental.expired?'disabled':''}>${rental.expired?'已到期':rental.disabled?'启用':'停用'}</button><button class="danger" data-delete>删除</button></span></div>`;
+            return `<div class="row ${rental.disabled?'disabled':''} ${rental.expired?'expired':''}" data-id="${rental.id}"><span class="user-cell"><b>${esc(rental.label)}</b><span class="code">${esc(rental.code)}</span><small>${esc(loginText(rental))}</small></span><span class="device-manager"><span class="device-chips">${assigned}</span><span class="quick-assign"><select data-add-select data-tx-select ${available.length?'':'disabled'}>${options || '<option>暂无可增加设备</option>'}</select><button class="primary" type="button" data-add-device ${available.length?'':'disabled'}>增加设备</button></span></span><span class="expiry">${esc(expiryText(rental))}<small>${state}</small></span><span class="actions"><button class="secondary" data-copy>复制租用信息</button><button class="secondary" data-qr>二维码</button><button class="secondary" data-edit>${rental.expired?'续租':'编辑'}</button><button class="${rental.disabled?'primary':'danger'}" data-toggle ${rental.expired?'disabled':''}>${rental.expired?'已到期':rental.disabled?'启用':'停用'}</button><button class="danger" data-delete>删除</button></span></div>`;
         }).join('') : '<div class="empty">还没有租用识别码</div>';
+        window.TX.enhance($('#rental-table'));
         document.querySelectorAll('[data-id]').forEach((row) => {
             const rental = rentals.find((item) => item.id === Number(row.dataset.id));
             row.querySelectorAll('[data-remove-device]').forEach((button) => button.onclick = () => patch(rental.id, {devices:rental.devices.filter((serial)=>serial!==button.dataset.removeDevice)}, '已移除设备'));
@@ -121,7 +199,7 @@
         });
     }
     function renderApkDevices(selected = []) {
-        $('#apk-devices').innerHTML = connected.length ? connected.map((device) => `<label class="apk-device"><input type="checkbox" value="${esc(device.serial)}" ${selected.includes(device.serial)?'checked':''}><span><b>${esc(displayName(device))}</b><small>${esc(device.serial)}</small></span></label>`).join('') : '<div class="empty">当前没有连接的手机</div>';
+        $('#apk-devices').innerHTML = connected.length ? connected.map((device) => `<label class="apk-device"><input class="tx-check" type="checkbox" value="${esc(device.serial)}" ${selected.includes(device.serial)?'checked':''}><span><b>${esc(displayName(device))}</b><small>${esc(device.serial)}</small></span></label>`).join('') : '<div class="empty">当前没有连接的手机</div>';
     }
     function renderApks() {
         $('#apk-list').innerHTML = apks.length ? apks.map((item) => `<div class="apk-item"><span class="apk-info"><b title="${esc(item.name)}">${esc(item.name)}</b><small>${sizeText(item.size)} · ${new Date(item.modifiedAt).toLocaleString('zh-CN',{hour12:false})}</small></span><span class="apk-actions"><button class="primary" type="button" data-install-apk="${esc(item.name)}">安装到所选手机</button><button class="danger" type="button" data-delete-apk="${esc(item.name)}">删除</button></span></div>`).join('') : '<div class="empty">还没有上传 APK</div>';
@@ -159,7 +237,7 @@
     function showQr(rental) { $('#qr-image').src=`/api/rentals/${rental.id}/qr?t=${Date.now()}`; $('#qr-code').textContent=rental.code; $('#qr-dialog').showModal(); }
     async function uploadApk(file) { const status=$('#apk-upload-status'),button=$('#apk-upload'); if(!file || !/\.apk$/i.test(file.name)){toast('请选择 APK 安装包',true);return;} button.disabled=true; status.textContent=`正在上传 ${file.name}…`; try{await api(`/api/apks?name=${encodeURIComponent(file.name)}`,{method:'POST',headers:{'content-type':'application/vnd.android.package-archive'},body:file});toast('APK 已加入软件库');status.textContent='上传完成';await refresh();}catch(error){toast(error.message,true);status.textContent='上传失败';}finally{button.disabled=false;$('#apk-file').value='';} }
     async function installApk(name, button) { const devices=[...document.querySelectorAll('#apk-devices input:checked')].map((input)=>input.value); if(!devices.length){toast('请先选择要安装的手机',true);return;} const old=button.textContent;button.disabled=true;button.textContent='安装中…';try{const data=await api('/api/apks/install',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name,devices})});const failed=data.results.filter((item)=>!item.ok);toast(failed.length?`${data.results.length-failed.length} 台成功，${failed.length} 台失败`:`已安装到 ${data.results.length} 台手机`,Boolean(failed.length));}catch(error){toast(error.message,true);}finally{button.disabled=false;button.textContent=old;} }
-    async function deleteApk(name) { if(!confirm(`确定从 APK 库删除“${name}”吗？`))return;try{await api(`/api/apks?name=${encodeURIComponent(name)}`,{method:'DELETE'});toast('APK 已删除');await refresh();}catch(error){toast(error.message,true);} }
+    async function deleteApk(name) { if(!(await window.TX.confirm(`确定从 APK 库删除“${name}”吗？`,{title:'删除 APK',okText:'确认删除',danger:true})))return;try{await api(`/api/apks?name=${encodeURIComponent(name)}`,{method:'DELETE'});toast('APK 已删除');await refresh();}catch(error){toast(error.message,true);} }
     $('#rental-form').addEventListener('submit', async (event) => {
         event.preventDefault();
         const code=$('#rental-code').value.trim(); const existing=editingId?rentals.find((item)=>item.id===editingId):null;

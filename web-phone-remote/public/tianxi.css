@@ -1,0 +1,212 @@
+/*
+ * Tianxi UI 设计令牌与基础控件（静态页版）
+ * 来源：tst609370-create/tianxi-ui → packages/tianxi-ui/src/styles/theme.css、DESIGN.md
+ * 本项目的设备墙、后台是原生 JS 页面，不走 React，所以这里把令牌和控件视觉移植成纯 CSS；
+ * 交互控件（Select、Tooltip、Toast、确认框）由 tianxi.js 提供。改颜色只改本文件 :root。
+ */
+:root {
+    color-scheme: dark;
+    --tx-bg: #08090a;
+    --tx-surface: #0f1011;
+    --tx-surface-2: #16171a;
+    --tx-surface-3: #1c1d21;
+    --tx-line: rgb(255 255 255 / .09);
+    --tx-line-strong: rgb(255 255 255 / .15);
+    --tx-fg: #f7f8f8;
+    --tx-fg-2: #c8ccd2;
+    --tx-fg-3: #9097a0;
+    --tx-fg-4: #646a73;
+    --tx-accent: #5b9cff;
+    --tx-accent-2: #8b7cff;
+    --tx-ok: #3ecf8e;
+    --tx-warn: #f5a524;
+    --tx-err: #f2555a;
+    --tx-field: #0b0c0d;
+    --tx-inset: #0a0b0c;
+    --tx-overlay: rgb(0 0 0 / .6);
+    --tx-hover: rgb(255 255 255 / .04);
+    --tx-active: rgb(255 255 255 / .07);
+    --tx-wash-2: rgb(255 255 255 / .03);
+    --tx-wash-3: rgb(255 255 255 / .05);
+    --tx-wash-4: rgb(255 255 255 / .07);
+    --tx-wash-5: rgb(255 255 255 / .1);
+    --tx-wash-6: rgb(255 255 255 / .15);
+    --tx-grid: rgb(255 255 255 / .055);
+    --tx-dot: rgb(255 255 255 / .14);
+    --tx-shadow-raised: inset 0 1px 0 rgb(255 255 255 / .04), 0 1px 1px rgb(0 0 0 / .2);
+    --tx-shadow-field: inset 0 1px 2px rgb(0 0 0 / .35);
+    --tx-shadow-primary: inset 0 1px 0 rgb(255 255 255 / .6), 0 1px 2px rgb(0 0 0 / .4);
+    --tx-shadow-overlay: 0 24px 80px -20px rgb(0 0 0 / .95), 0 2px 8px rgb(0 0 0 / .35), inset 0 1px 0 rgb(255 255 255 / .05);
+    --tx-glow-accent: 0 0 0 1px rgb(91 156 255 / .25), 0 0 10px -3px rgb(91 156 255 / .5);
+    --tx-font-sans: "Inter Variable", Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    --tx-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+    --tx-radius-sm: 6px;
+    --tx-radius-md: 8px;
+    --tx-radius-lg: 12px;
+    --tx-radius-xl: 16px;
+    --tx-ease: cubic-bezier(.22, 1, .36, 1);
+    --tx-text-body: 13px;
+    --tx-text-sub: 12px;
+    --tx-text-label: 10px;
+    --tx-text-title: 14px;
+    --tx-text-page: 22px;
+}
+
+@media (max-width: 639px) {
+    :root { --tx-text-body: 15px; --tx-text-sub: 13.5px; --tx-text-label: 12px; --tx-text-title: 16px; --tx-text-page: 24px; }
+}
+
+[hidden] { display: none !important; }
+
+/* ---------- 按钮：主按钮白底黑字，次按钮透明 + 1px 白 10% 边框 ---------- */
+.tx-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    height: 32px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--tx-radius-md);
+    font: 500 var(--tx-text-body)/1.2 var(--tx-font-sans); letter-spacing: -.01em; white-space: nowrap;
+    cursor: pointer; user-select: none;
+    transition: background-color .15s var(--tx-ease), border-color .15s var(--tx-ease), color .15s var(--tx-ease), transform .15s var(--tx-ease), opacity .15s;
+}
+.tx-btn:active { transform: scale(.98); }
+.tx-btn:disabled { opacity: .5; pointer-events: none; }
+.tx-btn:focus-visible { outline: 2px solid rgb(91 156 255 / .5); outline-offset: 2px; }
+.tx-btn-primary { color: var(--tx-bg); background: var(--tx-fg); box-shadow: var(--tx-shadow-primary); }
+.tx-btn-primary:hover { background: rgb(247 248 248 / .9); }
+.tx-btn-secondary { color: var(--tx-fg-2); background: transparent; border-color: var(--tx-wash-5); }
+.tx-btn-secondary:hover { color: var(--tx-fg); border-color: var(--tx-wash-6); background: var(--tx-wash-3); }
+.tx-btn-ghost { color: var(--tx-fg-3); background: transparent; }
+.tx-btn-ghost:hover { color: var(--tx-fg); background: var(--tx-wash-3); }
+.tx-btn-danger { color: var(--tx-err); background: rgb(242 85 90 / .1); border-color: rgb(242 85 90 / .25); }
+.tx-btn-danger:hover { background: rgb(242 85 90 / .15); border-color: rgb(242 85 90 / .4); }
+
+/* ---------- 输入框 ---------- */
+.tx-field {
+    width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--tx-line); border-radius: var(--tx-radius-md);
+    color: var(--tx-fg); background: var(--tx-field); box-shadow: var(--tx-shadow-field);
+    font: var(--tx-text-body)/1.4 var(--tx-font-sans); outline: none;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+.tx-field::placeholder { color: var(--tx-fg-4); }
+.tx-field:focus { border-color: rgb(91 156 255 / .6); box-shadow: 0 0 0 3px rgb(91 156 255 / .15); }
+
+/* ---------- 复选框（不使用系统样式） ---------- */
+.tx-check, input[type="checkbox"].tx-check {
+    appearance: none; -webkit-appearance: none; flex: 0 0 auto;
+    width: 16px; height: 16px; margin: 0; display: inline-grid; place-items: center;
+    border: 1px solid var(--tx-wash-6); border-radius: 4px; background: var(--tx-field); cursor: pointer;
+    transition: background-color .15s, border-color .15s;
+}
+.tx-check::after { content: ""; width: 8px; height: 4px; margin-top: -2px; border: solid var(--tx-bg); border-width: 0 0 2px 2px; transform: rotate(-45deg) scale(0); transition: transform .15s var(--tx-ease); }
+.tx-check:checked { background: var(--tx-fg); border-color: var(--tx-fg); }
+.tx-check:checked::after { transform: rotate(-45deg) scale(1); }
+.tx-check:focus-visible { outline: 2px solid rgb(91 156 255 / .5); outline-offset: 2px; }
+
+/* ---------- 滑块（Slider：细轨 + 渐变光 + 白色拇指） ---------- */
+.tx-slider { appearance: none; -webkit-appearance: none; width: 100%; height: 20px; margin: 0; background: transparent; cursor: pointer; --tx-fill: 50%; }
+.tx-slider:focus { outline: none; }
+.tx-slider::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 999px; box-shadow: var(--tx-shadow-field);
+    background: linear-gradient(90deg, var(--tx-accent), var(--tx-accent-2)) 0 / var(--tx-fill) 100% no-repeat, var(--tx-wash-5);
+}
+.tx-slider::-moz-range-track { height: 4px; border-radius: 999px; background: var(--tx-wash-5); }
+.tx-slider::-moz-range-progress { height: 4px; border-radius: 999px; background: linear-gradient(90deg, var(--tx-accent), var(--tx-accent-2)); box-shadow: 0 0 6px var(--tx-accent); }
+.tx-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border: 0; border-radius: 50%;
+    background: var(--tx-fg); box-shadow: 0 0 0 3px rgb(91 156 255 / .18), 0 1px 3px rgb(0 0 0 / .6); transition: transform .15s var(--tx-ease);
+}
+.tx-slider::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--tx-fg); box-shadow: 0 0 0 3px rgb(91 156 255 / .18); }
+.tx-slider:hover::-webkit-slider-thumb, .tx-slider:focus-visible::-webkit-slider-thumb { transform: scale(1.12); }
+
+/* ---------- 等宽小标签 ---------- */
+.tx-eyebrow { color: var(--tx-fg-4); font: 500 var(--tx-text-label)/1.25 var(--tx-font-mono); letter-spacing: .12em; text-transform: uppercase; }
+
+/* ---------- 徽标 ---------- */
+.tx-badge {
+    display: inline-flex; align-items: center; gap: 5px; width: fit-content; padding: 0 7px; border: 1px solid var(--tx-line);
+    border-radius: 999px; color: var(--tx-fg-2); background: var(--tx-wash-2); font: 500 11px/18px var(--tx-font-sans); white-space: nowrap;
+}
+.tx-badge-ok { color: var(--tx-ok); background: rgb(62 207 142 / .1); border-color: rgb(62 207 142 / .2); }
+.tx-badge-err { color: var(--tx-err); background: rgb(242 85 90 / .1); border-color: rgb(242 85 90 / .2); }
+.tx-badge-accent { color: var(--tx-accent); background: rgb(91 156 255 / .1); border-color: rgb(91 156 255 / .2); }
+
+/* ---------- 浮层（Select 列表、Tooltip、Toast、Dialog 共用） ---------- */
+@keyframes tx-pop-in { from { opacity: 0; transform: scale(.96) translateY(-2px); } to { opacity: 1; transform: none; } }
+@keyframes tx-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tx-sheet-in { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes tx-toast-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+
+.tx-select { position: relative; display: block; min-width: 0; }
+.tx-select-trigger {
+    width: 100%; height: 32px; padding: 0 10px; display: flex; align-items: center; gap: 8px;
+    border: 1px solid var(--tx-line); border-radius: var(--tx-radius-md); color: var(--tx-fg); background: var(--tx-field);
+    box-shadow: var(--tx-shadow-field); font: var(--tx-text-body)/1.4 var(--tx-font-sans); text-align: left; cursor: pointer;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+.tx-select-trigger:hover { border-color: var(--tx-line-strong); }
+.tx-select-trigger:focus-visible, .tx-select-trigger[aria-expanded="true"] { outline: none; border-color: rgb(91 156 255 / .6); box-shadow: 0 0 0 3px rgb(91 156 255 / .15); }
+.tx-select-trigger:disabled { opacity: .5; cursor: not-allowed; }
+.tx-select-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx-select-value.placeholder { color: var(--tx-fg-4); }
+.tx-select-chevron { width: 14px; height: 14px; flex: 0 0 14px; color: var(--tx-fg-3); transition: transform .16s var(--tx-ease); }
+.tx-select-trigger[aria-expanded="true"] .tx-select-chevron { transform: rotate(180deg); }
+
+.tx-popover {
+    position: fixed; z-index: 2000; min-width: 160px; max-height: min(320px, calc(100vh - 24px)); padding: 4px; overflow: auto;
+    border: 1px solid var(--tx-line-strong); border-radius: var(--tx-radius-lg); color: var(--tx-fg);
+    background: var(--tx-surface-2); box-shadow: var(--tx-shadow-overlay);
+    animation: tx-pop-in .16s var(--tx-ease) both; transform-origin: top left;
+}
+.tx-option {
+    display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px; border-radius: var(--tx-radius-sm);
+    color: var(--tx-fg-2); font: var(--tx-text-body)/1.4 var(--tx-font-sans); cursor: pointer; user-select: none;
+}
+.tx-option span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx-option[data-highlighted] { color: var(--tx-fg); background: var(--tx-active); }
+.tx-option[aria-selected="true"] { color: var(--tx-fg); }
+.tx-option svg { width: 14px; height: 14px; color: var(--tx-accent); visibility: hidden; }
+.tx-option[aria-selected="true"] svg { visibility: visible; }
+.tx-option[aria-disabled="true"] { opacity: .45; pointer-events: none; }
+
+.tx-sheet-backdrop { position: fixed; inset: 0; z-index: 1999; background: var(--tx-overlay); backdrop-filter: blur(4px); animation: tx-overlay-in .16s var(--tx-ease) both; }
+.tx-popover.tx-sheet {
+    left: 0 !important; right: 0; top: auto !important; bottom: 0; width: 100% !important; max-height: 70vh; padding: 8px 8px calc(12px + env(safe-area-inset-bottom));
+    border-radius: var(--tx-radius-xl) var(--tx-radius-xl) 0 0; animation: tx-sheet-in .22s var(--tx-ease) both;
+}
+.tx-sheet .tx-option { min-height: 44px; font-size: 15px; }
+.tx-sheet-title { padding: 6px 8px 10px; color: var(--tx-fg-3); font: 500 12px/1.25 var(--tx-font-mono); letter-spacing: .12em; text-transform: uppercase; }
+
+.tx-tooltip {
+    position: fixed; z-index: 2100; max-width: 260px; padding: 5px 8px; pointer-events: none;
+    border: 1px solid var(--tx-line-strong); border-radius: 6px; color: var(--tx-fg); background: var(--tx-surface-3);
+    box-shadow: var(--tx-shadow-overlay); font: 12px/1.45 var(--tx-font-sans); animation: tx-pop-in .14s var(--tx-ease) both;
+}
+
+.tx-toaster { position: fixed; right: 16px; bottom: 16px; z-index: 2200; display: grid; gap: 8px; width: min(360px, calc(100vw - 32px)); pointer-events: none; }
+.tx-toast {
+    display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; pointer-events: auto;
+    border: 1px solid var(--tx-line-strong); border-radius: var(--tx-radius-lg); color: var(--tx-fg); background: var(--tx-surface-2);
+    box-shadow: var(--tx-shadow-overlay); font: var(--tx-text-body)/1.5 var(--tx-font-sans); animation: tx-toast-in .2s var(--tx-ease) both;
+}
+.tx-toast::before { content: ""; flex: 0 0 7px; width: 7px; height: 7px; margin-top: 6px; border-radius: 50%; background: var(--tx-accent); box-shadow: 0 0 8px var(--tx-accent); }
+.tx-toast.ok::before { background: var(--tx-ok); box-shadow: 0 0 8px var(--tx-ok); }
+.tx-toast.err::before { background: var(--tx-err); box-shadow: 0 0 8px var(--tx-err); }
+.tx-toast.leaving { opacity: 0; transform: translateY(6px); transition: opacity .14s, transform .14s; }
+
+.tx-dialog {
+    width: min(400px, calc(100vw - 28px)); padding: 20px; border: 1px solid var(--tx-line-strong); border-radius: var(--tx-radius-lg);
+    color: var(--tx-fg); background: var(--tx-surface-2); box-shadow: var(--tx-shadow-overlay); font: var(--tx-text-body)/1.5 var(--tx-font-sans);
+}
+.tx-dialog[open] { animation: tx-pop-in .16s var(--tx-ease) both; }
+.tx-dialog::backdrop { background: var(--tx-overlay); backdrop-filter: blur(4px); }
+.tx-dialog h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+.tx-dialog p { margin: 6px 0; color: var(--tx-fg-3); }
+.tx-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+/* ---------- 滚动条 ---------- */
+.tx-scroll, .tx-scroll * { scrollbar-width: thin; scrollbar-color: var(--tx-wash-5) transparent; }
+.tx-scroll ::-webkit-scrollbar { width: 8px; height: 8px; }
+.tx-scroll ::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: var(--tx-wash-5) padding-box; }
+.tx-scroll ::-webkit-scrollbar-track { background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+    .tx-popover, .tx-tooltip, .tx-toast, .tx-dialog[open], .tx-sheet-backdrop { animation: none !important; }
+}

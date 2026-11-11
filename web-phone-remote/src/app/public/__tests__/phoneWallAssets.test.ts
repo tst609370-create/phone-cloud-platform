@@ -59,4 +59,22 @@ describe('phone wall snapshot controls', () => {
         const source = publicFile('phones.js');
         expect(source).toContain('requestedSize > 1600 ? 8000000 : requestedSize > 1080 ? 4000000 : 2000000');
     });
+
+    it('uses Tianxi UI controls instead of native widgets', () => {
+        const html = publicFile('index.html');
+        const admin = publicFile('admin.html');
+        const phones = publicFile('phones.js');
+        const tianxi = publicFile('tianxi.js');
+        // tianxi.js must load before phones.js so TX.toast exists when phones.js runs
+        expect(html.indexOf('tianxi.js')).toBeGreaterThan(-1);
+        expect(html.indexOf('tianxi.js')).toBeLessThan(html.indexOf('phones.js'));
+        expect(html).toContain('tianxi.css');
+        for (const page of [html, admin]) {
+            for (const select of page.match(/<select\b[^>]*>/g) || []) expect(select).toContain('data-tx-select');
+        }
+        expect(phones).not.toMatch(/\balert\(/);
+        expect(admin).not.toMatch(/(?<![.\w])confirm\(/);
+        expect(admin).toContain('window.TX.enhance(');
+        expect(tianxi).toContain('window.TX = { toast, confirm: confirmDialog');
+    });
 });

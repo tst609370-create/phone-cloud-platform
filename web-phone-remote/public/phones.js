@@ -44,6 +44,16 @@
         document.getElementById('refresh-page').hidden = false;
     }
 
+    // Tianxi UI：提示用 Toast（tianxi.js），图标用 lucide 线稿
+    const notify = (text, tone = 'info') => (window.TX ? window.TX.toast(text, tone) : console.warn(text));
+    const svgIcon = (path) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+    const CARD_ICONS = {
+        upload: svgIcon('<path d="M12 5v14M5 12h14"/>'),
+        reconnect: svgIcon('<path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/>'),
+        fullscreen: svgIcon('<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/>'),
+        close: svgIcon('<path d="M18 6 6 18M6 6l12 12"/>'),
+    };
+
     const chineseDeviceNames = {
         HD1925: '一加 7T Pro 迈凯伦',
         'Pixel 8': '谷歌 Pixel 8',
@@ -216,16 +226,21 @@
             ['browser-mic', '当前手机的浏览器麦克风。点一下关闭后不会自动再开。和听手机播放的声音不是一回事。', '开麦克风'],
             ['hear', '听这部手机正在播放的声音。不需要 root，也不是麦克风注入。再点一次停止。', '听声音'],
             ['tools', '展开功能', '功能'],
-            ['upload', '安装 APP 或导入图片', '＋'],
-            ['reconnect', '重新连接', '↻'],
-            ['fullscreen', '全屏', '⛶'],
-            ['close', '关闭', '×'],
+            ['upload', '安装 APP 或导入图片', CARD_ICONS.upload],
+            ['reconnect', '重新连接', CARD_ICONS.reconnect],
+            ['fullscreen', '全屏', CARD_ICONS.fullscreen],
+            ['close', '关闭', CARD_ICONS.close],
         ]) {
             const button = document.createElement('button');
             button.type = 'button';
             button.dataset.action = action;
             button.title = label;
-            button.textContent = icon;
+            if (icon.startsWith('<svg')) {
+                button.innerHTML = icon;
+                button.setAttribute('aria-label', label);
+            } else {
+                button.textContent = icon;
+            }
             actions.appendChild(button);
         }
         header.append(number, title, state, rentalBadge, syncControls, actions);
@@ -342,7 +357,8 @@
             note.type = 'button';
             note.className = 'device-note';
             note.title = '设置备注';
-            note.textContent = '✎';
+            note.innerHTML = svgIcon('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>');
+            note.setAttribute('aria-label', '设置备注');
             note.addEventListener('click', () => {
                 const current = localStorage.getItem(`phone-device-note:${device.serial}`) || '';
                 const input = document.createElement('input');
@@ -1102,7 +1118,7 @@
             const { awake } = await response.json();
             await setDeviceScreenPower(card, !awake);
         } catch (error) {
-            alert(error instanceof Error ? error.message : '锁屏/解锁失败');
+            notify(error instanceof Error ? error.message : '锁屏/解锁失败', 'err');
         } finally {
             button.disabled = false;
         }
@@ -1111,7 +1127,7 @@
     async function setAllScreenPower(on) {
         const results = await Promise.allSettled(cards.map((card) => setDeviceScreenPower(card, on)));
         const failed = results.filter((result) => result.status === 'rejected');
-        if (failed.length) alert(`${failed.length} 台手机${on ? '唤醒' : '熄屏'}失败，请检查 USB 连接。`);
+        if (failed.length) notify(`${failed.length} 台手机${on ? '唤醒' : '熄屏'}失败，请检查 USB 连接。`, 'err');
     }
 
     function captureLastFrame(card) {
@@ -1393,12 +1409,12 @@
         appPackage.value = '';
         if (!file) return;
         if (!/\.apk$/i.test(file.name)) {
-            alert('请选择 APK 安装包。');
+            notify('请选择 APK 安装包。', 'err');
             return;
         }
         const card = activeCard();
         if (!card) {
-            alert('当前没有可用的云机。');
+            notify('当前没有可用的云机。', 'err');
             return;
         }
         void uploadFiles(card, [file]);
