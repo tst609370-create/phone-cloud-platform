@@ -523,8 +523,20 @@
         return {
             bitrate: adaptiveRemote && !active ? 1000000 : activeBitrate,
             maxFps: adaptiveRemote && !active ? Math.min(15, requestedFps) : requestedFps,
-            maxSize: requestedSize,
+            maxSize: displayMaxSize(card, requestedSize),
         };
+    }
+
+    // A small card that receives a 1600/2400 stream is downscaled by the
+    // browser 3-4x, which aliases text and looks blurry. Ask the phone for
+    // the smallest standard size that still covers the card in device
+    // pixels; the quality option stays the upper bound.
+    function displayMaxSize(card, requestedSize) {
+        const frame = card.querySelector('iframe');
+        const longSide = Math.max(frame?.clientWidth || 0, frame?.clientHeight || 0) * (window.devicePixelRatio || 1);
+        if (!longSide) return requestedSize;
+        const step = [1080, 1600, 2400].find((size) => size >= longSide * 1.15) || 2400;
+        return Math.min(requestedSize, step);
     }
 
     function streamUrl(card) {
@@ -532,7 +544,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20260823f',
+                ui: '20261111u',
             });
             return `snapshot.html?${params}`;
         }
@@ -545,7 +557,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261106c',
+            ui: '20261111u',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         return `embed.html?${params}`;
@@ -699,7 +711,13 @@
         const maxVideoWidth = Math.max(1, maxWidth - toolbarWidth - border);
         const maxVideoHeight = Math.max(1, Math.min(maxWidth * 1.82 - headerHeight - footerHeight - border, innerHeight - 60 - headerHeight - footerHeight - border));
         const ratio = canvas.width / canvas.height;
-        const videoWidth = Math.min(maxVideoWidth, maxVideoHeight * ratio);
+        // The card cannot be narrower than its CSS min-width (header buttons).
+        // When the height cap would make the video narrower than that, grow
+        // the height instead of leaving bars beside the picture.
+        const minVideoWidth = Math.max(1, (parseFloat(getComputedStyle(card).minWidth) || 0) - toolbarWidth - border);
+        const viewportVideoHeight = Math.max(1, innerHeight - 60 - headerHeight - footerHeight - border);
+        let videoWidth = Math.min(maxVideoWidth, maxVideoHeight * ratio);
+        if (videoWidth < minVideoWidth) videoWidth = Math.min(minVideoWidth, viewportVideoHeight * ratio);
         const videoHeight = videoWidth / ratio;
         card.style.width = `${Math.ceil(videoWidth + toolbarWidth + border)}px`;
         card.style.height = `${Math.ceil(videoHeight + headerHeight + footerHeight + border)}px`;
@@ -1272,7 +1290,7 @@
         const fallbackWidth = Math.min(420, Math.max(360, Number(tileSize.value) + 60));
         const height = Math.min(fallbackWidth * 1.82, Math.max(420, grid.clientHeight - 76));
         const cardWidth = (card) => card._videoAspect
-            ? Math.min(480, Math.max(260, Math.round((height - 72) * card._videoAspect) + 2))
+            ? Math.min(480, Math.max(260, Math.round((height - 96) * card._videoAspect) + 2))
             : fallbackWidth;
         const step = Math.min(cardWidth(openCards[center]) * .82, Math.max(170, grid.clientWidth / 5.2));
         openCards.forEach((card, index) => {
