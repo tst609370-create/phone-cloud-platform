@@ -523,20 +523,8 @@
         return {
             bitrate: adaptiveRemote && !active ? 1000000 : activeBitrate,
             maxFps: adaptiveRemote && !active ? Math.min(15, requestedFps) : requestedFps,
-            maxSize: displayMaxSize(card, requestedSize),
+            maxSize: requestedSize,
         };
-    }
-
-    // A small card that receives a 1600/2400 stream is downscaled by the
-    // browser 3-4x, which aliases text and looks blurry. Ask the phone for
-    // the smallest standard size that still covers the card in device
-    // pixels; the quality option stays the upper bound.
-    function displayMaxSize(card, requestedSize) {
-        const frame = card.querySelector('iframe');
-        const longSide = Math.max(frame?.clientWidth || 0, frame?.clientHeight || 0) * (window.devicePixelRatio || 1);
-        if (!longSide) return requestedSize;
-        const step = [1080, 1600, 2400].find((size) => size >= longSide * 1.15) || 2400;
-        return Math.min(requestedSize, step);
     }
 
     function streamUrl(card) {
@@ -544,11 +532,12 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261111u',
+                ui: '20261111v',
             });
             return `snapshot.html?${params}`;
         }
         const profile = videoProfile(card);
+        card._connectedProfile = profile;
         const params = new URLSearchParams({
             device: card.dataset.device,
             deviceKind: card.dataset.deviceKind || 'phone',
@@ -557,7 +546,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261111u',
+            ui: '20261111v',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         return `embed.html?${params}`;
@@ -683,9 +672,18 @@
             const status = frame.contentDocument?.getElementById('status');
             if (!status || (!status.classList.contains('hidden') && !/^connected|^已连接/i.test(status.textContent))) return;
         } catch { return; }
-        const message = streamMode === 'snapshot'
-            ? { type: 'phone-frame-profile', intervalMs: 0 }
-            : { type: 'phone-stream-profile', ...videoProfile(card) };
+        if (streamMode !== 'snapshot') {
+            // scrcpy 4.1 drops live video-setting changes (control type 101),
+            // so a card that connected as a throttled background stream keeps
+            // 1 Mbps/15 fps forever. Reconnect once when it needs more.
+            const want = videoProfile(card);
+            const have = card._connectedProfile;
+            if (have && (want.bitrate > have.bitrate || want.maxFps > have.maxFps || want.maxSize > have.maxSize)) {
+                connect(card, true);
+            }
+            return;
+        }
+        const message = { type: 'phone-frame-profile', intervalMs: 0 };
         const signature = JSON.stringify(message);
         if (card.dataset.streamProfile === signature) return;
         frame.contentWindow?.postMessage(message, location.origin);
@@ -721,6 +719,15 @@
         const videoHeight = videoWidth / ratio;
         card.style.width = `${Math.ceil(videoWidth + toolbarWidth + border)}px`;
         card.style.height = `${Math.ceil(videoHeight + headerHeight + footerHeight + border)}px`;
+    }
+
+    function logStreamInfo(card, canvas) {
+        if (streamMode === 'snapshot' || !canvas?.width || !card._connectedProfile) return;
+        const { bitrate, maxFps } = card._connectedProfile;
+        const info = `实际画面 ${canvas.width}×${canvas.height} · ${(bitrate / 1000000).toFixed(bitrate % 1000000 ? 1 : 0)} Mbps · ${maxFps} 帧`;
+        if (card._streamInfo === info) return;
+        card._streamInfo = info;
+        logOperation(card, info);
     }
 
     function fitStreamToFrame(card, doc, canvas) {
@@ -858,7 +865,10 @@
                 if (layoutMode === 'carousel') layoutCarousel();
                 else if (autoArrange || needsInitialLayout) scheduleTile();
             }
-            if (status.classList.contains('hidden') || /^connected\b/i.test(status.textContent)) setState(card, 'connected', '已连接');
+            if (status.classList.contains('hidden') || /^connected\b/i.test(status.textContent)) {
+                setState(card, 'connected', '已连接');
+                logStreamInfo(card, canvas);
+            }
             else if (/error|disconnected/i.test(status.textContent)) {
                 const detail = status.textContent.replace(/\s+/g, ' ').trim().slice(0, 96);
                 setState(card, 'error', detail || '连接失败');
@@ -1166,6 +1176,7 @@
         card.dataset.streaming = '1';
         delete card.dataset.streamProfile;
         card._videoAspect = 0;
+        card._streamInfo = '';
         if (layoutMode !== 'carousel') {
             card.style.width = '';
             card.style.height = '';

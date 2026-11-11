@@ -60,6 +60,15 @@ describe('phone wall snapshot controls', () => {
         expect(source).toContain('requestedSize > 1600 ? 8000000 : requestedSize > 1080 ? 4000000 : 2000000');
     });
 
+    it('streams at the chosen quality and reconnects to upgrade (scrcpy 4.1 ignores live settings)', () => {
+        const source = publicFile('phones.js');
+        expect(source).toContain('maxSize: requestedSize,');
+        expect(source).not.toContain('displayMaxSize');
+        const apply = source.slice(source.indexOf('function applyStreamProfile'), source.indexOf('function setState'));
+        expect(apply).toContain('connect(card, true)');
+        expect(apply).not.toContain("type: 'phone-stream-profile'");
+    });
+
     it('uses Tianxi UI controls instead of native widgets', () => {
         const html = publicFile('index.html');
         const admin = publicFile('admin.html');
