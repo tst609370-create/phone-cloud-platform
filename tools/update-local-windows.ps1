@@ -79,10 +79,11 @@ for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
         $ok = $page.Content -match 'login-assets/globe.js'
     } catch {}
 }
-Step '把本机控制台快捷方式换成独立窗口（Edge/Chrome 应用模式）'
-$browser = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
-    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe", "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
-    "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe") | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+Step '把本机控制台快捷方式换成独立窗口（Chrome/Edge 应用模式）'
+# 先 Chrome 后 Edge：保存的登录信息一般在平时用的浏览器里
+$browser = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+    "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe",
+    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe", "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe") | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 if ($browser) {
     $shell = New-Object -ComObject WScript.Shell
     $dirs = @([Environment]::GetFolderPath('Desktop'), (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\手机远控'))

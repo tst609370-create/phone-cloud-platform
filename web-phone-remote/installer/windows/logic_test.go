@@ -211,7 +211,7 @@ func indexOf(s, sub string) int {
 	return -1
 }
 
-func TestFindAppBrowserPrefersEdgeThenChrome(t *testing.T) {
+func TestFindAppBrowserPrefersChromeThenEdge(t *testing.T) {
 	env := func(key string) string {
 		return map[string]string{"ProgramFiles(x86)": `C:\PF86`, "ProgramFiles": `C:\PF`, "LOCALAPPDATA": `C:\U\AppData\Local`}[key]
 	}
@@ -225,10 +225,13 @@ func TestFindAppBrowserPrefersEdgeThenChrome(t *testing.T) {
 			return false
 		}
 	}
-	if got := findAppBrowser(env, only(`C:\PF\Google\Chrome\Application\chrome.exe`, `C:\PF86\Microsoft\Edge\Application\msedge.exe`)); got != `C:\PF86\Microsoft\Edge\Application\msedge.exe` {
+	if got := findAppBrowser(env, only(`C:\PF\Google\Chrome\Application\chrome.exe`, `C:\PF86\Microsoft\Edge\Application\msedge.exe`)); got != `C:\PF\Google\Chrome\Application\chrome.exe` {
 		t.Fatal(got)
 	}
 	if got := findAppBrowser(env, only(`C:\U\AppData\Local\Google\Chrome\Application\chrome.exe`)); got != `C:\U\AppData\Local\Google\Chrome\Application\chrome.exe` {
+		t.Fatal(got)
+	}
+	if got := findAppBrowser(env, only(`C:\PF86\Microsoft\Edge\Application\msedge.exe`)); got != `C:\PF86\Microsoft\Edge\Application\msedge.exe` {
 		t.Fatal(got)
 	}
 	if got := findAppBrowser(env, only()); got != "" {

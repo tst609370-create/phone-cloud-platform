@@ -329,16 +329,16 @@ func internetShortcut(url string) string {
 // --app window shortcut (no address bar or tabs) when a browser is found.
 var appWindowShortcuts = []string{"打开本机控制台", "管理后台"}
 
-// findAppBrowser returns the first installed Edge or Chrome, or "" if none.
+// findAppBrowser returns the installed Chrome, else Edge, or "" if none.
 func findAppBrowser(env func(string) string, exists func(string) bool) string {
+	// Chrome first: saved logins usually live in the browser people already use.
 	var candidates []string
-	for _, base := range []string{env("ProgramFiles(x86)"), env("ProgramFiles"), env("LOCALAPPDATA")} {
-		if base == "" {
-			continue
+	for _, app := range []string{`\Google\Chrome\Application\chrome.exe`, `\Microsoft\Edge\Application\msedge.exe`} {
+		for _, base := range []string{env("ProgramFiles"), env("ProgramFiles(x86)"), env("LOCALAPPDATA")} {
+			if base != "" {
+				candidates = append(candidates, base+app)
+			}
 		}
-		candidates = append(candidates,
-			base+`\Microsoft\Edge\Application\msedge.exe`,
-			base+`\Google\Chrome\Application\chrome.exe`)
 	}
 	for _, path := range candidates {
 		if exists(path) {
