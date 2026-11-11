@@ -13,6 +13,7 @@
 | `tools/xiaomi-router-proxy.mjs` | 小米路由器代理辅助脚本 | Node |
 | `tools/update-local-windows.ps1` | 把 Windows 本机已装的手机远控（%LOCALAPPDATA%\PhoneRemote）更新到 main：下载源码 → 构建 → 备份并替换 app\dist → 重启任务 PhoneRemote-Node → 桌面/开始菜单控制台快捷方式换成 Chrome/Edge `--app` 独立窗口（优先 Chrome） | PowerShell |
 | `tools/setup-relay-server.sh` | 新服务器一键装 frps 公网中转（root 执行）：BBR、frps TCP/KCP/QUIC、systemd、ufw、随机令牌、测速 | bash |
+| `tools/switch-relay-windows.ps1` | 把本机 frpc 切到新 frps（交互输入令牌，先 QUIC 后 TCP，失败自动恢复旧配置） | PowerShell |
 | `tools/deskflow/` | Deskflow 键鼠共享配置（Win 服务端 / Mac 客户端） | conf |
 | `web-phone-remote/` | **主体**。上游 [ws-scrcpy-web](https://github.com/bilbospocketses/ws-scrcpy-web)（GPL-3.0）+ 本仓库定制：租用/登录鉴权、APK 库、快照墙、虚拟麦克风、Windows 一键安装包、邀请注册服务 | TS/Rust/Go/Java |
 
