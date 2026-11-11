@@ -96,8 +96,9 @@
     transition: background-color .15s, border-color .15s;
 }
 .tx-check::after { content: ""; width: 8px; height: 4px; margin-top: -2px; border: solid var(--tx-bg); border-width: 0 0 2px 2px; transform: rotate(-45deg) scale(0); transition: transform .15s var(--tx-ease); }
-.tx-check:checked { background: var(--tx-fg); border-color: var(--tx-fg); }
-.tx-check:checked::after { transform: rotate(-45deg) scale(1); }
+/* 必须和上面的 input[type="checkbox"].tx-check 同等特异性，否则勾上后底色仍是深色、对勾看不见 */
+.tx-check:checked, input[type="checkbox"].tx-check:checked { background: var(--tx-fg); border-color: var(--tx-fg); }
+.tx-check:checked::after, input[type="checkbox"].tx-check:checked::after { transform: rotate(-45deg) scale(1); }
 .tx-check:focus-visible { outline: 2px solid rgb(91 156 255 / .5); outline-offset: 2px; }
 
 /* ---------- 滑块（Slider：细轨 + 渐变光 + 白色拇指） ---------- */
