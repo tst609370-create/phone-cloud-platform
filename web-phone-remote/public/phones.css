@@ -95,8 +95,12 @@ button, select { transition: color .16s ease, background-color .16s ease, border
 .card-actions { margin-left: auto; display: flex; gap: 2px; }
 .card-actions button { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; color: #4d82c8; background: transparent; font-size: 13px; cursor: pointer; }
 .card-actions button:hover { background: #e9f3ff; }
-.card-actions button[data-action="tools"] { width: auto; padding: 0 5px; font-size: 11px; }
-.card-actions button[data-action="tools"].active { color: #fff; background: #358ef4; }
+.card-actions button[data-action="tools"],
+.card-actions button[data-action="hear"],
+.card-actions button[data-action="browser-mic"] { width: auto; padding: 0 5px; font-size: 11px; }
+.card-actions button[data-action="tools"].active,
+.card-actions button[data-action="hear"].active,
+.card-actions button[data-action="browser-mic"].active { color: #fff; background: #358ef4; }
 .sync-controls { display: flex; align-items: center; gap: 2px; margin-left: auto; font-size: 10px; }
 .sync-controls label { display: flex; align-items: center; cursor: pointer; }
 .sync-controls input { position: absolute; opacity: 0; pointer-events: none; }

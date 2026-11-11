@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     audioCaptureSupported,
+    playbackAudioBlockReason,
     audioDupSupported,
     audioEnabledDefault,
     defaultAudioSourceForSdk,
@@ -23,6 +24,18 @@ describe('audioEnabledDefault', () => {
 
     it('returns true when device kind is unknown', () => {
         expect(audioEnabledDefault(undefined)).toBe(true);
+    });
+});
+
+describe('playbackAudioBlockReason', () => {
+    it('names the Android version when playback audio cannot start', () => {
+        expect(playbackAudioBlockReason(29)).toContain('低于 11');
+        expect(playbackAudioBlockReason(29)).toContain('29');
+    });
+
+    it('does not block Android 11 or an unknown SDK', () => {
+        expect(playbackAudioBlockReason(30)).toBeUndefined();
+        expect(playbackAudioBlockReason(0)).toBeUndefined();
     });
 });
 

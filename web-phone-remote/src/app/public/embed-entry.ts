@@ -111,7 +111,17 @@ function bootstrap(): void {
     }
 
     options.onConnect = (info) => {
-        show(`connected \u00b7 ${info.codec} \u00b7 ${info.resolution}`);
+        if (info.audio === 'pending') {
+            show(`connected \u00b7 ${info.codec} \u00b7 ${info.resolution} \u00b7 正在打开播放声`);
+            return;
+        }
+        const failed = info.audio === 'disabled' || info.audio === 'error';
+        if (failed && info.audioReason) {
+            show(info.audioReason, true);
+            return;
+        }
+        const audio = info.audio && info.audio !== 'disabled' ? ` \u00b7 audio ${info.audio}` : '';
+        show(`connected \u00b7 ${info.codec} \u00b7 ${info.resolution}${audio}`);
         setTimeout(hide, 2000);
     };
     options.onDisconnect = (reason) => show(`disconnected${reason ? ` (${reason})` : ''}`, true);

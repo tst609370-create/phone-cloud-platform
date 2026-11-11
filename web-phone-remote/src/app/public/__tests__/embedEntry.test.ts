@@ -28,6 +28,10 @@ describe('parseEmbedParams', () => {
         expect(options.maxFps).toBe(30);
     });
 
+    it('leaves audio unset so the server can use its default', () => {
+        expect(parse('device=x').options.audio).toBeUndefined();
+    });
+
     it('parses boolean params', () => {
         const { options } = parse('device=x&secure=true&audio=false&keyboard=true');
         expect(options.secure).toBe(true);

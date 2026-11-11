@@ -18,6 +18,17 @@ describe('phone wall snapshot controls', () => {
         expect(source).toContain("if (streamMode === 'snapshot')");
         expect(source).toContain('frameRect.left - cardRect.left + canvasRect.left');
         expect(source).toContain('frameRect.top - cardRect.top + canvasRect.top');
+        expect(source).toContain("frame.allow = 'autoplay; microphone; clipboard-read; clipboard-write; fullscreen'");
+        expect(source).toContain("params.set('audio', card.dataset.hear === '1' ? 'true' : 'false')");
+        expect(source).toContain('听声音');
+        expect(source).toContain('不需要 root');
+        // 只要求带缓存号，不写死具体版本，改版时不用同步改测试
+        expect(publicFile('index.html')).toMatch(/phones\.js\?v=\d{8}\w*/);
+        expect(publicFile('index.html')).toMatch(/browserMicPolicy\.js\?v=\d{8}\w*/);
+        expect(source).toContain('开麦克风');
+        expect(source).toContain("type: 'user-off'");
+        expect(source).toContain('这不是手机未就绪');
+        expect(source).toContain('抽帧没有手机播放声音');
     });
 
     it('shows the shared APK library and installs into the active phone', () => {

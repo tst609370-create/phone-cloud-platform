@@ -54,6 +54,9 @@ export interface MicFrame {
 
 export type MicRouteName = 'lsposed' | 'shell';
 
+/** Shown when another live controller already holds this phone's inject slot. */
+export const MIC_BUSY_REASON = '这台手机的麦克风正被另一个控制端使用';
+
 export interface MicCapability {
     supported: boolean;
     routes: MicRouteName[];

@@ -213,6 +213,8 @@
         const actions = document.createElement('span');
         actions.className = 'card-actions';
         for (const [action, label, icon] of [
+            ['browser-mic', '当前手机的浏览器麦克风。点一下关闭后不会自动再开。和听手机播放的声音不是一回事。', '开麦克风'],
+            ['hear', '听这部手机正在播放的声音。不需要 root，也不是麦克风注入。再点一次停止。', '听声音'],
             ['tools', '展开功能', '功能'],
             ['upload', '安装 APP 或导入图片', '＋'],
             ['reconnect', '重新连接', '↻'],
@@ -230,7 +232,7 @@
 
         const frame = document.createElement('iframe');
         frame.title = `${name} 控制窗口`;
-        frame.allow = 'clipboard-read; clipboard-write; fullscreen';
+        frame.allow = 'autoplay; microphone; clipboard-read; clipboard-write; fullscreen';
         frame.src = 'about:blank';
         const nativeInput = document.createElement('div');
         nativeInput.className = 'native-input-layer';
@@ -279,6 +281,8 @@
         void refreshScreenLockButton(card);
         restorePosition(card, index);
         enableDragging(card);
+        card.querySelector('[data-action="browser-mic"]').addEventListener('click', () => toggleBrowserMic(card));
+        card.querySelector('[data-action="hear"]').addEventListener('click', () => toggleHear(card));
         card.querySelector('[data-action="tools"]').addEventListener('click', () => {
             const open = card.classList.toggle('tools-open');
             card.querySelector('[data-action="tools"]').classList.toggle('active', open);
@@ -286,14 +290,14 @@
             alignNativeInputLayer(card, card._nativeCanvas);
         });
         card.querySelector('[data-action="upload"]').addEventListener('click', () => fileInput.click());
-        card.querySelector('[data-action="reconnect"]').addEventListener('click', () => activate(card, true));
+        card.querySelector('[data-action="reconnect"]').addEventListener('click', () => activate(card, true, true));
         card.querySelector('[data-action="fullscreen"]').addEventListener('click', () => expand(card));
         card.querySelector('[data-action="close"]').addEventListener('click', () => close(card));
         master.addEventListener('change', () => master.checked && setMaster(card));
         follower.addEventListener('change', () => {
             localStorage.setItem(`phone-sync-target:${device.serial}`, follower.checked ? '1' : '0');
         });
-        resume.addEventListener('click', () => activate(card));
+        resume.addEventListener('click', () => activate(card, false, true));
         fileInput.addEventListener('change', () => {
             if (fileInput.files?.length) void uploadFiles(card, [...fileInput.files]);
             fileInput.value = '';
@@ -303,7 +307,7 @@
         }
         card.addEventListener('click', () => {
             if (Date.now() < carouselSuppressClickUntil) return;
-            if (layoutMode === 'carousel' && !card.classList.contains('carousel-active')) activate(card);
+            if (layoutMode === 'carousel' && !card.classList.contains('carousel-active')) activate(card, false, true);
         });
         return card;
     }
@@ -524,11 +528,124 @@
             bitrate: String(profile.bitrate),
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
-            audio: 'false',
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20260822x',
+            ui: '20261106c',
         });
+        params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         return `embed.html?${params}`;
+    }
+
+    function paintHear(card) {
+        const button = card.querySelector('[data-action="hear"]');
+        if (!button) return;
+        const on = card.dataset.hear === '1';
+        button.textContent = on ? '停止' : '听声音';
+        button.classList.toggle('active', on);
+        button.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+
+    let browserMic = PhoneBrowserMic.initialBrowserMic();
+    try {
+        const saved = JSON.parse(localStorage.getItem('phone-browser-mic-off') || '[]');
+        if (Array.isArray(saved)) browserMic.paused = saved.filter((item) => typeof item === 'string');
+    } catch { /* ignore a broken preference */ }
+
+    function saveBrowserMic() {
+        localStorage.setItem('phone-browser-mic-off', JSON.stringify(browserMic.paused));
+    }
+
+    function paintBrowserMic(card) {
+        const button = card.querySelector('[data-action="browser-mic"]');
+        if (!button) return;
+        const serial = card.dataset.device;
+        const paused = browserMic.paused.includes(serial);
+        const mine = browserMic.active === serial || browserMic.owner === serial;
+        let label = '开麦克风';
+        if (paused || (mine && browserMic.phase === 'closed-by-user')) label = '麦克风关';
+        else if (mine && browserMic.phase === 'requesting') label = '正在请求';
+        else if (mine && browserMic.phase === 'capturing') label = '采集中';
+        else if (mine && browserMic.phase === 'denied') label = '允许麦克风';
+        button.textContent = label;
+        button.classList.toggle('active', label === '采集中');
+        button.title = label === '采集中'
+            ? '浏览器正在采集麦克风。手机能否注入看功能菜单里的状态，不代表微信有声。点此关闭，关闭后不会自动再开。'
+            : label === '允许麦克风'
+                ? '浏览器还没有允许麦克风。点此再请求一次。这不是手机未就绪。'
+                : label === '麦克风关'
+                    ? '浏览器麦克风已关闭，不会自动重新打开。'
+                    : '点此为当前手机打开浏览器麦克风。需要浏览器自己的许可。';
+    }
+
+    function postBrowserMic(serial, action, persist) {
+        const card = cards.find((item) => item.dataset.device === serial);
+        card?.querySelector('iframe')?.contentWindow?.postMessage(
+            { type: 'phone-browser-mic', action, persist: persist === true },
+            location.origin,
+        );
+    }
+
+    function applyBrowserMic(event) {
+        const previousOwner = browserMic.owner;
+        const effect = PhoneBrowserMic.reduceBrowserMic(browserMic, event);
+        browserMic = effect.state;
+        saveBrowserMic();
+        if (effect.stop && previousOwner) postBrowserMic(previousOwner, 'stop', event.type === 'user-off');
+        cards.forEach(paintBrowserMic);
+        if (effect.start) void primeBrowserMic(effect.start);
+    }
+
+    function primeBrowserMic(serial) {
+        const card = cards.find((item) => item.dataset.device === serial);
+        const media = navigator.mediaDevices;
+        if (!media?.getUserMedia) {
+            applyBrowserMic({ type: 'denied' });
+            if (card) logOperation(card, '这个浏览器不能采集麦克风');
+            return;
+        }
+        media.getUserMedia({ audio: { channelCount: 1 }, video: false }).then((stream) => {
+            stream.getTracks().forEach((track) => track.stop());
+            if (browserMic.owner !== serial || browserMic.phase !== 'requesting') return;
+            applyBrowserMic({ type: 'granted' });
+            postBrowserMic(serial, 'start', false);
+            if (card) logOperation(card, '浏览器麦克风已允许。手机注入是否就绪另行显示，不代表微信有声。');
+        }).catch((err) => {
+            if (browserMic.owner !== serial || browserMic.phase !== 'requesting') return;
+            applyBrowserMic({ type: 'denied' });
+            if (!card) return;
+            const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+            logOperation(card, denied
+                ? '浏览器没有允许麦克风。点允许麦克风再试。这不是手机未就绪。'
+                : '浏览器麦克风没有打开。');
+        });
+    }
+
+    function toggleBrowserMic(card) {
+        const serial = card.dataset.device;
+        const capturing = browserMic.owner === serial && browserMic.phase === 'capturing';
+        applyBrowserMic(capturing ? { type: 'user-off', serial } : { type: 'user-on', serial });
+    }
+
+    function toggleHear(card) {
+        if (streamMode === 'snapshot') {
+            logOperation(card, '抽帧没有手机播放声音');
+            return;
+        }
+        const enable = card.dataset.hear !== '1';
+        if (enable) {
+            for (const other of cards) {
+                if (other === card || other.dataset.hear !== '1') continue;
+                delete other.dataset.hear;
+                paintHear(other);
+                if (other.dataset.streaming === '1') connect(other, true);
+            }
+            card.dataset.hear = '1';
+        } else {
+            delete card.dataset.hear;
+        }
+        paintHear(card);
+        logOperation(card, enable ? '正在打开这部手机的播放声音' : '已停止听音');
+        if (card.dataset.streaming === '1') connect(card, true);
+        else activate(card);
     }
 
     function applyStreamProfile(card) {
@@ -877,7 +994,7 @@
         if (doc.__phoneSyncInstalled) return;
         doc.__phoneSyncInstalled = true;
         doc.addEventListener('pointerdown', () => {
-            if (card.dataset.device !== activeSerial) activate(card);
+            if (card.dataset.device !== activeSerial) activate(card, false, true);
         }, true);
         let operationGesture = null;
         let lastTap = null;
@@ -1028,6 +1145,9 @@
         clearFrameObservers(card);
         card.querySelector('iframe').src = 'about:blank';
         card.dataset.streaming = '0';
+        delete card.dataset.hear;
+        paintHear(card);
+        applyBrowserMic({ type: 'disconnect', serial: card.dataset.device });
         card.classList.add('closed');
         card.classList.remove('paused');
         setState(card, '', '已关闭');
@@ -1061,7 +1181,7 @@
         if (reconnect && changed) updateStreamingMode(true);
     }
 
-    function activate(card, force = false) {
+    function activate(card, force = false, gesture = false) {
         if (card.classList.contains('closed')) card.classList.remove('closed');
         const previousSerial = activeSerial;
         activeSerial = card.dataset.device;
@@ -1074,6 +1194,7 @@
         } else {
             connect(card, force);
         }
+        applyBrowserMic({ type: 'activate', serial: card.dataset.device, gesture: gesture === true });
         if (layoutMode === 'carousel') layoutCarousel();
     }
 
@@ -1337,7 +1458,7 @@
         const card = cards.find((item) => item.dataset.device === mobilePicker.value);
         if (card) {
             if (syncEnabled) setMaster(card);
-            activate(card);
+            activate(card, false, true);
         }
     });
     tileSize.addEventListener('input', () => {

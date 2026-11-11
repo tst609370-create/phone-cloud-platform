@@ -208,13 +208,80 @@ func ownedByInstall(root, exe string) bool {
 	return exeLower == rootLower || strings.HasPrefix(exeLower, rootLower+sep)
 }
 
-func elevatedParameters(action string) (string, error) {
+func currentTaskUser(domain, user string) (string, error) {
+	domain = strings.TrimSpace(domain)
+	user = strings.TrimSpace(user)
+	if user == "" {
+		return "", fmt.Errorf("找不到当前登录用户")
+	}
+	full := user
+	if domain != "" && !strings.EqualFold(domain, user) {
+		full = domain + `\` + user
+	}
+	if err := validateTaskUser(full); err != nil {
+		return "", err
+	}
+	return full, nil
+}
+
+func validateTaskUser(user string) error {
+	if strings.TrimSpace(user) == "" || len(user) > 200 {
+		return fmt.Errorf("登录用户名无效")
+	}
+	if strings.ContainsAny(user, "\"'`$&|<>;\r\n\t%") {
+		return fmt.Errorf("登录用户名包含不能用于计划任务的字符")
+	}
+	return nil
+}
+
+func elevatedParameters(action, taskUser string) (string, error) {
+	if err := validateTaskUser(taskUser); err != nil {
+		return "", err
+	}
 	switch action {
 	case "install", "uninstall", "stop":
-		return "--elevated --" + action, nil
 	default:
 		return "", fmt.Errorf("未知操作")
 	}
+	return fmt.Sprintf("--elevated --%s --task-user \"%s\"", action, taskUser), nil
+}
+
+func formatTaskFailure(name string, exitCode int, output string) string {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		output = "（计划任务程序没有输出文本）"
+	}
+	return fmt.Sprintf("注册开机登录启动“%s”失败，退出码 %d。%s", name, exitCode, output)
+}
+
+func logonTaskScript() string {
+	return `$ErrorActionPreference = 'Stop'
+$user = $env:PHONE_REMOTE_TASK_USER
+$name = $env:PHONE_REMOTE_TASK_NAME
+$taskArgs = $env:PHONE_REMOTE_TASK_ARGS
+if (-not $user -or -not $name -or -not $taskArgs) { throw 'missing task fields' }
+$svc = New-Object -ComObject Schedule.Service
+$svc.Connect()
+$folder = $svc.GetFolder('\')
+try { $folder.DeleteTask($name, 0) } catch {}
+$task = $svc.NewTask(0)
+$task.Principal.UserId = $user
+$task.Principal.LogonType = 3
+$task.Principal.RunLevel = 0
+$trigger = $task.Triggers.Create(9)
+$trigger.UserId = $user
+$action = $task.Actions.Create(0)
+$action.Path = 'wscript.exe'
+$action.Arguments = $taskArgs
+$null = $folder.RegisterTaskDefinition($name, $task, 6, $null, $null, 3)
+`
+}
+
+func taskArguments(vbsPath string) (string, error) {
+	if vbsPath == "" || strings.ContainsAny(vbsPath, "\"\r\n") {
+		return "", fmt.Errorf("启动脚本路径无效")
+	}
+	return `//B //Nologo "` + vbsPath + `"`, nil
 }
 
 func localPage(port int) string {
@@ -242,8 +309,8 @@ func needsConfirm(action string) bool {
 	return action == "stop" || action == "uninstall"
 }
 
-func handoffLine(action string) (string, error) {
-	params, err := elevatedParameters(action)
+func handoffLine(action, taskUser string) (string, error) {
+	params, err := elevatedParameters(action, taskUser)
 	if err != nil {
 		return "", err
 	}
