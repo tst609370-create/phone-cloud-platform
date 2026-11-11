@@ -4,6 +4,7 @@
     const quality = document.getElementById('quality');
     const fps = document.getElementById('fps');
     const tileSize = document.getElementById('tile-size');
+    const UI_VERSION = '1112v';
     const sizeValue = document.getElementById('size-value');
     const backdrop = document.getElementById('viewer-backdrop');
     const grid = document.getElementById('phone-grid');
@@ -490,7 +491,7 @@
             ensureActiveSelection();
             renderDeviceNav(devices);
             applyRentalBadges();
-            document.getElementById('device-count').textContent = `${devices.length} 台设备`;
+            document.getElementById('device-count').textContent = `${devices.length} 台设备 · 版本 ${UI_VERSION}`;
             if (autoArrange || needsInitialLayout) scheduleTile();
         } catch (error) {
             console.error('刷新设备失败', error);
@@ -525,7 +526,19 @@
         const videoWidth = Math.min(boxWidth, boxHeight * aspect);
         const longSide = Math.max(videoWidth, videoWidth / aspect) * dpr;
         const size = AUTO_SIZE_STEPS.find((step) => step >= longSide) || AUTO_SIZE_STEPS[AUTO_SIZE_STEPS.length - 1];
-        return Math.min(size, autoCap(card.dataset.device));
+        return Math.min(size, autoLimit(card.dataset.device));
+    }
+
+    // 「自动」先用最低档出画面，确认这台手机在某档能正常出画后才允许再升一档；
+    // 升上去黑屏就退回并封顶。这样新手机/新电脑第一次打开也不会黑。
+    function autoVerified(serial) {
+        try { return Number(localStorage.getItem(`phone-auto-ok:${serial}`)) || 0; } catch { return 0; }
+    }
+
+    function autoLimit(serial) {
+        const verified = autoVerified(serial);
+        const next = AUTO_SIZE_STEPS.find((step) => step > verified) || AUTO_SIZE_STEPS[AUTO_SIZE_STEPS.length - 1];
+        return Math.min(autoCap(serial), next);
     }
 
     // 有的手机（一加/ColorOS 等）在较大分辨率下编码出全黑画面。播放器发现黑屏或
@@ -539,7 +552,15 @@
 
     function onVideoHealth(card, state) {
         const have = card._connectedProfile;
-        if (quality.value !== 'auto' || !have || card.dataset.streaming !== '1') return;
+        if (!have || card.dataset.streaming !== '1') return;
+        if (state === 'ok') {
+            if (have.maxSize > autoVerified(card.dataset.device)) {
+                try { localStorage.setItem(`phone-auto-ok:${card.dataset.device}`, String(have.maxSize)); } catch { /* per-session only */ }
+                if (quality.value === 'auto') applyStreamProfile(card);
+            }
+            return;
+        }
+        if (quality.value !== 'auto') return;
         const lower = [...AUTO_SIZE_STEPS].reverse().find((step) => step < have.maxSize);
         if (!lower) return;
         try { localStorage.setItem(`phone-auto-cap:${card.dataset.device}`, String(lower)); } catch { /* per-session only */ }
@@ -566,7 +587,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261112u',
+                ui: '20261112v',
             });
             return `snapshot.html?${params}`;
         }
@@ -580,7 +601,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261112u',
+            ui: '20261112v',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         // http:// public addresses have no WebCodecs audio decoder; ask the

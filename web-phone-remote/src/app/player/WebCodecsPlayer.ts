@@ -163,7 +163,7 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
     }
 
     /** Tell the embedding page (phones.js) the picture is missing so 「自动」 can step down. */
-    private reportHealth(state: 'black' | 'none'): void {
+    private reportHealth(state: 'black' | 'none' | 'ok'): void {
         if (this.healthReported === 'ok' && state === 'black') return;
         if (this.healthReported === state) return;
         this.healthReported = state;
@@ -198,7 +198,7 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
             for (let i = 0; i < data.length && max <= 16; i += 4) max = Math.max(max, data[i]!, data[i + 1]!, data[i + 2]!);
             if (max > 16) {
                 // Real picture seen: stop probing (only the start of a stream matters).
-                this.healthReported = 'ok';
+                this.reportHealth('ok');
                 return;
             }
             if (!this.blackSince) this.blackSince = now;
