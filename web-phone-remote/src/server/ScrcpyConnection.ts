@@ -5,15 +5,16 @@ import type WS from 'ws';
 import { ACTION } from '../common/Action';
 import { ChannelId } from '../common/ChannelId';
 import { DEVICE_SERVER_PATH, SERVER_PACKAGE } from '../common/Constants';
-import { AUDIO_DISABLED, AUDIO_ERROR, codecName } from '../common/ScrcpyCodec';
+import { playbackAudioBlockReason } from '../common/AudioDefaults';
 import { AdbClient } from './AdbClient';
 import { Config } from './Config';
 import { ensureScrcpyServerPushed } from './ensureScrcpyServerPushed';
-import { FrameReader } from './FrameReader';
+import { pipeScrcpySockets } from './scrcpyMedia';
 import { ControlCenter } from './goog-device/services/ControlCenter';
 import { Logger } from './Logger';
 import { Mw, type RequestParameters } from './mw/Mw';
 import { type ScrcpyOptions, serializeOptions } from './ScrcpyOptions';
+import { acceptScrcpy41Control } from './scrcpy41';
 import { scrcpyOptionsFromQuery } from './scrcpyOptionsFromQuery';
 import { getInstalledScrcpyServerVersion } from './scrcpyServerVersion';
 
@@ -32,23 +33,17 @@ function installedVersion(): string {
     return getInstalledScrcpyServerVersion(Config.getInstance().dependenciesPath);
 }
 
-interface SessionMetadata {
-    deviceName: string;
-    videoCodec: string;
-    screenWidth: number;
-    screenHeight: number;
-    audioCodec: string;
-    videoEncoder?: string;
-}
 
 export class ScrcpyConnection extends Mw {
+    /** Flags on the browser websocket. The demuxer still reads config at bit 63. */
+    private static readonly PTS_FLAG_CONFIG = 0x8000000000000000n;
+    private static readonly PTS_FLAG_KEYFRAME = 0x4000000000000000n;
+
     private adbClient = new AdbClient(Config.getInstance().adbPath);
     private tcpServer?: net.Server;
     private videoSocket?: net.Socket;
     private audioSocket?: net.Socket;
     private controlSocket?: net.Socket;
-    private videoReader?: FrameReader;
-    private audioReader?: FrameReader;
     private reverseTunnel?: string;
     private forwardTunnel?: string;
     private serverProcess?: import('child_process').ChildProcess;
@@ -112,7 +107,9 @@ export class ScrcpyConnection extends Mw {
         //    user's opt-in to "keep device audio" can't be honored — force off
         //    rather than surprise them with silence.
         //  (Default source is `output`, which works on every audio-capable SDK.)
-        if (sdkInt > 0 && sdkInt < 30) {
+        const requestedAudio = options.audio !== false;
+        const audioBlock = requestedAudio ? playbackAudioBlockReason(sdkInt) : undefined;
+        if (audioBlock) {
             options.audio = false;
         } else if (sdkInt > 0 && sdkInt < 33 && options.audioSource === 'playback') {
             options.audio = false;
@@ -139,19 +136,39 @@ export class ScrcpyConnection extends Mw {
         this.audioSocket = sockets[1]!;
         this.controlSocket = sockets[2]!;
 
-        // 3. Parse initial metadata
-        log.info(`Parsing stream metadata for ${this.serial}`);
-        const metadata = await this.parseMetadata();
-        if (options.videoEncoder) {
-            metadata.videoEncoder = options.videoEncoder;
-        }
-        log.info(`Session ready: ${metadata.deviceName} ${metadata.screenWidth}x${metadata.screenHeight}`);
-
-        // 4. Send metadata to browser
-        this.sendChannel(ChannelId.METADATA, Buffer.from(JSON.stringify(metadata)));
-
-        // 5. Start forwarding
-        this.startForwarding();
+        log.info(`Reading video before audio for ${this.serial}`);
+        await pipeScrcpySockets(
+            this.videoSocket,
+            this.audioSocket,
+            this.controlSocket,
+            requestedAudio,
+            audioBlock,
+            {
+                onMetadata: (meta) => {
+                    if (options.videoEncoder) meta.videoEncoder = options.videoEncoder;
+                    this.sendChannel(ChannelId.METADATA, Buffer.from(JSON.stringify(meta)));
+                },
+                onVideoFrame: (frame) => {
+                    let pts = frame.pts;
+                    if (frame.type === 'config') pts |= ScrcpyConnection.PTS_FLAG_CONFIG;
+                    else if (frame.type === 'keyframe') pts |= ScrcpyConnection.PTS_FLAG_KEYFRAME;
+                    const header = Buffer.alloc(12);
+                    header.writeBigUInt64BE(pts, 0);
+                    header.writeUInt32BE(frame.data.length, 8);
+                    this.sendChannel(ChannelId.VIDEO, Buffer.concat([header, frame.data]));
+                },
+                onAudioFrame: (frame) => {
+                    let pts = frame.pts;
+                    if (frame.type === 'config') pts |= ScrcpyConnection.PTS_FLAG_CONFIG;
+                    const header = Buffer.alloc(12);
+                    header.writeBigUInt64BE(pts, 0);
+                    header.writeUInt32BE(frame.data.length, 8);
+                    this.sendChannel(ChannelId.AUDIO, Buffer.concat([header, frame.data]));
+                },
+                onControl: (data) => this.sendChannel(ChannelId.DEVICE_MSG, data),
+                onVideoEnd: () => this.release(),
+            },
+        );
     }
 
     private async getSdkInt(): Promise<number> {
@@ -373,122 +390,6 @@ export class ScrcpyConnection extends Mw {
         });
     }
 
-    private async parseMetadata(): Promise<SessionMetadata> {
-        // Video socket (scrcpy v4+):
-        //   @0-63:  device name (64 bytes, null-padded UTF-8) — unchanged from v3
-        //   @64-67: video codec ID (4 bytes BE) — unchanged from v3
-        //   @68-79: SESSION PACKET (12 bytes, NEW in v4) — replaces v3's bare
-        //                                                    width+height fields
-        //     @68-71: flags — MSB = session-packet flag (must be set,
-        //                     = 0x80000000); LSB of @71 = "client resized" flag
-        //                     (0 on initial capture)
-        //     @72-75: video width (4 bytes BE)
-        //     @76-79: video height (4 bytes BE)
-        //   @80+:   media packets (each with 12-byte header — see FrameReader)
-        //
-        // Pre-v4 layout was 76 bytes: device(64) + codec(4) + width(4) + height(4)
-        // with no session-packet wrapper. v4 added the session-packet wrapper
-        // AND shifted all media-packet flag bits down by one position to make
-        // room for the new session-packet flag at MSB (see FrameReader for the
-        // matching media-packet header constant updates).
-        // Source: scrcpy v4.0 Streamer.java PACKET_FLAG_SESSION = 1L << 63.
-        const videoMeta = await this.readExact(this.videoSocket!, 80);
-        const deviceNameBytes = videoMeta.subarray(0, 64);
-        const nullIdx = deviceNameBytes.indexOf(0);
-        const deviceName = deviceNameBytes.subarray(0, nullIdx === -1 ? 64 : nullIdx).toString('utf-8');
-        const videoCodecId = videoMeta.readUInt32BE(64);
-        const sessionFlags = videoMeta.readUInt32BE(68);
-        if ((sessionFlags & 0x80000000) === 0) {
-            // Sanity: session-packet flag MSB must be set. If not, scrcpy-server
-            // sent an unexpected layout — either too-old scrcpy (pre-v4) or a
-            // future-protocol-change. Surface clearly rather than silently using
-            // bogus dimensions.
-            throw new Error(
-                `scrcpy stream metadata: expected session-packet flag MSB at offset 68, got 0x${sessionFlags.toString(16).padStart(8, '0')}`,
-            );
-        }
-        const screenWidth = videoMeta.readUInt32BE(72);
-        const screenHeight = videoMeta.readUInt32BE(76);
-
-        // Audio socket: 4 bytes codec ID or status
-        const audioMeta = await this.readExact(this.audioSocket!, 4);
-        const audioCodecId = audioMeta.readUInt32BE(0);
-
-        let audioCodec: string;
-        if (audioCodecId === AUDIO_DISABLED) {
-            audioCodec = 'disabled';
-        } else if (audioCodecId === AUDIO_ERROR) {
-            audioCodec = 'error';
-        } else {
-            audioCodec = codecName(audioCodecId);
-        }
-
-        return {
-            deviceName,
-            videoCodec: codecName(videoCodecId),
-            screenWidth,
-            screenHeight,
-            audioCodec,
-        };
-    }
-
-    private readExact(socket: net.Socket, size: number): Promise<Buffer> {
-        return new Promise((resolve, reject) => {
-            let buffer = Buffer.alloc(0);
-            const onData = (chunk: Buffer) => {
-                buffer = Buffer.concat([buffer, chunk]);
-                if (buffer.length >= size) {
-                    socket.removeListener('data', onData);
-                    socket.removeListener('error', onError);
-                    // Put back any extra bytes
-                    if (buffer.length > size) {
-                        socket.unshift(buffer.subarray(size));
-                    }
-                    resolve(buffer.subarray(0, size));
-                }
-            };
-            const onError = (err: Error) => {
-                socket.removeListener('data', onData);
-                reject(err);
-            };
-            socket.on('data', onData);
-            socket.once('error', onError);
-        });
-    }
-
-    private static readonly PTS_FLAG_CONFIG = 0x8000000000000000n;
-    private static readonly PTS_FLAG_KEYFRAME = 0x4000000000000000n;
-
-    private startForwarding(): void {
-        // Video: TCP → channel 0 → WS
-        this.videoReader = new FrameReader(this.videoSocket!);
-        this.videoReader.onFrame((frame) => {
-            let pts = frame.pts;
-            if (frame.type === 'config') pts |= ScrcpyConnection.PTS_FLAG_CONFIG;
-            else if (frame.type === 'keyframe') pts |= ScrcpyConnection.PTS_FLAG_KEYFRAME;
-            const header = Buffer.alloc(12);
-            header.writeBigUInt64BE(pts, 0);
-            header.writeUInt32BE(frame.data.length, 8);
-            this.sendChannel(ChannelId.VIDEO, Buffer.concat([header, frame.data]));
-        });
-        this.videoReader.onEnd(() => this.release());
-
-        // Audio: TCP → channel 1 → WS
-        this.audioReader = new FrameReader(this.audioSocket!);
-        this.audioReader.onFrame((frame) => {
-            let pts = frame.pts;
-            if (frame.type === 'config') pts |= ScrcpyConnection.PTS_FLAG_CONFIG;
-            const header = Buffer.alloc(12);
-            header.writeBigUInt64BE(pts, 0);
-            header.writeUInt32BE(frame.data.length, 8);
-            this.sendChannel(ChannelId.AUDIO, Buffer.concat([header, frame.data]));
-        });
-
-        // Control socket: device messages → channel 3 → WS
-        this.controlSocket!.on('data', (data: Buffer) => {
-            this.sendChannel(ChannelId.DEVICE_MSG, data);
-        });
-    }
 
     private sendChannel(channel: ChannelId, payload: Buffer): void {
         if (this.ws.readyState !== this.ws.OPEN) return;
@@ -506,6 +407,10 @@ export class ScrcpyConnection extends Mw {
             const channel = data[0];
             const payload = data.subarray(1);
             if (channel === ChannelId.CONTROL && this.controlSocket && !this.controlSocket.destroyed) {
+                if (!acceptScrcpy41Control(payload)) {
+                    log.info(`ignored control type ${payload[0]} because scrcpy 4.1 would close the control channel`);
+                    return;
+                }
                 this.controlSocket.write(payload);
             }
         }
@@ -516,8 +421,6 @@ export class ScrcpyConnection extends Mw {
         this.released = true;
         log.info(`Releasing session for ${this.serial}`);
 
-        this.videoReader?.destroy();
-        this.audioReader?.destroy();
         this.videoSocket?.destroy();
         this.audioSocket?.destroy();
         this.controlSocket?.destroy();

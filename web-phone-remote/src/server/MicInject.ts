@@ -1,10 +1,11 @@
 import type WS from 'ws';
 import { ACTION } from '../common/Action';
-import type { MicStatus } from '../common/micProtocol';
+import { MIC_BUSY_REASON, type MicStatus } from '../common/micProtocol';
 import { AdbClient } from './AdbClient';
 import { Config } from './Config';
 import { Logger } from './Logger';
 import { type MicAdb, openLsposedMic, openShellMic, probeDeviceMic } from './mic/deviceBridge';
+import { claimMicOwner } from './mic/owner';
 import { resolveVirtualMicJar } from './mic/route';
 import { MicTalkSession } from './mic/session';
 import { Mw, type RequestParameters } from './mw/Mw';
@@ -12,8 +13,6 @@ import { isValidSerial } from './security/deviceInput';
 
 const log = Logger.for('MicInject');
 const MAX_PCM_BYTES = 64 * 1024;
-const BUSY_REASON = '这台手机的麦克风正被另一个控制端使用';
-const heldSerials = new Set<string>();
 
 /**
  * Browser microphone → device microphone.
@@ -23,7 +22,7 @@ const heldSerials = new Set<string>();
  */
 export class MicInject extends Mw {
     private readonly session: MicTalkSession;
-    private readonly releaseSerial: () => void;
+    private releaseOwner: (() => void) | undefined;
 
     public static override processRequest(ws: WS, params: RequestParameters): MicInject | undefined {
         if (params.action !== ACTION.MIC_INJECT) return undefined;
@@ -35,16 +34,19 @@ export class MicInject extends Mw {
         return new MicInject(ws, udid);
     }
 
-    private constructor(ws: WS, serial: string) {
+    private constructor(ws: WS, private readonly serial: string) {
         super(ws);
-        const release = tryHoldSerial(serial);
-        this.releaseSerial = release ?? (() => undefined);
         const adb = new AdbClient(Config.getInstance().adbPath);
         this.session = new MicTalkSession(serial, {
-            probe: () =>
-                release ? probeDeviceMic(adb, serial, resolveVirtualMicJar()) : Promise.reject(new Error(BUSY_REASON)),
-            open: (route) => (release ? openRoute(adb, serial, route) : Promise.reject(new Error(BUSY_REASON))),
-            onStatus: (status) => this.sendStatus(status),
+            probe: () => probeDeviceMic(adb, serial, resolveVirtualMicJar()),
+            open: (route) => openRoute(adb, serial, route),
+            onStatus: (status) => {
+                if (this.releaseOwner && !status.supported) {
+                    this.releaseOwner();
+                    this.releaseOwner = undefined;
+                }
+                this.sendStatus(status);
+            },
         });
         void this.session.announce().catch((err) => {
             log.warn(`announce failed for ${serial}: ${err instanceof Error ? err.message : err}`);
@@ -62,7 +64,8 @@ export class MicInject extends Mw {
     }
 
     protected override onSocketClose(): void {
-        this.releaseSerial();
+        this.releaseOwner?.();
+        this.releaseOwner = undefined;
         void this.session.close();
         super.onSocketClose();
     }
@@ -77,6 +80,14 @@ export class MicInject extends Mw {
         if (!msg || typeof msg !== 'object') return;
         const type = (msg as { type?: unknown }).type;
         if (type === 'start') {
+            if (!this.releaseOwner) {
+                const release = claimMicOwner(this.serial, () => this.ws.readyState === this.ws.OPEN);
+                if (!release) {
+                    this.sendStatus(busyStatus());
+                    return;
+                }
+                this.releaseOwner = release;
+            }
             void this.session.begin();
             return;
         }
@@ -98,14 +109,17 @@ export class MicInject extends Mw {
     }
 }
 
-function tryHoldSerial(serial: string): (() => void) | undefined {
-    if (heldSerials.has(serial)) return undefined;
-    heldSerials.add(serial);
-    let released = false;
-    return () => {
-        if (released) return;
-        released = true;
-        heldSerials.delete(serial);
+function busyStatus(): MicStatus {
+    return {
+        type: 'status',
+        supported: false,
+        route: 'none',
+        routes: [],
+        reason: MIC_BUSY_REASON,
+        active: false,
+        rooted: false,
+        bridgeInstalled: false,
+        sdkInt: 0,
     };
 }
 

@@ -13,6 +13,7 @@ export interface SessionMetadata {
     screenWidth: number;
     screenHeight: number;
     audioCodec: string;
+    audioReason?: string;
     videoEncoder?: string;
 }
 
