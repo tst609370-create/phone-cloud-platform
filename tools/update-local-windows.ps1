@@ -68,6 +68,34 @@ Move-Item (Join-Path $appDir 'dist') $backup  # 若提示文件被占用，说�
 Copy-Item $newDist (Join-Path $appDir 'dist') -Recurse
 Write-Host "旧版本备份在：$backup"
 
+Step '公网中转（frpc）断线自愈'
+# 旧安装的 frpc 首次登录失败会直接退出且没人拉起，公网入口要等重启电脑才恢复。
+# 这里给配置加 loginFailExit = false，给启动脚本加退出后 10 秒重启的循环。没装 frpc 的跳过。
+$frpcToml = Join-Path $root 'frp\frpc.toml'
+$frpcCmd = Join-Path $root 'run-frpc.cmd'
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+$frpcChanged = $false
+if ((Test-Path $frpcToml) -and (Test-Path $frpcCmd)) {
+    $t = [IO.File]::ReadAllText($frpcToml)
+    if ($t -notmatch '(?m)^\s*loginFailExit\s*=') {
+        $t = [regex]::Replace($t, '(?m)^(serverPort\s*=[^\r\n]*)', "`$1`nloginFailExit = false")
+        [IO.File]::WriteAllText($frpcToml, $t, $utf8); $frpcChanged = $true
+    }
+    $c = [IO.File]::ReadAllText($frpcCmd)
+    if ($c -notmatch '(?m)^:loop') {
+        $c = [regex]::Replace($c, '(?m)^("[^\r\n]*frpc\.exe"[^\r\n]*)', ":loop`r`n`$1`r`nping -n 11 127.0.0.1 >nul`r`ngoto loop")
+        [IO.File]::WriteAllText($frpcCmd, $c, $utf8); $frpcChanged = $true
+    }
+    if ($frpcChanged) {
+        $ErrorActionPreference = 'Continue'
+        schtasks /End /TN 'PhoneRemote-Frpc' 2>&1 | Out-Null
+        Get-CimInstance Win32_Process -Filter "Name='frpc.exe'" | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -like "$root*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+        schtasks /Run /TN 'PhoneRemote-Frpc' 2>&1 | Out-Null
+        $ErrorActionPreference = 'Stop'
+        Write-Host '已更新 frpc：登录失败会自动重试，进程退出 10 秒后自动重启。'
+    } else { Write-Host 'frpc 已是自愈配置。' }
+} else { Write-Host '本机没装 frpc 公网中转，跳过。' }
+
 Step '重新启动'
 schtasks /Run /TN 'PhoneRemote-Node' | Out-Null
 $port = [regex]::Match($text, 'set "PORT=(\d+)"').Groups[1].Value

@@ -39,10 +39,23 @@ function exclusive(fn) {
     return run;
 }
 
+// Every request is a few hundred bytes of JSON. This endpoint is public via
+// Caddy, so an unbounded body would let anyone make the service buffer
+// arbitrary amounts of memory.
+export const MAX_BODY_BYTES = 16 * 1024;
+
 function readBody(req) {
     return new Promise((resolve, reject) => {
         const chunks = [];
-        req.on('data', (chunk) => chunks.push(chunk));
+        let size = 0;
+        req.on('data', (chunk) => {
+            size += chunk.length;
+            if (size > MAX_BODY_BYTES) {
+                if (size - chunk.length <= MAX_BODY_BYTES) reject(Object.assign(new Error('body too large'), { status: 413 }));
+                return;
+            }
+            chunks.push(chunk);
+        });
         req.on('end', () => {
             try {
                 resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'));
@@ -126,7 +139,13 @@ const server = createServer(async (req, res) => {
             return;
         }
         send(res, 404, { error: 'not found' });
-    } catch {
+    } catch (err) {
+        if (err?.status === 413) {
+            res.setHeader('connection', 'close');
+            res.on('finish', () => req.destroy());
+            send(res, 413, { error: 'too large' });
+            return;
+        }
         send(res, 400, { error: 'bad request' });
     }
 });

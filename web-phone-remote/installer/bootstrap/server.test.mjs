@@ -17,6 +17,18 @@ test('routes ignore query strings', () => {
 });
 
 describe('registration http', { concurrency: false }, () => {
+test('oversized bodies are refused without buffering them', async () => {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+    const res = await fetch(`http://127.0.0.1:${port}/v1/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ invite: 'x'.repeat(64 * 1024) }),
+    });
+    assert.equal(res.status, 413);
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+});
 test('healthz and plugin query do not 404, and empty register is not 503', async () => {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     const { port } = server.address();

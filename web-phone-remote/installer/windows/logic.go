@@ -125,8 +125,12 @@ func renderFrpcToml(b Bootstrap, deviceID string, localPort int) (string, error)
 	if len(name) > 48 {
 		name = name[:48]
 	}
+	// loginFailExit = false: frpc's default exits for good when the first
+	// login fails (network not up yet at logon, relay briefly unreachable),
+	// leaving the public entry dead until the next reboot.
 	return fmt.Sprintf(`serverAddr = "%s"
 serverPort = %d
+loginFailExit = false
 user = "%s"
 metadatas.deviceSecret = "%s"
 
@@ -137,6 +141,16 @@ localIP = "127.0.0.1"
 localPort = %d
 remotePort = %d
 `, b.ServerAddr, b.ServerPort, deviceID, b.DeviceSecret, name, localPort, b.RemotePort), nil
+}
+
+// frpcRunScript keeps frpc running: if it ever exits (crash, killed, bad
+// network at startup), wait ~10s and start it again. The logon task launches
+// this through a hidden vbs without waiting, so Task Scheduler cannot restart
+// it itself. ping is used for the delay because timeout.exe refuses to run
+// without an interactive console.
+func frpcRunScript(dir, exe, toml, logPath string) string {
+	return fmt.Sprintf("@echo off\r\ncd /d \"%s\"\r\n:loop\r\n\"%s\" -c \"%s\" >> \"%s\" 2>&1\r\nping -n 11 127.0.0.1 >nul\r\ngoto loop\r\n",
+		dir, exe, toml, logPath)
 }
 
 func mustJSON(b Bootstrap) []byte {

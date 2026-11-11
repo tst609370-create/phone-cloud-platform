@@ -30,6 +30,45 @@ export function renterDeviceActionAllowed(action: string): boolean {
     return RENTER_DEVICE_ACTIONS.includes(action);
 }
 
+/**
+ * Ping every client and drop the ones that stop answering. Without this a
+ * browser that loses its network (phone on 4G, laptop asleep) leaves a
+ * half-open TCP connection through the relay that the server only notices
+ * after the OS retransmit timeout (many minutes): the scrcpy session, its adb
+ * tunnel and the queued video stay alive the whole time. The ping traffic also
+ * keeps idle sockets (static screen, device list) from being cut by a tunnel's
+ * idle timeout.
+ */
+export const WS_HEARTBEAT_MS = 20_000;
+
+export function startHeartbeat(wss: WSServer, intervalMs = WS_HEARTBEAT_MS): () => void {
+    const alive = new WeakMap<WS, boolean>();
+    const track = (ws: WS) => {
+        alive.set(ws, true);
+        ws.on('pong', () => alive.set(ws, true));
+    };
+    wss.clients.forEach(track);
+    wss.on('connection', track);
+    const timer = setInterval(() => {
+        for (const ws of wss.clients) {
+            if (alive.get(ws) === false) {
+                ws.terminate();
+                continue;
+            }
+            alive.set(ws, false);
+            try {
+                ws.ping();
+            } catch {
+                ws.terminate();
+            }
+        }
+    }, intervalMs);
+    timer.unref?.();
+    const stop = () => clearInterval(timer);
+    wss.once('close', stop);
+    return stop;
+}
+
 export function wsSessionUserId(db: Db, cookieHeader: string | undefined): number | undefined {
     if (!isAuthEnabled(db)) return IMPLICIT_ADMIN_ID;
     const token = parseCookie(cookieHeader)[SESSION_COOKIE];
@@ -159,6 +198,7 @@ export class WebSocketServer implements Service {
             }
             return;
         });
+        startHeartbeat(wss);
         wss.on('close', () => {
             log.info('stopped');
         });

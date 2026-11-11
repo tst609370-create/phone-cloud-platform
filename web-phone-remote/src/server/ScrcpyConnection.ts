@@ -17,6 +17,7 @@ import { type ScrcpyOptions, serializeOptions } from './ScrcpyOptions';
 import { acceptScrcpy41Control } from './scrcpy41';
 import { scrcpyOptionsFromQuery } from './scrcpyOptionsFromQuery';
 import { getInstalledScrcpyServerVersion } from './scrcpyServerVersion';
+import { RESET_VIDEO_MESSAGE, VideoBackpressure } from './videoBackpressure';
 
 const log = Logger.for('ScrcpyConnection');
 
@@ -48,6 +49,7 @@ export class ScrcpyConnection extends Mw {
     private forwardTunnel?: string;
     private serverProcess?: import('child_process').ChildProcess;
     private released = false;
+    private readonly backpressure = new VideoBackpressure();
 
     public static override processRequest(ws: WS, params: RequestParameters): ScrcpyConnection | undefined {
         const { action, url } = params;
@@ -155,6 +157,14 @@ export class ScrcpyConnection extends Mw {
                     const header = Buffer.alloc(12);
                     header.writeBigUInt64BE(pts, 0);
                     header.writeUInt32BE(frame.data.length, 8);
+                    const kind = frame.type === 'config' ? 'config' : frame.type === 'keyframe' ? 'keyframe' : 'delta';
+                    const wasDropping = this.backpressure.isDropping;
+                    const decision = this.backpressure.video(kind, this.ws.bufferedAmount, Date.now());
+                    if (decision.requestKeyframe) this.requestKeyframe();
+                    if (!wasDropping && this.backpressure.isDropping) {
+                        log.info(`network behind for ${this.serial} (${this.ws.bufferedAmount} bytes queued); skipping frames until it catches up`);
+                    }
+                    if (!decision.send) return;
                     this.sendChannel(ChannelId.VIDEO, Buffer.concat([header, frame.data]));
                 },
                 onAudioFrame: (frame) => {
@@ -163,6 +173,7 @@ export class ScrcpyConnection extends Mw {
                     const header = Buffer.alloc(12);
                     header.writeBigUInt64BE(pts, 0);
                     header.writeUInt32BE(frame.data.length, 8);
+                    if (frame.type !== 'config' && !this.backpressure.audio(this.ws.bufferedAmount)) return;
                     this.sendChannel(ChannelId.AUDIO, Buffer.concat([header, frame.data]));
                 },
                 onControl: (data) => this.sendChannel(ChannelId.DEVICE_MSG, data),
@@ -390,6 +401,10 @@ export class ScrcpyConnection extends Mw {
         });
     }
 
+
+    private requestKeyframe(): void {
+        if (this.controlSocket && !this.controlSocket.destroyed) this.controlSocket.write(RESET_VIDEO_MESSAGE);
+    }
 
     private sendChannel(channel: ChannelId, payload: Buffer): void {
         if (this.ws.readyState !== this.ws.OPEN) return;

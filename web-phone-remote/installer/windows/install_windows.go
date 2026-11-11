@@ -496,8 +496,7 @@ func writeFrpc(root, genRoot, logs, deviceID, deviceSecret string, boot Bootstra
 	}
 	frpcCmd := filepath.Join(root, "run-frpc.cmd")
 	frpcExe := filepath.Join(genRoot, "frp", "frpc.exe")
-	frScript := fmt.Sprintf("@echo off\r\ncd /d \"%s\"\r\n\"%s\" -c \"%s\" >> \"%s\" 2>&1\r\n",
-		filepath.Dir(frpcExe), frpcExe, frpcToml, filepath.Join(logs, "frpc.log"))
+	frScript := frpcRunScript(filepath.Dir(frpcExe), frpcExe, frpcToml, filepath.Join(logs, "frpc.log"))
 	if err := os.WriteFile(frpcCmd, []byte(frScript), 0o644); err != nil {
 		return err
 	}

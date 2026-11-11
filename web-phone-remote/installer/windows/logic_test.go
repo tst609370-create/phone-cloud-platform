@@ -51,6 +51,23 @@ func TestParseBootstrapRejectsSharedToken(t *testing.T) {
 	}
 }
 
+func TestFrpcRetriesInsteadOfExiting(t *testing.T) {
+	b := Bootstrap{ServerAddr: "103.205.240.23", ServerPort: 7000, RemotePort: 10007, DeviceSecret: strings.Repeat("ab", 32)}
+	toml, err := renderFrpcToml(b, "abcdef1234567890abcdef1234567890", 8000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(toml, "loginFailExit = false") {
+		t.Fatalf("frpc must keep retrying the first login: %s", toml)
+	}
+	script := frpcRunScript(`C:\a`, `C:\a\frpc.exe`, `C:\b\frpc.toml`, `C:\l\frpc.log`)
+	for _, want := range []string{":loop\r\n", "goto loop\r\n", `"C:\a\frpc.exe" -c "C:\b\frpc.toml" >> "C:\l\frpc.log" 2>&1`} {
+		if !contains(script, want) {
+			t.Fatalf("script missing %q:\n%s", want, script)
+		}
+	}
+}
+
 func TestRedactKeepsPasswordOutOfLogs(t *testing.T) {
 	secret := "S3cret-password"
 	line := redact(secret, "starting on 127.0.0.1 password="+secret)

@@ -12,6 +12,7 @@
 | `mac-phoneproxy/` | macOS 版手机代理管理（`manager.rb` 逻辑、`ui.rb` 界面、AppleScript 启动/授权/升级） | Ruby |
 | `tools/xiaomi-router-proxy.mjs` | 小米路由器代理辅助脚本 | Node |
 | `tools/update-local-windows.ps1` | 把 Windows 本机已装的手机远控（%LOCALAPPDATA%\PhoneRemote）更新到 main：下载源码 → 构建 → 备份并替换 app\dist → 重启任务 PhoneRemote-Node → 桌面/开始菜单控制台快捷方式换成 Chrome/Edge `--app` 独立窗口（优先 Chrome） | PowerShell |
+| `tools/setup-relay-server.sh` | 新服务器一键装 frps 公网中转（root 执行）：BBR、frps TCP/KCP/QUIC、systemd、ufw、随机令牌、测速 | bash |
 | `tools/deskflow/` | Deskflow 键鼠共享配置（Win 服务端 / Mac 客户端） | conf |
 | `web-phone-remote/` | **主体**。上游 [ws-scrcpy-web](https://github.com/bilbospocketses/ws-scrcpy-web)（GPL-3.0）+ 本仓库定制：租用/登录鉴权、APK 库、快照墙、虚拟麦克风、Windows 一键安装包、邀请注册服务 | TS/Rust/Go/Java |
 
@@ -58,6 +59,8 @@ node --test installer/setup-auth.test.mjs installer/bootstrap/*.test.mjs   # 安
 - 谁能看/控哪台手机 → `src/server/auth/deviceAccess.ts`、`AuthGate.ts`
 - 麦克风 → 服务端 `src/server/mic/`、前端 `src/app/mic/`、手机侧 `android/virtual-mic/`
 - scrcpy 版本/参数 → `src/server/ScrcpyOptions.ts`、`scrcpyServerVersion.ts`
+- 网速跟不上时的丢帧/追帧 → `src/server/videoBackpressure.ts`（阈值），接入点 `ScrcpyConnection.ts` 的 `onVideoFrame`；WebSocket 心跳 → `services/WebSocketServer.ts` 的 `startHeartbeat`
+- frpc 配置与守护脚本 → `installer/windows/logic.go`（`renderFrpcToml`、`frpcRunScript`）；已装机器由 `tools/update-local-windows.ps1` 补丁
 - 安装包、中转服务器地址 → `installer/windows/logic.go`（`relayHost`）
 - 桌面快捷方式 → `logic.go`（`shortcutFiles`、`appWindowShortcuts`、`findAppBrowser`），写入在 `install_windows.go`（`writeAppWindowShortcuts`）
 - 邀请/注册 → `installer/bootstrap/enroll.mjs`、`server.mjs`
