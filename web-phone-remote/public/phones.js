@@ -10,20 +10,15 @@
     const syncToggle = document.getElementById('sync-toggle');
     const mobilePicker = document.getElementById('mobile-device-picker');
     const workspace = document.querySelector('.workspace');
-    const flatButton = document.getElementById('layout-flat');
-    const carouselButton = document.getElementById('layout-carousel');
     const videoModeButton = document.getElementById('stream-video');
     const snapshotModeButton = document.getElementById('stream-snapshot');
     const layoutVersion = '20260822j';
     let topLayer = 10;
     let layoutTimer = 0;
-    let carouselDrag = null;
-    let carouselSuppressClickUntil = 0;
     let needsInitialLayout = localStorage.getItem('phone-layout-version') !== layoutVersion;
     let syncEnabled = localStorage.getItem('phone-sync-enabled') === '1';
     let masterSerial = localStorage.getItem('phone-sync-master') || '';
     let activeSerial = localStorage.getItem('phone-active-device') || '';
-    let layoutMode = localStorage.getItem('phone-layout-mode') === 'flat' ? 'flat' : 'carousel';
     // 每次打开都从流畅视频开始：抽帧远控帧率低，租用者不知道会以为操作卡。
     let streamMode = 'video';
     let visibleDevices = [];
@@ -38,8 +33,6 @@
     }
     const autoArrange = true;
     if (nativeMacShell) {
-        layoutMode = 'carousel';
-        localStorage.setItem('phone-layout-mode', 'carousel');
         document.getElementById('reconnect-all').hidden = true;
         document.getElementById('expand-first').hidden = true;
         document.getElementById('refresh-page').hidden = false;
@@ -321,10 +314,6 @@
         for (const type of ['dragenter', 'dragover', 'dragleave', 'drop']) {
             card.addEventListener(type, (event) => handleFileDrag(card, event));
         }
-        card.addEventListener('click', () => {
-            if (Date.now() < carouselSuppressClickUntil) return;
-            if (layoutMode === 'carousel' && !card.classList.contains('carousel-active')) activate(card, false, true);
-        });
         return card;
     }
 
@@ -501,8 +490,7 @@
             renderDeviceNav(devices);
             applyRentalBadges();
             document.getElementById('device-count').textContent = `${devices.length} 台设备`;
-            if (layoutMode === 'carousel') layoutCarousel();
-            else if (autoArrange || needsInitialLayout) scheduleTile();
+            if (autoArrange || needsInitialLayout) scheduleTile();
         } catch (error) {
             console.error('刷新设备失败', error);
         } finally {
@@ -525,7 +513,7 @@
         const frame = card.querySelector('iframe');
         let boxWidth;
         let boxHeight;
-        if (card.classList.contains('expanded') || layoutMode === 'carousel') {
+        if (card.classList.contains('expanded')) {
             boxWidth = frame?.clientWidth || 0;
             boxHeight = frame?.clientHeight || 0;
         }
@@ -749,7 +737,7 @@
     }
 
     function fitCardToPhone(card, canvas, toolbar) {
-        if (layoutMode === 'carousel' || card.classList.contains('expanded') || card.classList.contains('closed') || !canvas.width || !canvas.height) return;
+        if (card.classList.contains('expanded') || card.classList.contains('closed') || !canvas.width || !canvas.height) return;
         const border = 2;
         const headerHeight = card.querySelector(':scope > header').offsetHeight;
         const footerHeight = card.querySelector('.phone-nav').offsetHeight + card.querySelector('.card-operation-log').offsetHeight;
@@ -920,8 +908,7 @@
                 card._videoAspect = aspect;
                 card._lastAspect = aspect;
                 fitCardToPhone(card, canvas, doc.querySelector('.control-buttons-list'));
-                if (layoutMode === 'carousel') layoutCarousel();
-                else if (autoArrange || needsInitialLayout) scheduleTile();
+                if (autoArrange || needsInitialLayout) scheduleTile();
             }
             if (status.classList.contains('hidden') || /^connected\b/i.test(status.textContent)) {
                 setState(card, 'connected', '已连接');
@@ -1267,7 +1254,7 @@
         delete card.querySelector('.card-operation-log')?.dataset.stream;
         // Keep the fitted size while reconnecting so the card doesn't turn into
         // a wide black box; it is refitted once the new stream reports its size.
-        if (layoutMode !== 'carousel' && !card._lastAspect) {
+        if (!card._lastAspect) {
             card.style.width = '';
             card.style.height = '';
         }
@@ -1294,7 +1281,6 @@
             else localStorage.removeItem('phone-active-device');
             updateStreamingMode();
         }
-        if (layoutMode === 'carousel') layoutCarousel();
     }
 
     function updateStreamingMode(force = false) {
@@ -1330,13 +1316,11 @@
             connect(card, force);
         }
         applyBrowserMic({ type: 'activate', serial: card.dataset.device, gesture: gesture === true });
-        if (layoutMode === 'carousel') layoutCarousel();
     }
 
     function collapseExpanded() {
         cards.forEach((card) => card.classList.remove('expanded'));
         backdrop.classList.remove('visible');
-        if (layoutMode === 'carousel') layoutCarousel();
         refreshAutoQuality();
     }
 
@@ -1362,10 +1346,6 @@
     }
 
     function tileCards() {
-        if (layoutMode === 'carousel') {
-            layoutCarousel();
-            return;
-        }
         const gap = 12;
         const limit = Math.max(1, grid.clientWidth - gap);
         let left = gap;
@@ -1389,80 +1369,6 @@
         needsInitialLayout = false;
         localStorage.setItem('phone-layout-version', layoutVersion);
         grid.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
-    }
-
-    function layoutCarousel() {
-        const openCards = cards.filter((card) => !card.classList.contains('closed'));
-        if (!openCards.length) return;
-        let center = openCards.findIndex((card) => card.dataset.device === activeSerial);
-        if (center < 0) center = 0;
-        const fallbackWidth = Math.min(420, Math.max(360, Number(tileSize.value) + 60));
-        const height = Math.min(fallbackWidth * 1.82, Math.max(420, grid.clientHeight - 76));
-        const cardWidth = (card) => card._videoAspect
-            ? Math.min(480, Math.max(260, Math.round((height - 96) * card._videoAspect) + 2))
-            : fallbackWidth;
-        const step = Math.min(cardWidth(openCards[center]) * .82, Math.max(170, grid.clientWidth / 5.2));
-        openCards.forEach((card, index) => {
-            let offset = index - center;
-            if (offset > openCards.length / 2) offset -= openCards.length;
-            if (offset < -openCards.length / 2) offset += openCards.length;
-            const distance = Math.abs(offset);
-            const angle = offset === 0 ? 0 : offset > 0 ? -30 : 30;
-            const scale = Math.max(.62, 1 - distance * .12);
-            const width = cardWidth(card);
-            card.classList.toggle('carousel-active', offset === 0);
-            card.style.width = `${width}px`;
-            card.style.height = `${height}px`;
-            card.style.zIndex = String(100 - distance);
-            if (offset === 0) {
-                // WKWebView does not reliably hit-test an iframe below a 3D
-                // transformed ancestor. Keep the active phone visually centred
-                // with real coordinates so its touch canvas receives mouse input.
-                card.style.left = `${Math.round((grid.clientWidth - width) / 2)}px`;
-                card.style.top = `${Math.round((grid.clientHeight - height) / 2 - 20)}px`;
-                card.style.transform = 'none';
-            } else {
-                card.style.left = '50%';
-                card.style.top = 'calc(50% - 20px)';
-                // Keep perspective on each side card instead of the grid. A
-                // perspective ancestor breaks iframe hit-testing in WebKit.
-                card.style.transform = `perspective(1500px) translate(-50%, -50%) translateX(calc(${offset * step}px + var(--carousel-drag, 0px))) translateZ(${-distance * 150}px) rotateY(${angle}deg) scale(${scale})`;
-            }
-        });
-    }
-
-    function rotateCarousel(direction) {
-        const openCards = cards.filter((card) => !card.classList.contains('closed'));
-        if (!openCards.length) return;
-        const current = Math.max(0, openCards.findIndex((card) => card.dataset.device === activeSerial));
-        activate(openCards[(current + direction + openCards.length) % openCards.length]);
-    }
-
-    function setLayoutMode(mode) {
-        layoutMode = mode;
-        localStorage.setItem('phone-layout-mode', mode);
-        const carousel = mode === 'carousel';
-        workspace.classList.toggle('carousel-layout', carousel);
-        grid.classList.toggle('carousel-mode', carousel);
-        flatButton.classList.toggle('active', !carousel);
-        carouselButton.classList.toggle('active', carousel);
-        flatButton.setAttribute('aria-pressed', carousel ? 'false' : 'true');
-        carouselButton.setAttribute('aria-pressed', carousel ? 'true' : 'false');
-        cards.forEach((card) => {
-            card.classList.remove('carousel-active');
-            card.style.removeProperty('transform');
-            card._videoAspect = 0;
-        });
-        if (carousel) layoutCarousel();
-        else {
-            cards.forEach((card, index) => {
-                card.style.width = '';
-                card.style.height = '';
-                restorePosition(card, index);
-            });
-            needsInitialLayout = true;
-            scheduleTile();
-        }
     }
 
     function scheduleTile() {
@@ -1491,7 +1397,7 @@
     function enableDragging(card) {
         const handle = card.querySelector('header');
         handle.addEventListener('pointerdown', (event) => {
-            if (layoutMode === 'carousel' || event.target.closest('button, input, label') || card.classList.contains('expanded')) return;
+            if (event.target.closest('button, input, label') || card.classList.contains('expanded')) return;
             event.preventDefault();
             card.style.zIndex = String(++topLayer);
             const startLeft = parseFloat(card.style.left) || 0;
@@ -1561,42 +1467,8 @@
     });
     document.getElementById('expand-first').addEventListener('click', () => cards[0] && expand(cards[0]));
     document.getElementById('tile-all').addEventListener('click', tileCards);
-    flatButton.addEventListener('click', () => setLayoutMode('flat'));
-    carouselButton.addEventListener('click', () => setLayoutMode('carousel'));
     videoModeButton.addEventListener('click', () => setStreamMode('video'));
     snapshotModeButton.addEventListener('click', () => setStreamMode('snapshot'));
-    document.getElementById('carousel-prev').addEventListener('click', () => rotateCarousel(-1));
-    document.getElementById('carousel-next').addEventListener('click', () => rotateCarousel(1));
-    grid.addEventListener('pointerdown', (event) => {
-        if (layoutMode !== 'carousel' || event.button !== 0 || event.target.closest('iframe, button, input, select, label, a')) return;
-        event.preventDefault();
-        document.getSelection()?.removeAllRanges();
-        carouselDrag = { id: event.pointerId, startX: event.clientX, delta: 0 };
-        grid.classList.add('carousel-dragging');
-        grid.setPointerCapture(event.pointerId);
-    });
-    grid.addEventListener('pointermove', (event) => {
-        if (carouselDrag?.id !== event.pointerId) return;
-        carouselDrag.delta = Math.max(-grid.clientWidth * .35, Math.min(grid.clientWidth * .35, event.clientX - carouselDrag.startX));
-        grid.style.setProperty('--carousel-drag', `${carouselDrag.delta}px`);
-    });
-    const endCarouselDrag = (event) => {
-        if (carouselDrag?.id !== event.pointerId) return;
-        const delta = carouselDrag.delta;
-        const threshold = Math.min(70, grid.clientWidth * .12);
-        carouselDrag = null;
-        grid.classList.remove('carousel-dragging');
-        if (grid.hasPointerCapture(event.pointerId)) grid.releasePointerCapture(event.pointerId);
-        if (Math.abs(delta) >= threshold) {
-            carouselSuppressClickUntil = Date.now() + 300;
-            rotateCarousel(delta < 0 ? 1 : -1);
-        } else {
-            layoutCarousel();
-        }
-        requestAnimationFrame(() => grid.style.removeProperty('--carousel-drag'));
-    };
-    grid.addEventListener('pointerup', endCarouselDrag);
-    grid.addEventListener('pointercancel', endCarouselDrag);
     mobilePicker.addEventListener('change', () => {
         const card = cards.find((item) => item.dataset.device === mobilePicker.value);
         if (card) {
@@ -1607,10 +1479,6 @@
     tileSize.addEventListener('input', () => {
         document.documentElement.style.setProperty('--phone-width', `${tileSize.value}px`);
         sizeValue.value = tileSize.value;
-        if (layoutMode === 'carousel') {
-            layoutCarousel();
-            return;
-        }
         cards.forEach((card) => {
             if (!card.classList.contains('expanded') && !card.classList.contains('closed')) {
                 card.style.width = '';
@@ -1662,16 +1530,11 @@
             collapseExpanded();
             return;
         }
-        if (forwardDesktopKeyboard(event)) return;
-        if (layoutMode === 'carousel' && !event.target.closest('input, select, textarea')) {
-            if (event.key === 'ArrowLeft') rotateCarousel(-1);
-            if (event.key === 'ArrowRight') rotateCarousel(1);
-        }
+        forwardDesktopKeyboard(event);
     });
     document.addEventListener('keyup', (event) => forwardDesktopKeyboard(event));
     window.addEventListener('resize', () => {
-        if (layoutMode === 'carousel') layoutCarousel();
-        else if (autoArrange) scheduleTile();
+        if (autoArrange) scheduleTile();
         refreshAutoQuality();
     });
     const events = new EventSource('/api/events');
@@ -1699,6 +1562,6 @@
     updateSyncButton();
     setStreamMode(streamMode, false);
     void updateAdminVisibility();
-    setLayoutMode(layoutMode);
+    try { localStorage.removeItem('phone-layout-mode'); } catch { /* ignore */ }
     refreshDevices();
 })();

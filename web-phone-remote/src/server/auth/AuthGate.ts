@@ -87,7 +87,7 @@ const BRAND_SIDE = `<section class="brand-side">
 <div class="feature-foot"><b class="on"></b><b></b><b></b></div></div>
 </section>`;
 
-const FEATURE_SCRIPT = `<script>(()=>{const t=['流畅视频与抽帧远控两种模式，网络差时自动切换，画面不断流。','多台手机同屏平铺或旋转墙，一台主控、其余跟随，批量操作一次完成。','电脑麦克风直通手机，也能听手机正在播放的声音，不需要额外 App。'];
+const FEATURE_SCRIPT = `<script>(()=>{const t=['流畅视频与抽帧远控两种模式，网络差时自动切换，画面不断流。','多台手机同屏平铺，一台主控、其余跟随，批量操作一次完成。','电脑麦克风直通手机，也能听手机正在播放的声音，不需要额外 App。'];
 const b=document.getElementById('fb'),n=document.getElementById('fn'),d=[...document.querySelectorAll('.feature-foot b')];let i=0;
 if(!b||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
 setInterval(()=>{i=(i+1)%t.length;b.style.opacity='0';setTimeout(()=>{b.textContent=t[i];n.textContent='PLATFORM / 0'+(i+1);n.nextElementSibling.textContent='0'+(i+1)+' / 03';d.forEach((x,k)=>x.classList.toggle('on',k===i));b.style.opacity='1';},200);},5600);})();</script>

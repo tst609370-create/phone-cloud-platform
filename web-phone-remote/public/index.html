@@ -6,7 +6,7 @@
     <title>手机远程控制</title>
     <link rel="icon" type="image/svg+xml" href="login-assets/tianxi-mark.svg"><link rel="icon" type="image/png" href="login-assets/favicon.png">
     <link rel="stylesheet" href="tianxi.css?v=20261112a">
-    <link rel="stylesheet" href="phones.css?v=20261112m">
+    <link rel="stylesheet" href="phones.css?v=20261112r">
 </head>
 <body class="tx-scroll">
     <div class="app">
@@ -41,22 +41,14 @@
         </aside>
         <main class="workspace">
             <header class="topbar">
-                <div class="topbar-title"><strong>设备窗口</strong><span>普通模式可拖动，旋转模式点击侧边设备切换</span></div>
+                <div class="topbar-title"><strong>设备窗口</strong><span>拖动标题栏可移动窗口</span></div>
                 <div class="stream-switch" role="group" aria-label="远控画面模式">
                     <button id="stream-video" type="button">流畅视频</button>
                     <button id="stream-snapshot" type="button">抽帧远控</button>
                 </div>
-                <div class="layout-switch" role="group" aria-label="设备墙样式">
-                    <button id="layout-flat" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18M12 3v18"/></svg>普通</button>
-                    <button id="layout-carousel" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="4" width="10" height="16" rx="2"/><path d="M3 7v10M21 7v10"/></svg>旋转</button>
-                </div>
                 <button id="tile-all" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>自动平铺</button><select id="mobile-device-picker" data-tx-select data-tx-class="mobile-picker" aria-label="切换设备"></select>
             </header>
             <section id="phone-grid" class="phone-grid" aria-label="手机控制窗口"></section>
-            <div class="carousel-nav" aria-label="旋转设备墙导航">
-                <button id="carousel-prev" type="button" title="向左旋转"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
-                <button id="carousel-next" type="button" title="向右旋转"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
-            </div>
         </main>
     </div>
     <div id="viewer-backdrop" aria-hidden="true"></div>
@@ -70,6 +62,6 @@
     </dialog>
     <script src="tianxi.js?v=20261112a"></script>
     <script src="browserMicPolicy.js?v=20261112a"></script>
-    <script src="phones.js?v=20261112m"></script>
+    <script src="phones.js?v=20261112r"></script>
 </body>
 </html>
