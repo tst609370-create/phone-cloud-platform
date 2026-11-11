@@ -20,7 +20,7 @@ body{min-height:100svh;overflow-x:clip;color:var(--fg);background:var(--bg);font
 .brand-side{position:relative;display:flex;flex-direction:column;min-height:100svh;overflow:hidden;border-right:1px solid var(--line)}
 .top{position:relative;z-index:3;display:flex;align-items:center;justify-content:space-between;padding:24px 56px}
 .logo{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600;letter-spacing:-.01em}
-.mark{width:26px;height:26px;display:grid;place-items:center;border:1px solid transparent;border-radius:7px;background:linear-gradient(var(--surface-2),var(--surface-2)) padding-box,linear-gradient(135deg,var(--accent),var(--accent-2)) border-box;box-shadow:0 0 14px -4px rgb(91 156 255/.6);font-size:12px}
+.mark{display:block;width:26px;height:26px}
 .chip{padding:1px 6px;border:1px solid var(--line);border-radius:4px;color:var(--fg-3);font:500 10px/16px var(--mono);letter-spacing:.12em}
 .status{display:flex;align-items:center;gap:6px;color:var(--fg-3);font-size:11px}
 .dot{width:5px;height:5px;border-radius:50%;background:var(--ok);box-shadow:0 0 6px var(--ok)}
@@ -77,7 +77,7 @@ const LOCK = ICON('<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8
 
 /** 左栏：品牌、标语、地球、能力轮播（不放虚构的客户评价）。 */
 const BRAND_SIDE = `<section class="brand-side">
-<div class="top"><div class="logo"><span class="mark">控</span>云手机<span class="chip">CONSOLE</span></div><div class="status"><span class="dot"></span>服务正常</div></div>
+<div class="top"><div class="logo"><img class="mark" src="/login-assets/tianxi-mark.svg" alt="" width="26" height="26">云手机<span class="chip">CONSOLE</span></div><div class="status"><span class="dot"></span>服务正常</div></div>
 <div class="hero"><div class="label"><i></i>CLOUD PHONE · REMOTE CONTROL</div>
 <h1>让每一台手机，<br><span class="grad">从一个控制台开始。</span></h1>
 <p>浏览器里远程操控真机：低延迟投屏、批量同步、麦克风与声音，打开即用。</p></div>
@@ -97,7 +97,7 @@ const FOOT = `<div class="foot"><span>识别码和账号由管理员分配，请
 
 function authPage(title: string, card: string, script = ''): string {
     return `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link rel="icon" type="image/svg+xml" href="/login-assets/tianxi-mark.svg"><link rel="icon" type="image/png" href="/login-assets/favicon.png">
 ${AUTH_PAGE_STYLE}
 </head><body><main class="shell">${BRAND_SIDE}<section class="form-side">${card}${FOOT}</section></main>
 ${FEATURE_SCRIPT}${script}</body></html>`;

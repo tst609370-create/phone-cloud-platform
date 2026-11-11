@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -611,7 +612,7 @@ func placeShortcuts(root string, port int) error {
 				return err
 			}
 		}
-		writeAppWindowShortcuts(dir, localAdminEntry(port))
+		writeAppWindowShortcuts(dir, localAdminEntry(port), brandIcon(root))
 	}
 	return nil
 }
@@ -619,7 +620,22 @@ func placeShortcuts(root string, port int) error {
 // writeAppWindowShortcuts swaps the console .url entries for Edge/Chrome
 // --app shortcuts so the console opens as its own window. Keeps the .url
 // when no browser is found or the .lnk cannot be written.
-func writeAppWindowShortcuts(dir, page string) {
+// brandIcon copies the Tianxi icon from the newest app build to a stable
+// path (root\tianxi.ico) so shortcuts survive later updates. "" if missing.
+func brandIcon(root string) string {
+	matches, _ := filepath.Glob(filepath.Join(root, "generations", "*", "app", "dist", "public", "login-assets", "favicon.ico"))
+	if len(matches) == 0 {
+		return ""
+	}
+	sort.Strings(matches)
+	dst := filepath.Join(root, "tianxi.ico")
+	if err := copyFile(matches[len(matches)-1], dst); err != nil {
+		return ""
+	}
+	return dst
+}
+
+func writeAppWindowShortcuts(dir, page, icon string) {
 	browser := findAppBrowser(os.Getenv, func(path string) bool {
 		_, err := os.Stat(path)
 		return err == nil
@@ -631,7 +647,10 @@ func writeAppWindowShortcuts(dir, page string) {
 		lnk := filepath.Join(dir, name+".lnk")
 		cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", appShortcutScript())
 		hide(cmd)
-		cmd.Env = append(os.Environ(), "PR_LNK="+lnk, "PR_BROWSER="+browser, "PR_PAGE="+page)
+		if icon == "" {
+			icon = browser
+		}
+		cmd.Env = append(os.Environ(), "PR_LNK="+lnk, "PR_BROWSER="+browser, "PR_PAGE="+page, "PR_ICON="+icon)
 		if err := cmd.Run(); err != nil {
 			noteInstallLog("创建独立窗口快捷方式失败，保留网页快捷方式：" + name)
 			continue

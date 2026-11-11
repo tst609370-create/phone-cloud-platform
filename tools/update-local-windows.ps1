@@ -84,6 +84,9 @@ Step '把本机控制台快捷方式换成独立窗口（Chrome/Edge 应用模�
 $browser = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
     "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe",
     "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe", "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe") | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+$icon = "$browser"
+$newIco = Join-Path $appDir 'dist\public\login-assets\favicon.ico'
+if (Test-Path $newIco) { Copy-Item $newIco (Join-Path $root 'tianxi.ico') -Force; $icon = Join-Path $root 'tianxi.ico' }
 if ($browser) {
     $shell = New-Object -ComObject WScript.Shell
     $dirs = @([Environment]::GetFolderPath('Desktop'), (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\手机远控'))
@@ -95,7 +98,7 @@ if ($browser) {
             $sc = $shell.CreateShortcut($lnk)
             $sc.TargetPath = $browser
             $sc.Arguments = "--app=http://127.0.0.1:$port/admin-login"
-            $sc.IconLocation = "$browser,0"
+            $sc.IconLocation = "$icon,0"
             $sc.Description = '手机远控本机控制台'
             $sc.Save()
             Remove-Item $url -ErrorAction SilentlyContinue

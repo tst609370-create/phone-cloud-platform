@@ -351,7 +351,7 @@ func findAppBrowser(env func(string) string, exists func(string) bool) string {
 // appShortcutScript builds the PowerShell that writes one .lnk opening page
 // in a standalone browser window. Values come from env vars to avoid quoting.
 func appShortcutScript() string {
-	return `$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:PR_LNK); $s.TargetPath = $env:PR_BROWSER; $s.Arguments = '--app=' + $env:PR_PAGE; $s.IconLocation = $env:PR_BROWSER + ',0'; $s.Description = '手机远控本机控制台'; $s.Save()`
+	return `$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:PR_LNK); $s.TargetPath = $env:PR_BROWSER; $s.Arguments = '--app=' + $env:PR_PAGE; $s.IconLocation = $env:PR_ICON + ',0'; $s.Description = '手机远控本机控制台'; $s.Save()`
 }
 
 func shortcutFiles(installExe, logPath string, port int) (map[string]string, error) {

@@ -157,6 +157,18 @@ const front: webpack.Configuration = {
             path.resolve(CLIENT_DIST_PATH, 'login-assets/globe.js'),
         ),
         new CopyFilePlugin(
+            path.resolve(PROJECT_ROOT, 'public/login-assets/tianxi-mark.svg'),
+            path.resolve(CLIENT_DIST_PATH, 'login-assets/tianxi-mark.svg'),
+        ),
+        new CopyFilePlugin(
+            path.resolve(PROJECT_ROOT, 'public/login-assets/favicon.png'),
+            path.resolve(CLIENT_DIST_PATH, 'login-assets/favicon.png'),
+        ),
+        new CopyFilePlugin(
+            path.resolve(PROJECT_ROOT, 'public/login-assets/favicon.ico'),
+            path.resolve(CLIENT_DIST_PATH, 'login-assets/favicon.ico'),
+        ),
+        new CopyFilePlugin(
             path.resolve(PROJECT_ROOT, 'public/phones.css'),
             path.resolve(CLIENT_DIST_PATH, 'phones.css'),
         ),
@@ -173,9 +185,8 @@ const front: webpack.Configuration = {
             path.resolve(PROJECT_ROOT, 'public/snapshot.js'),
             path.resolve(CLIENT_DIST_PATH, 'snapshot.js'),
         ),
-        // Favicon — derive it from the app icon (assets/tray-icon.png) so the
-        // browser tab shows our icon. Served from dist/public/favicon.png and
-        // referenced in public/index.html's <head>.
+        // Legacy /favicon.png (tray icon). Pages now use the Tianxi mark from
+        // login-assets/ (reachable before login too).
         new CopyFilePlugin(
             path.resolve(PROJECT_ROOT, 'assets/tray-icon.png'),
             path.resolve(CLIENT_DIST_PATH, 'favicon.png'),
