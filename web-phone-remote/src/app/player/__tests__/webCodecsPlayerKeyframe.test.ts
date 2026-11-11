@@ -21,7 +21,9 @@ class FakeVideoDecoder {
     public state = 'unconfigured';
     public decodeQueueSize = 0;
     public resetCount = 0;
-    constructor(_init: unknown) {
+    public init: { output: (f: unknown) => void; error: (e: DOMException) => void };
+    constructor(init: { output: (f: unknown) => void; error: (e: DOMException) => void }) {
+        this.init = init;
         lastDecoder = this;
         decoderState = 'unconfigured';
     }
@@ -152,5 +154,59 @@ describe('WebCodecsPlayer Annex B keyframe decode', () => {
         expect(lastDecoder.resetCount).toBe(1);
         expect(decodedChunks).toHaveLength(2);
         expect(decodedChunks[1]?.type).toBe('key');
+    });
+
+    it('skips delta frames after a new config until a keyframe arrives', async () => {
+        const { WebCodecsPlayer } = await import('../WebCodecsPlayer');
+        const player = new WebCodecsPlayer('udid-reconfig');
+        player.setMetadataSize(1280, 720);
+        player.pushVideoFrame(H264_CONFIG, 0n, true, false);
+        player.pushVideoFrame(new Uint8Array([1, 2, 3]), 1n, false, false);
+        expect(decodedChunks).toHaveLength(0);
+        player.pushVideoFrame(H264_KEYFRAME, 2n, false, true);
+        player.pushVideoFrame(new Uint8Array([1, 2, 3]), 3n, false, false);
+        expect(decodedChunks.map((c) => c.type)).toEqual(['key', 'delta']);
+
+        // Encoder restart: new config, then a stale delta must not reach the decoder.
+        player.pushVideoFrame(H264_CONFIG, 4n, true, false);
+        player.pushVideoFrame(new Uint8Array([4, 5, 6]), 5n, false, false);
+        expect(decodedChunks).toHaveLength(2);
+    });
+
+    it('rebuilds the decoder in software after an error instead of going black', async () => {
+        localStorage.removeItem('webcodecs-prefer-software');
+        const { WebCodecsPlayer } = await import('../WebCodecsPlayer');
+        const player = new WebCodecsPlayer('udid-error');
+        player.setMetadataSize(1280, 720);
+        player.pushVideoFrame(H264_CONFIG, 0n, true, false);
+        player.pushVideoFrame(H264_KEYFRAME, 1n, false, true);
+        const failed = lastDecoder;
+        failed.init.error(new DOMException('Decoding error.', 'EncodingError'));
+
+        expect(lastDecoder).not.toBe(failed);
+        expect(lastDecoder.state).toBe('configured');
+        expect(lastConfig?.hardwareAcceleration).toBe('prefer-software');
+        expect(localStorage.getItem('webcodecs-prefer-software')).toBe('1');
+
+        player.pushVideoFrame(new Uint8Array([7]), 2n, false, false);
+        expect(decodedChunks).toHaveLength(1);
+        player.pushVideoFrame(H264_KEYFRAME, 3n, false, true);
+        expect(decodedChunks).toHaveLength(2);
+        localStorage.removeItem('webcodecs-prefer-software');
+    });
+
+    it('falls back to software when the hardware decoder never outputs', async () => {
+        vi.useFakeTimers();
+        localStorage.removeItem('webcodecs-prefer-software');
+        const { WebCodecsPlayer } = await import('../WebCodecsPlayer');
+        const player = new WebCodecsPlayer('udid-silent');
+        player.setMetadataSize(1280, 720);
+        player.pushVideoFrame(H264_CONFIG, 0n, true, false);
+        player.pushVideoFrame(H264_KEYFRAME, 1n, false, true);
+        expect(lastConfig?.hardwareAcceleration).toBeUndefined();
+        vi.advanceTimersByTime(3100);
+        expect(lastConfig?.hardwareAcceleration).toBe('prefer-software');
+        vi.useRealTimers();
+        localStorage.removeItem('webcodecs-prefer-software');
     });
 });

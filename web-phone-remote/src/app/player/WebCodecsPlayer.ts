@@ -72,6 +72,30 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
     private metadataWidth = 0;
     private metadataHeight = 0;
     private loggedFrameSize = false;
+    /** True until a keyframe has been fed since the last configure()/reset(). */
+    private needKeyframe = true;
+    private decodeErrors = 0;
+    private outputWatchdog?: ReturnType<typeof setTimeout> | undefined;
+    private gotOutput = false;
+    private static readonly SOFTWARE_KEY = 'webcodecs-prefer-software';
+    private static readonly OUTPUT_TIMEOUT_MS = 3000;
+
+    /** Hardware decoders on some Windows GPUs/drivers accept frames but never output (black screen). */
+    private static preferSoftware(): boolean {
+        try {
+            return globalThis.localStorage?.getItem(WebCodecsPlayer.SOFTWARE_KEY) === '1';
+        } catch {
+            return false;
+        }
+    }
+
+    private static rememberSoftware(): void {
+        try {
+            globalThis.localStorage?.setItem(WebCodecsPlayer.SOFTWARE_KEY, '1');
+        } catch {
+            /* storage unavailable: retry in software for this session only */
+        }
+    }
 
     constructor(udid: string, displayInfo?: DisplayInfo, name = WebCodecsPlayer.playerFullName) {
         super(udid, displayInfo, name, WebCodecsPlayer.storageKeyPrefix);
@@ -92,13 +116,75 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
                     );
                     this.loggedFrameSize = true;
                 }
+                this.gotOutput = true;
+                this.decodeErrors = 0;
+                this.clearOutputWatchdog();
                 this.onFrameDecoded(frame.displayWidth, frame.displayHeight, frame);
             },
             error: (error: DOMException) => {
                 console.error('[WebCodecsPlayer]', error, `code: ${error.code}`);
-                this.stop();
+                this.recoverDecoder(`解码出错：${error.message || error.name}`);
             },
         });
+    }
+
+    private withAcceleration(config: VideoDecoderConfig): VideoDecoderConfig {
+        return WebCodecsPlayer.preferSoftware() ? { ...config, hardwareAcceleration: 'prefer-software' } : config;
+    }
+
+    private configureDecoder(): void {
+        if (!this.decoderConfig) return;
+        if (this.decoder.state === 'closed') this.decoder = this.createDecoder();
+        else if (this.decoder.state === 'configured') this.decoder.reset();
+        this.decoder.configure(this.withAcceleration(this.decoderConfig));
+        this.needKeyframe = true;
+    }
+
+    private clearOutputWatchdog(): void {
+        if (this.outputWatchdog !== undefined) clearTimeout(this.outputWatchdog);
+        this.outputWatchdog = undefined;
+    }
+
+    /**
+     * A decoder error used to stop the player for good: the canvas kept its size
+     * and the status bar looked connected, but the picture stayed black. Rebuild
+     * the decoder and resume on the next keyframe; after a failure, fall back to
+     * software decoding (remembered in this browser).
+     */
+    private recoverDecoder(reason: string): void {
+        this.clearOutputWatchdog();
+        this.decodeErrors++;
+        if (!WebCodecsPlayer.preferSoftware()) {
+            WebCodecsPlayer.rememberSoftware();
+            console.warn('[WebCodecsPlayer] switching to software decoding:', reason);
+        }
+        this.drawNotice(this.decodeErrors > 3 ? `${reason}，请刷新或换浏览器` : '画面恢复中…');
+        try {
+            if (this.decoder.state !== 'closed') this.decoder.close();
+        } catch {
+            /* already closed */
+        }
+        this.decoder = this.createDecoder();
+        this.droppingUntilKeyframe = false;
+        if (this.decodeErrors <= 5) this.configureDecoder();
+    }
+
+    private drawNotice(text: string): void {
+        if (this.gotOutput) return; // keep the last good picture instead
+        try {
+            const { width, height } = this.tag;
+            if (!width || !height) return;
+            this.context.save();
+            this.context.fillStyle = '#000';
+            this.context.fillRect(0, 0, width, height);
+            this.context.fillStyle = '#ccc';
+            this.context.font = `${Math.max(14, Math.round(width / 22))}px sans-serif`;
+            this.context.textAlign = 'center';
+            this.context.fillText(text, width / 2, height / 2);
+            this.context.restore();
+        } catch {
+            /* cosmetic */
+        }
     }
 
     /**
@@ -129,7 +215,6 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
                 if (displayW && displayH && displayW > 0 && displayH > 0) {
                     this.scaleCanvas(displayW, displayH);
                 }
-                if (this.decoder.state === 'configured') this.decoder.reset();
                 // Keep Annex B parameter sets out of `description`: browsers parse
                 // that field as avcC/hvcC, not Annex B.
                 this.decoderConfig = buildDecoderConfig({
@@ -139,7 +224,7 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
                     codedHeight: codedH,
                     configData: data,
                 });
-                this.decoder.configure(this.decoderConfig);
+                this.configureDecoder();
                 this.droppingUntilKeyframe = false;
             }
             this.configData = new Uint8Array(data);
@@ -155,8 +240,7 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
         if (this.decoder.decodeQueueSize > 4) this.droppingUntilKeyframe = true;
         if (this.droppingUntilKeyframe) {
             if (!isKeyframe || !this.decoderConfig) return;
-            this.decoder.reset();
-            this.decoder.configure(this.decoderConfig);
+            this.configureDecoder();
             this.droppingUntilKeyframe = false;
         }
 
@@ -178,10 +262,15 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
                     data: chunkData,
                 }),
             );
+            this.needKeyframe = false;
+            this.armOutputWatchdog();
             return;
         }
 
-        if (!this.receivedFirstFrame) return; // Skip delta frames before first keyframe
+        // A delta right after configure()/reset() makes the decoder throw
+        // ("key frame is required"). BasePlayer.pushFrame already flipped
+        // receivedFirstFrame on the config packet, so track keyframes here.
+        if (!this.receivedFirstFrame || this.needKeyframe) return;
 
         this.decoder.decode(
             new EncodedVideoChunk({
@@ -328,13 +417,24 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
         return false;
     }
 
+    /** No picture within a few seconds of a keyframe → hardware decoder is stuck; retry in software. */
+    private armOutputWatchdog(): void {
+        if (this.gotOutput || this.outputWatchdog !== undefined || WebCodecsPlayer.preferSoftware()) return;
+        this.outputWatchdog = setTimeout(() => {
+            this.outputWatchdog = undefined;
+            if (!this.gotOutput) this.recoverDecoder('硬件解码无画面');
+        }, WebCodecsPlayer.OUTPUT_TIMEOUT_MS);
+    }
+
     public override stop(): void {
         super.stop();
-        if (this.decoder.state === 'configured') {
+        this.clearOutputWatchdog();
+        if (this.decoder.state !== 'closed') {
             this.decoder.close();
         }
         this.decoder = this.createDecoder();
         this.configData = undefined;
         this.detectedCodec = null;
+        this.needKeyframe = true;
     }
 }
