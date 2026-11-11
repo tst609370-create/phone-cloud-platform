@@ -32,10 +32,18 @@ type FrameVideo = HTMLVideoElement & {
 const SAMPLE_DURATION = Math.round(FMP4_TIMESCALE / 30);
 const MAX_LATENCY_S = 0.25;
 
+/** MediaSource, or ManagedMediaSource on iPhone (iOS 17.1+), which has no plain MediaSource. */
+function mediaSourceClass(): typeof MediaSource | undefined {
+    const g = globalThis as { MediaSource?: typeof MediaSource; ManagedMediaSource?: typeof MediaSource };
+    if (typeof g.MediaSource === 'function') return g.MediaSource;
+    if (typeof g.ManagedMediaSource === 'function') return g.ManagedMediaSource;
+    return undefined;
+}
+
 export function mseSupported(): boolean {
     try {
-        const MS = (globalThis as { MediaSource?: typeof MediaSource }).MediaSource;
-        return typeof MS === 'function' && MS.isTypeSupported('video/mp4; codecs="avc1.42E01E"');
+        const MS = mediaSourceClass();
+        return !!MS && MS.isTypeSupported('video/mp4; codecs="avc1.42E01E"');
     } catch {
         return false;
     }
@@ -122,14 +130,17 @@ export class MseVideoDecoder {
 
     private open(mime: string, init: Uint8Array): void {
         this.teardown();
-        if (!MediaSource.isTypeSupported(mime)) {
+        const MS = mediaSourceClass();
+        if (!MS || !MS.isTypeSupported(mime)) {
             this.fail(`浏览器不支持 ${mime}`);
             return;
         }
         this.sequence = 1;
         this.decodeTime = 0;
         this.pending = [init];
-        const mediaSource = new MediaSource();
+        const mediaSource = new MS();
+        // ManagedMediaSource only plays when AirPlay is off.
+        (this.video as { disableRemotePlayback?: boolean }).disableRemotePlayback = true;
         this.mediaSource = mediaSource;
         mediaSource.addEventListener(
             'sourceopen',

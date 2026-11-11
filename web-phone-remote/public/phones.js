@@ -4,7 +4,7 @@
     const quality = document.getElementById('quality');
     const fps = document.getElementById('fps');
     const tileSize = document.getElementById('tile-size');
-    const UI_VERSION = '1112v';
+    const UI_VERSION = '1112w';
     const sizeValue = document.getElementById('size-value');
     const backdrop = document.getElementById('viewer-backdrop');
     const grid = document.getElementById('phone-grid');
@@ -587,7 +587,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261112v',
+                ui: '20261112w',
             });
             return `snapshot.html?${params}`;
         }
@@ -601,7 +601,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261112v',
+            ui: '20261112w',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         // http:// public addresses have no WebCodecs audio decoder; ask the
@@ -1650,6 +1650,23 @@
         if (card && typeof event.data.label === 'string' && event.data.label.length <= 40) logOperation(card, event.data.label);
     });
     updateSyncButton();
+    // http://公网IP 不是安全上下文，没有 WebCodecs；再没有 MSE H.264（部分国产/内置浏览器内核）
+    // 就根本放不了视频，只会卡在 connecting。这种浏览器直接用「抽帧远控」并说明原因。
+    function canDecodeVideo() {
+        if (window.isSecureContext && typeof window.VideoDecoder === 'function') return true;
+        const MS = window.MediaSource || window.ManagedMediaSource;
+        try { return !!MS && MS.isTypeSupported('video/mp4; codecs="avc1.42E01E"'); } catch { return false; }
+    }
+    if (!canDecodeVideo()) {
+        streamMode = 'snapshot';
+        const note = document.createElement('div');
+        note.textContent = '这个浏览器不能播放视频流，已自动改用「抽帧远控」。想要流畅视频请用 Chrome 或 Edge 打开。';
+        note.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:9999;padding:8px 12px;border-radius:8px;'
+            + 'background:rgba(30,30,30,.92);color:#ffd27a;font:13px/1.5 system-ui,sans-serif;text-align:center;';
+        note.addEventListener('click', () => note.remove());
+        document.body.appendChild(note);
+        setTimeout(() => note.remove(), 12000);
+    }
     setStreamMode(streamMode, false);
     void updateAdminVisibility();
     try { localStorage.removeItem('phone-layout-mode'); } catch { /* ignore */ }

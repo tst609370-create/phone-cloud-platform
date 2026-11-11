@@ -236,6 +236,11 @@ export class StreamClientScrcpy
             fitToScreen: fitToScreen ?? params.fitToScreen,
             videoSettings,
             deviceKind,
+        }).catch((err: unknown) => {
+            // Used to be an unhandled rejection: the page stayed on "connecting..." forever.
+            const e = err instanceof Error ? err : new Error(String(err));
+            console.error('[StreamClientScrcpy] start failed:', e);
+            setTimeout(() => this.onErrorReceived?.(e), 0);
         });
     }
 
@@ -411,7 +416,12 @@ export class StreamClientScrcpy
         // this is a cheap no-op on the modal flow (already hydrated by
         // ConfigureScrcpy.init / DeviceTracker handler) and self-sufficient on a
         // direct deep-link where no modal precedes startStream.
-        await settingsService.hydrateDevice(udid);
+        try {
+            await settingsService.hydrateDevice(udid);
+        } catch (err) {
+            // Per-device settings are optional; never block the picture on them.
+            console.warn('[StreamClientScrcpy] device settings unavailable:', (err as Error).message);
+        }
 
         this.fitToScreen = fitToScreen;
         if (!player) {
@@ -420,7 +430,9 @@ export class StreamClientScrcpy
             }
             const p = StreamClientScrcpy.createPlayer(playerName, udid);
             if (!p) {
-                throw Error(`Unsupported player: "${playerName}"`);
+                throw Error(
+                    '这个浏览器不能播放视频（没有 WebCodecs，也不支持 MSE H.264）。请用 Chrome / Edge 打开，或改用「抽帧远控」',
+                );
             }
             if (typeof fitToScreen !== 'boolean') {
                 fitToScreen = StreamClientScrcpy.getFitToScreen(playerName, udid);

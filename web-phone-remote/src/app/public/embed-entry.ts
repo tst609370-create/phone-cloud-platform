@@ -130,6 +130,12 @@ function bootstrap(): void {
         show('error: WsScrcpy library not loaded (expected ws-scrcpy.umd.js to run first)', true);
         return;
     }
+    // Never sit on "connecting..." silently: say what to check.
+    setTimeout(() => {
+        if (statusEl && !statusEl.classList.contains('hidden') && /^connecting/i.test(statusEl.textContent || '')) {
+            show('error: 视频 20 秒没连上。检查电脑上的服务和中转是否在线，或点刷新重连；手机浏览器请用 Chrome / Edge', true);
+        }
+    }, 20000);
     try {
         const handle = window.WsScrcpy.startStream(document.body, deviceId, options);
         window.addEventListener('message', (event) => {
