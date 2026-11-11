@@ -63,6 +63,7 @@ node --test installer/setup-auth.test.mjs installer/bootstrap/*.test.mjs   # 安
 - 麦克风 → 服务端 `src/server/mic/`、前端 `src/app/mic/`、手机侧 `android/virtual-mic/`
 - scrcpy 版本/参数 → `src/server/ScrcpyOptions.ts`、`scrcpyServerVersion.ts`
 - 「自动」画质黑屏自动降档 → `public/phones.js` 的 `autoLimit`/`autoCap`/`onVideoHealth`（先 1080，确认出画 `phone-auto-ok:<serial>` 后才升一档，黑屏封顶 `phone-auto-cap:<serial>`；侧栏显示前端版本 `UI_VERSION`），播放器 `WebCodecsPlayer.checkBlack`/`reportHealth` 发 `phone-video-health` 事件
+- 手机分辨率上限（全员生效）→ `src/server/videoSizeCap.ts`（LE21xx 默认 1080；浏览器报黑屏 POST `/api/settings/video-cap` 存 app_settings `videoCap:<serial>`），`ScrcpyConnection.buildOptions` 里夹紧 max_size
 - 视频尺寸对齐 → `src/server/ScrcpyOptions.ts` 默认 `min_size_alignment=16`（scrcpy 4.x 默认按编码器报的 2px 对齐，一加 ColorOS 出 486 宽黑帧）
 - http://公网IP（非安全上下文）没有 WebCodecs → `src/app/player/mseDecoder.ts` + `fmp4.ts` 用 MSE 回退（仅 H.264）；画面卡住要关键帧 → `WebCodecsPlayer.armStallTimer` + `onNeedKeyframe`（RESET_VIDEO）
 - 画面黑屏/解码失败自愈 → `web-phone-remote/src/app/player/WebCodecsPlayer.ts`（`recoverDecoder`、`armOutputWatchdog`：出错或 3 秒无输出改软件解码，记在 localStorage `webcodecs-prefer-software`）

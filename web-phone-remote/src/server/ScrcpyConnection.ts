@@ -18,6 +18,7 @@ import { acceptScrcpy41Control } from './scrcpy41';
 import { scrcpyOptionsFromQuery } from './scrcpyOptionsFromQuery';
 import { getInstalledScrcpyServerVersion } from './scrcpyServerVersion';
 import { RESET_VIDEO_MESSAGE, VideoBackpressure } from './videoBackpressure';
+import { capKey, clampMaxSize, defaultCapForModel } from './videoSizeCap';
 
 const log = Logger.for('ScrcpyConnection');
 
@@ -85,7 +86,34 @@ export class ScrcpyConnection extends Mw {
 
     private buildOptions(): ScrcpyOptions {
         const scid = crypto.randomInt(0, 0x7fffffff).toString(16).padStart(8, '0');
-        return scrcpyOptionsFromQuery(this.queryParams, scid);
+        const options = scrcpyOptionsFromQuery(this.queryParams, scid);
+        const cap = this.videoSizeCap();
+        const clamped = clampMaxSize(options.maxSize, cap);
+        if (clamped !== options.maxSize) {
+            log.info(`max_size ${options.maxSize || 0} → ${clamped} for ${this.serial} (this phone goes black above ${cap})`);
+            if (clamped !== undefined) options.maxSize = clamped;
+        }
+        return options;
+    }
+
+    private videoSizeCap(): number {
+        let stored = 0;
+        try {
+            stored = Number(Config.getInstance().db.appSettings.get(capKey(this.serial))) || 0;
+        } catch {
+            /* no db in tests */
+        }
+        let model: string | undefined;
+        try {
+            if (ControlCenter.hasInstance()) {
+                model = ControlCenter.getInstance().getDevice(this.serial)?.descriptor['ro.product.model'];
+            }
+        } catch {
+            /* device list not ready */
+        }
+        const known = defaultCapForModel(model);
+        if (stored > 0 && known > 0) return Math.min(stored, known);
+        return stored || known;
     }
 
     private async start(): Promise<void> {

@@ -1,3 +1,4 @@
+import { capKey, nextCap } from '../videoSizeCap';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { resolveUserId } from '../auth/currentUser';
 import { requireDeviceAccess } from '../auth/deviceAccess';
@@ -80,6 +81,29 @@ export class SettingsApi {
                     res.end(JSON.stringify(db.devices.getDeviceSettings(userId, udid)));
                     return true;
                 }
+            }
+
+            // A browser saw a black / missing picture at this size: lower the
+            // phone's shared ceiling so every later session starts below it.
+            if (req.method === 'POST' && pathname === '/api/settings/video-cap') {
+                const body = (await readJsonBody(req)) as { udid?: unknown; maxSize?: unknown };
+                const udid = typeof body.udid === 'string' ? body.udid : '';
+                const maxSize = Number(body.maxSize);
+                if (!udid || !(maxSize >= 360 && maxSize <= 4096)) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({ error: 'udid and maxSize required' }));
+                    return true;
+                }
+                if (!requireDeviceAccess(req, res, udid)) return true;
+                const stored = Number(db.appSettings.get(capKey(udid))) || 0;
+                const cap = nextCap(stored, maxSize);
+                if (cap !== stored) {
+                    db.appSettings.set(capKey(udid), cap);
+                    log.info(`video size cap for ${udid}: ${stored || 'none'} → ${cap}`);
+                }
+                res.writeHead(200);
+                res.end(JSON.stringify({ udid, cap }));
+                return true;
             }
 
             if (req.method === 'POST' && pathname === '/api/settings/reset') {

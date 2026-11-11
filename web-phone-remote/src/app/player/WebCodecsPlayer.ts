@@ -180,19 +180,19 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
      * decode to solid black. Android always draws a status bar, so a frame with
      * no pixel brighter than ~16 for 4 s means the stream is broken.
      */
-    private checkBlack(): void {
+    private checkBlack(frame: CanvasImageSource): void {
         const now = Date.now();
         if (now - this.lastBlackCheck < 1000) return;
         this.lastBlackCheck = now;
         try {
-            const { width, height } = this.tag;
-            if (!width || !height) return;
+            // Probe the decoded frame itself, not the canvas: notice text drawn on
+            // the canvas ("等待手机画面…") used to count as a real picture.
             const probe = (this.blackProbe ??= this.tag.ownerDocument.createElement('canvas'));
             probe.width = 96;
             probe.height = 192;
             const ctx = probe.getContext('2d', { willReadFrequently: true });
             if (!ctx) return;
-            ctx.drawImage(this.tag, 0, 0, 96, 192);
+            ctx.drawImage(frame, 0, 0, 96, 192);
             const data = ctx.getImageData(0, 0, 96, 192).data;
             let max = 0;
             for (let i = 0; i < data.length && max <= 16; i += 4) max = Math.max(max, data[i]!, data[i + 1]!, data[i + 2]!);
@@ -484,8 +484,8 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
                 } else {
                     this.context.drawImage(frame, 0, 0);
                 }
+                if (!this.healthReported) this.checkBlack(frame as unknown as CanvasImageSource);
                 frame.close?.();
-                if (!this.healthReported) this.checkBlack();
             }
         }
         if (this.decodedFrames.length) {

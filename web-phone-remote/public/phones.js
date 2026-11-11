@@ -4,7 +4,7 @@
     const quality = document.getElementById('quality');
     const fps = document.getElementById('fps');
     const tileSize = document.getElementById('tile-size');
-    const UI_VERSION = '1112w';
+    const UI_VERSION = '1112y';
     const sizeValue = document.getElementById('size-value');
     const backdrop = document.getElementById('viewer-backdrop');
     const grid = document.getElementById('phone-grid');
@@ -560,12 +560,18 @@
             }
             return;
         }
-        if (quality.value !== 'auto') return;
         const lower = [...AUTO_SIZE_STEPS].reverse().find((step) => step < have.maxSize);
         if (!lower) return;
+        card._healthRetries = (card._healthRetries || 0) + 1;
+        if (card._healthRetries > 2) return; // still black at the lowest size: stop reconnecting
         try { localStorage.setItem(`phone-auto-cap:${card.dataset.device}`, String(lower)); } catch { /* per-session only */ }
-        logOperation(card, `画面${state === 'black' ? '全黑' : '没出来'}，自动画质降到 ${lower}`);
-        connect(card, true);
+        // 同时告诉服务器：以后任何浏览器、任何画质档看这台手机都不超过这个尺寸。
+        fetch('/api/settings/video-cap', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ udid: card.dataset.device, maxSize: lower }),
+        }).catch(() => { /* best effort */ }).finally(() => connect(card, true));
+        logOperation(card, `画面${state === 'black' ? '全黑' : '没出来'}，画质降到 ${lower}`);
     }
 
     function videoProfile(card) {
@@ -587,7 +593,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261112x',
+                ui: '20261112y',
             });
             return `snapshot.html?${params}`;
         }
@@ -601,7 +607,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261112x',
+            ui: '20261112y',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         if (card.dataset.hear === '1' && audioSourceFor(card.dataset.device) === 'playback') {
