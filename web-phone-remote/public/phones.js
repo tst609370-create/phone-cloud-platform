@@ -532,7 +532,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261111v',
+                ui: '20261111w',
             });
             return `snapshot.html?${params}`;
         }
@@ -546,7 +546,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261111v',
+            ui: '20261111w',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         return `embed.html?${params}`;
@@ -724,10 +724,12 @@
     function logStreamInfo(card, canvas) {
         if (streamMode === 'snapshot' || !canvas?.width || !card._connectedProfile) return;
         const { bitrate, maxFps } = card._connectedProfile;
-        const info = `实际画面 ${canvas.width}×${canvas.height} · ${(bitrate / 1000000).toFixed(bitrate % 1000000 ? 1 : 0)} Mbps · ${maxFps} 帧`;
+        // Shown permanently at the right of the log row so operations don't hide it.
+        const info = `${canvas.width}×${canvas.height} · ${(bitrate / 1000000).toFixed(bitrate % 1000000 ? 1 : 0)}M · ${maxFps}fps`;
         if (card._streamInfo === info) return;
         card._streamInfo = info;
-        logOperation(card, info);
+        const row = card.querySelector('.card-operation-log');
+        if (row) row.dataset.stream = info;
     }
 
     function fitStreamToFrame(card, doc, canvas) {
@@ -1177,6 +1179,7 @@
         delete card.dataset.streamProfile;
         card._videoAspect = 0;
         card._streamInfo = '';
+        delete card.querySelector('.card-operation-log')?.dataset.stream;
         if (layoutMode !== 'carousel') {
             card.style.width = '';
             card.style.height = '';

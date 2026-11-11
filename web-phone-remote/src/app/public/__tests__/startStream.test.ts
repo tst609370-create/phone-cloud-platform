@@ -102,6 +102,14 @@ describe('startStream', () => {
         expect(args[3].bounds?.height).toBe(1920);
     });
 
+    it('does not let fitToScreen shrink an explicit maxSize to the iframe size', async () => {
+        const { StreamClientScrcpy } = await import('../../googDevice/client/StreamClientScrcpy');
+        startStream(container, 'abc123', { bitrate: 8000000, maxFps: 30, maxSize: 2400 });
+        const args = (StreamClientScrcpy.start as ReturnType<typeof vi.fn>).mock.calls[0]!;
+        expect(args[2]).toBe(false);
+        expect(args[0].fitToScreen).toBe(false);
+    });
+
     it('passes undefined videoSettings when no bitrate/fps/size specified', async () => {
         const { StreamClientScrcpy } = await import('../../googDevice/client/StreamClientScrcpy');
         startStream(container, 'abc123');

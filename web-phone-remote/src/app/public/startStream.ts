@@ -43,6 +43,7 @@ export function startStream(container: HTMLElement, deviceId: string, options: S
         h265: 'h265',
         av1: 'av1',
     };
+    const fitToScreen = options.maxSize === undefined;
     const videoCodec = options.codec ? codecMap[options.codec] : undefined;
 
     // Build the params object. bitrate/maxFps/maxSize do NOT belong on
@@ -60,7 +61,10 @@ export function startStream(container: HTMLElement, deviceId: string, options: S
         secure: options.secure ?? false,
         pathname: options.pathname ?? '',
         useProxy: false,
-        fitToScreen: true,
+        // fitToScreen replaces maxSize with the iframe's CSS-pixel viewport
+        // (e.g. 330x720 → a 324x720 stream that the browser then upscales by
+        // devicePixelRatio). Only fall back to it when the caller gave no size.
+        fitToScreen,
         ...(videoCodec !== undefined ? { videoCodec } : {}),
         ...(options.encoder !== undefined ? { encoderName: options.encoder } : {}),
         ...(typeof options.audio === 'boolean' ? { audioEnabled: options.audio } : {}),
@@ -87,7 +91,7 @@ export function startStream(container: HTMLElement, deviceId: string, options: S
         const { instance, stop } = StreamClientScrcpy.start(
             params,
             undefined,
-            true,
+            fitToScreen,
             videoSettings,
             container,
             (ev?: CloseEvent) => {
