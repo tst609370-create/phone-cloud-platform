@@ -159,6 +159,9 @@ export class StreamClientScrcpy
         | ((info: { codec: string; encoder: string; resolution: string; audio?: string; audioReason?: string }) => void)
         | undefined;
 
+    /** Public hook — why the user can't hear the phone right now (undefined once audio plays). */
+    public onAudioStatus?: ((problem: string | undefined) => void) | undefined;
+
     /** Public hook — fires on async stream errors (WebSocket refused, probe failure, etc.). */
     public onErrorReceived?: ((err: Error) => void) | undefined;
 
@@ -353,7 +356,7 @@ export class StreamClientScrcpy
         if (meta.audioCodec === 'pending') return;
         if (meta.audioCodec !== 'disabled' && meta.audioCodec !== 'error' && !meta.audioCodec.startsWith('unknown')) {
             if (!this.audioPlayer) {
-                this.audioPlayer = new AudioPlayer(meta.audioCodec);
+                this.audioPlayer = new AudioPlayer(meta.audioCodec, (problem) => this.onAudioStatus?.(problem));
                 this.audioPlayer.start().catch((err) => {
                     console.error(TAG, 'Failed to start audio:', err.message);
                 });
@@ -450,9 +453,10 @@ export class StreamClientScrcpy
             const parent = deviceView.parentElement;
             if (parent) parent.removeChild(deviceView);
             this.setHandleKeyboardEvents(false);
-            document.removeEventListener('pointerdown', resumeAudio);
-            document.removeEventListener('click', resumeAudio);
-            document.removeEventListener('keydown', resumeAudio);
+            document.removeEventListener('pointerdown', resumeAudio, true);
+            document.removeEventListener('click', resumeAudio, true);
+            document.removeEventListener('keydown', resumeAudio, true);
+            window.removeEventListener('message', resumeFromParent);
             this.demuxer?.close();
             this.audioPlayer?.stop();
             if (this.player) this.player.stop();
@@ -482,16 +486,20 @@ export class StreamClientScrcpy
         }
         player.setVideoSettings(videoSettings, !!fitToScreen, false);
 
-        // Resume audio on first user interaction (autoplay policy)
+        // Resume audio on every user interaction (autoplay policy). Not `once`:
+        // a click before the audio player exists (audio starts a few seconds
+        // after video) used to consume the listener and leave audio muted.
+        // Capture phase so the touch layer can't swallow it.
         const resumeAudio = () => {
-            this.audioPlayer?.resume();
-            document.removeEventListener('pointerdown', resumeAudio);
-            document.removeEventListener('click', resumeAudio);
-            document.removeEventListener('keydown', resumeAudio);
+            void this.audioPlayer?.resume();
         };
-        document.addEventListener('pointerdown', resumeAudio, { once: true });
-        document.addEventListener('click', resumeAudio, { once: true });
-        document.addEventListener('keydown', resumeAudio, { once: true });
+        const resumeFromParent = (event: MessageEvent) => {
+            if (event.origin === location.origin && event.data?.type === 'phone-audio-resume') resumeAudio();
+        };
+        document.addEventListener('pointerdown', resumeAudio, true);
+        document.addEventListener('click', resumeAudio, true);
+        document.addEventListener('keydown', resumeAudio, true);
+        window.addEventListener('message', resumeFromParent);
 
         if (this.params.videoCodec) {
             // Caller supplied a codec — verify the browser can actually decode it

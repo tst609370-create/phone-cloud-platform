@@ -23,6 +23,7 @@ const ACTIVE_STREAM_ATTR = 'data-ws-scrcpy-active';
 interface StreamClientInstanceHooks {
     onMetadataReceived?: (info: StreamInfo) => void;
     onErrorReceived?: (err: Error) => void;
+    onAudioStatus?: (problem: string | undefined) => void;
 }
 
 export function startStream(container: HTMLElement, deviceId: string, options: StartStreamOptions = {}): StreamHandle {
@@ -110,6 +111,7 @@ export function startStream(container: HTMLElement, deviceId: string, options: S
             isConnected = true;
             options.onConnect?.(info);
         };
+        hooked.onAudioStatus = (problem) => options.onAudioStatus?.(problem);
         hooked.onErrorReceived = (err: Error) => {
             options.onError?.(err);
         };

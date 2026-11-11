@@ -110,14 +110,13 @@ function bootstrap(): void {
         return;
     }
 
+    const audioNote = createAudioNote();
+    options.onAudioStatus = (problem) => audioNote.set(problem);
     options.onConnect = (info) => {
+        const failed = info.audio === 'disabled' || info.audio === 'error';
+        audioNote.set(failed && info.audioReason ? `没有声音：${info.audioReason}` : undefined);
         if (info.audio === 'pending') {
             show(`connected \u00b7 ${info.codec} \u00b7 ${info.resolution} \u00b7 正在打开播放声`);
-            return;
-        }
-        const failed = info.audio === 'disabled' || info.audio === 'error';
-        if (failed && info.audioReason) {
-            show(info.audioReason, true);
             return;
         }
         const audio = info.audio && info.audio !== 'disabled' ? ` \u00b7 audio ${info.audio}` : '';
@@ -149,4 +148,34 @@ function bootstrap(): void {
     } catch (err) {
         show(`error: ${err instanceof Error ? err.message : String(err)}`, true);
     }
+}
+
+/**
+ * A small banner over the stream saying why the phone is silent. Kept apart
+ * from #status, which the phone wall reads as the connection state. Clicking
+ * it resumes audio (the click is the user gesture browsers want) without the
+ * tap reaching the phone screen underneath.
+ */
+function createAudioNote(): { set(problem: string | undefined): void } {
+    const note = document.createElement('div');
+    note.id = 'audio-note';
+    note.hidden = true;
+    note.style.cssText =
+        'position:fixed;left:8px;right:8px;bottom:8px;z-index:30;padding:6px 10px;border-radius:6px;' +
+        'background:rgba(20,20,20,.86);color:#ffd27a;font:12px/1.45 system-ui,sans-serif;cursor:pointer;' +
+        'text-align:center;';
+    note.title = '点一下重试播放声音';
+    note.addEventListener('click', (event) => {
+        event.stopPropagation();
+        window.postMessage({ type: 'phone-audio-resume' }, location.origin);
+    });
+    const attach = () => document.body?.appendChild(note);
+    if (document.body) attach();
+    else window.addEventListener('DOMContentLoaded', attach);
+    return {
+        set(problem) {
+            note.textContent = problem ?? '';
+            note.hidden = !problem;
+        },
+    };
 }

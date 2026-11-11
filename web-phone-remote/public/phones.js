@@ -485,6 +485,7 @@
             cards.forEach((card) => close(card, false));
             grid.replaceChildren();
             cards = devices.map(createCard);
+            applyHearPreference();
             ensureSyncSelection();
             ensureActiveSelection();
             renderDeviceNav(devices);
@@ -565,7 +566,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261112q',
+                ui: '20261112u',
             });
             return `snapshot.html?${params}`;
         }
@@ -579,10 +580,52 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261112q',
+            ui: '20261112u',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
+        // http:// public addresses have no WebCodecs audio decoder; ask the
+        // phone for plain PCM, which the page can play without decoding.
+        if (card.dataset.hear === '1' && (!window.isSecureContext || typeof window.AudioDecoder === 'undefined')) {
+            params.set('audioCodec', 'raw');
+        }
         return `embed.html?${params}`;
+    }
+
+    function paintAudioNote(card, note) {
+        const button = card.querySelector('[data-action="hear"]');
+        if (!button) return;
+        const problem = card.dataset.hear === '1' && note && !note.hidden ? note.textContent.trim() : '';
+        button.classList.toggle('warn', Boolean(problem));
+        button.title = problem || '听这部手机正在播放的声音。不需要 root，也不是麦克风注入。再点一次停止。';
+        if (problem && problem !== card._audioProblem) logOperation(card, `没有声音：${problem.replace(/^没有声音：/, '')}`);
+        card._audioProblem = problem;
+    }
+
+    // A click anywhere on the console is a user gesture: let the listening
+    // stream retry its AudioContext (browsers start it muted otherwise).
+    document.addEventListener('pointerdown', () => {
+        for (const card of cards) {
+            if (card.dataset.hear !== '1') continue;
+            card.querySelector('iframe')?.contentWindow?.postMessage({ type: 'phone-audio-resume' }, location.origin);
+        }
+    }, true);
+
+    // 听声音 used to start off on every page load, so people simply never
+    // heard anything. Remember the choice; with a single phone and no saved
+    // choice, listen by default.
+    function applyHearPreference() {
+        let pref = null;
+        try { pref = localStorage.getItem('phone-hear'); } catch { /* storage blocked */ }
+        const target = pref && pref !== 'off'
+            ? cards.find((card) => card.dataset.device === pref)
+            : pref === null && cards.length === 1 ? cards[0] : null;
+        if (!target || streamMode === 'snapshot') return;
+        target.dataset.hear = '1';
+        paintHear(target);
+    }
+
+    function saveHearPreference(serial) {
+        try { localStorage.setItem('phone-hear', serial || 'off'); } catch { /* storage blocked */ }
     }
 
     function paintHear(card) {
@@ -701,6 +744,7 @@
             delete card.dataset.hear;
         }
         paintHear(card);
+        saveHearPreference(enable ? card.dataset.device : '');
         logOperation(card, enable ? '正在打开这部手机的播放声音' : '已停止听音');
         if (card.dataset.streaming === '1') connect(card, true);
         else activate(card);
@@ -930,6 +974,7 @@
                 fitCardToPhone(card, canvas, doc.querySelector('.control-buttons-list'));
                 if (autoArrange || needsInitialLayout) scheduleTile();
             }
+            paintAudioNote(card, doc.getElementById('audio-note'));
             if (status.classList.contains('hidden') || /^connected\b/i.test(status.textContent)) {
                 setState(card, 'connected', '已连接');
                 logStreamInfo(card, canvas);

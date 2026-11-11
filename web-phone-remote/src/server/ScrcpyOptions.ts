@@ -26,7 +26,7 @@ export interface ScrcpyOptions {
     minSizeAlignment?: 1 | 2 | 4 | 8 | 16;
 }
 
-const DEFAULTS: Omit<Required<ScrcpyOptions>, 'scid' | 'videoEncoder'> = {
+const DEFAULTS: Omit<Required<ScrcpyOptions>, 'scid' | 'videoEncoder' | 'minSizeAlignment'> = {
     videoCodec: 'h264',
     audioCodec: 'opus',
     audioSource: 'output',

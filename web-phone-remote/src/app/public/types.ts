@@ -45,6 +45,8 @@ export interface StartStreamOptions {
     onConnect?: ((info: StreamInfo) => void) | undefined;
     onDisconnect?: ((reason?: string) => void) | undefined;
     onError?: ((err: Error) => void) | undefined;
+    /** Why the phone's sound can't be heard right now; undefined once it plays. */
+    onAudioStatus?: ((problem: string | undefined) => void) | undefined;
 }
 
 export interface StreamInfo {

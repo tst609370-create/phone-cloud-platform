@@ -28,7 +28,7 @@
 | `src/server/db/` | SQLite 存储与迁移（用户、设备、设置） |
 | `src/server/mic/` + `MicInject.ts` | 电脑麦克风 → 手机麦克风：`route` WS 路由（action=`mic`）、`hub`/`session` 会话、`deviceBridge` 选 LSPosed 或 shell 通道 |
 | `src/server/ScrcpyOptions.ts`, `scrcpyServerVersion.ts`, `ensureScrcpyServerPushed.ts` | scrcpy-server 启动参数与版本 |
-| `src/app/` | 前端（webpack 打包）：`mic/` 麦克风按钮、`audio/` 播放声、`player/` 解码、`googDevice/` 控制工具栏 |
+| `src/app/` | 前端（webpack 打包）：`mic/` 麦克风按钮、`audio/` 播放声（AudioPlayer；audioHealth.ts 判断无声原因，embed 底部 #audio-note 显示）、`player/` 解码、`googDevice/` 控制工具栏 |
 | `public/` | 静态页：`admin.html` 租用后台、`index.html`/`phones.js`/`phones.css` 手机墙、`snapshot.*` 快照模式；`tianxi.css`/`tianxi.js` 是 Tianxi UI 的静态移植（令牌 + Select/Tooltip/Toast/确认框），所有页面共用 |
 | `android/virtual-mic/` | 手机侧虚拟麦克风：LSPosed 模块、Magisk 包装、shell 注入 jar |
 | `installer/windows/` | Go 写的单文件 Windows 安装器（UAC、开机任务、向注册服务换配置） |

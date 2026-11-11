@@ -71,7 +71,7 @@ export async function pipeScrcpySockets(
             if (requestedAudio) audioReason = audioBlock ?? '手机没有送出可播放的声音';
         } else if (codecId === AUDIO_ERROR) {
             audioCodec = 'error';
-            audioReason = '手机音频采集失败';
+            audioReason = '手机音频采集失败：请把手机亮屏解锁后点「听声音」重试；一加/ColorOS 若仍失败，多半是系统禁止录制播放声';
         } else {
             audioCodec = codecName(codecId);
             audioReason = undefined;
