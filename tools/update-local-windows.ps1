@@ -6,6 +6,28 @@ $ProgressPreference = 'SilentlyContinue'
 # Windows PowerShell 5.1 默认可能没开 TLS 1.2
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 function Step($t) { Write-Host "`n== $t" -ForegroundColor Cyan }
+# 国内网络下 nodejs.org / GitHub 经常连不上：每个下载先试官方源，失败换国内镜像
+function Get-FileWithFallback([string[]]$urls, [string]$out) {
+    foreach ($u in $urls) {
+        try {
+            Write-Host "下载 $u"
+            Invoke-WebRequest $u -OutFile $out -UseBasicParsing -TimeoutSec 300
+            if ((Get-Item $out).Length -gt 0) { return }
+        } catch { Write-Host "  失败：$($_.Exception.Message)" -ForegroundColor Yellow }
+    }
+    throw "所有下载源都失败：$($urls -join ' , ')"
+}
+# 计划任务由安装包以管理员身份建立，普通账号可能没权限 /Run；失败就直接用启动脚本拉起
+function Start-PhoneTask([string]$name, [string]$vbs) {
+    $ErrorActionPreference = 'Continue'
+    schtasks /Run /TN $name 2>&1 | Out-Null
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+    if ($code -ne 0) {
+        if (Test-Path $vbs) { Start-Process wscript.exe -ArgumentList '//B', '//Nologo', "`"$vbs`"" -WindowStyle Hidden; Write-Host "计划任务 $name 无法直接启动，已用 $vbs 拉起" }
+        else { Write-Host "计划任务 $name 启动失败，且没找到 $vbs；重新登录 Windows 后会自动启动" -ForegroundColor Yellow }
+    }
+}
 
 $root = Join-Path $env:LOCALAPPDATA 'PhoneRemote'
 $runCmd = Join-Path $root 'run-node.cmd'
@@ -26,12 +48,12 @@ $nodeDir = Join-Path $work 'node'
 # PowerShell 5.1 的 Invoke-RestMethod 会把 JSON 数组当成一个整体送进管道，所以先 @() 展开再逐个找
 $ver = $null
 try {
-    $index = @(Invoke-RestMethod 'https://nodejs.org/dist/index.json')
+    $index = @(Invoke-RestMethod 'https://nodejs.org/dist/index.json' -TimeoutSec 15)
     foreach ($item in $index) { foreach ($entry in @($item)) { if (-not $ver -and "$($entry.version)" -like 'v24.*') { $ver = "$($entry.version)" } } }
 } catch { Write-Host "读取 Node 版本列表失败，改用固定版本：$($_.Exception.Message)" }
 if (-not $ver -or $ver -notmatch '^v24\.\d+\.\d+$') { $ver = 'v24.22.2' }
 $zip = Join-Path $work 'node.zip'
-Invoke-WebRequest "https://nodejs.org/dist/$ver/node-$ver-win-x64.zip" -OutFile $zip
+Get-FileWithFallback @("https://nodejs.org/dist/$ver/node-$ver-win-x64.zip", "https://npmmirror.com/mirrors/node/$ver/node-$ver-win-x64.zip") $zip
 Expand-Archive $zip -DestinationPath $work
 Rename-Item (Join-Path $work "node-$ver-win-x64") 'node'
 $env:PATH = "$nodeDir;$env:PATH"
@@ -39,7 +61,9 @@ Write-Host "Node $ver"
 
 Step '下载 main 最新代码'
 $src = Join-Path $work 'src.zip'
-Invoke-WebRequest 'https://codeload.github.com/tst609370-create/phone-cloud-platform/zip/refs/heads/main' -OutFile $src
+Get-FileWithFallback @('https://codeload.github.com/tst609370-create/phone-cloud-platform/zip/refs/heads/main',
+    'https://ghfast.top/https://github.com/tst609370-create/phone-cloud-platform/archive/refs/heads/main.zip',
+    'https://gh-proxy.com/https://github.com/tst609370-create/phone-cloud-platform/archive/refs/heads/main.zip') $src
 Expand-Archive $src -DestinationPath $work
 $repo = Join-Path $work 'phone-cloud-platform-main\web-phone-remote'
 
@@ -47,7 +71,11 @@ Step '构建（npm ci + webpack，约 2–5 分钟）'
 Push-Location $repo
 try {
     & npm ci --ignore-scripts --no-audit --no-fund
-    if ($LASTEXITCODE -ne 0) { throw 'npm ci 失败' }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host 'npm 官方源失败，改用国内镜像 registry.npmmirror.com 重试' -ForegroundColor Yellow
+        & npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmmirror.com
+        if ($LASTEXITCODE -ne 0) { throw 'npm ci 失败' }
+    }
     & npx webpack --config webpack/ws-scrcpy-web.prod.ts
     if ($LASTEXITCODE -ne 0) { throw 'webpack 构建失败' }
 } finally { Pop-Location }
@@ -90,15 +118,16 @@ if ((Test-Path $frpcToml) -and (Test-Path $frpcCmd)) {
         $ErrorActionPreference = 'Continue'
         schtasks /End /TN 'PhoneRemote-Frpc' 2>&1 | Out-Null
         Get-CimInstance Win32_Process -Filter "Name='frpc.exe'" | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -like "$root*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-        schtasks /Run /TN 'PhoneRemote-Frpc' 2>&1 | Out-Null
         $ErrorActionPreference = 'Stop'
+        Start-PhoneTask 'PhoneRemote-Frpc' (Join-Path $root 'run-frpc.vbs')
         Write-Host '已更新 frpc：登录失败会自动重试，进程退出 10 秒后自动重启。'
     } else { Write-Host 'frpc 已是自愈配置。' }
 } else { Write-Host '本机没装 frpc 公网中转，跳过。' }
 
 Step '重新启动'
-schtasks /Run /TN 'PhoneRemote-Node' | Out-Null
+Start-PhoneTask 'PhoneRemote-Node' (Join-Path $root 'run-node.vbs')
 $port = [regex]::Match($text, 'set "PORT=(\d+)"').Groups[1].Value
+if (-not $port) { throw "run-node.cmd 里找不到端口（set PORT=...）" }
 $ok = $false
 for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
     Start-Sleep -Seconds 2
