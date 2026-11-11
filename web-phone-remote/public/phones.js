@@ -557,7 +557,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261111y',
+                ui: '20261111z',
             });
             return `snapshot.html?${params}`;
         }
@@ -571,7 +571,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261111y',
+            ui: '20261111z',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         return `embed.html?${params}`;
@@ -708,13 +708,16 @@
                 connect(card, true);
                 return;
             }
-            if (quality.value === 'auto' && want.maxSize !== have.maxSize && !card._autoTimer) {
-                // Wait until resizing/expanding settles before switching tiers.
+            if (quality.value === 'auto' && want.maxSize > have.maxSize) {
+                // Only step up automatically (a bigger window needs more pixels);
+                // stepping down is not worth a reconnect. Debounce until the
+                // resize/expand has settled.
+                clearTimeout(card._autoTimer);
                 card._autoTimer = setTimeout(() => {
                     card._autoTimer = 0;
                     if (card.dataset.streaming === '1' && card._connectedProfile
-                        && videoProfile(card).maxSize !== card._connectedProfile.maxSize) connect(card, true);
-                }, 1200);
+                        && videoProfile(card).maxSize > card._connectedProfile.maxSize) connect(card, true);
+                }, 1500);
             }
             return;
         }
@@ -726,6 +729,11 @@
     }
 
     function setState(card, state, label) {
+        if (state === 'connected') {
+            clearTimeout(card._watchdog);
+            card._watchdog = 0;
+            card._retries = 0;
+        }
         const el = card.querySelector('.connection-state');
         el.className = `connection-state ${state}`;
         el.textContent = label;
@@ -886,7 +894,11 @@
 
     function applyFrameState(card) {
         try {
-            const doc = card.querySelector('iframe').contentDocument;
+            const frame = card.querySelector('iframe');
+            const doc = frame.contentDocument;
+            // While the iframe navigates to a new stream, observers can still
+            // fire for the old document; don't report its state as current.
+            if (doc && frame.src && doc.URL !== frame.src) return;
             const status = doc?.getElementById('status');
             if (!status) return;
             doc.documentElement.setAttribute('data-theme', 'dark');
@@ -1204,8 +1216,37 @@
         } catch { /* keep the previous frame if this decoder cannot be sampled */ }
     }
 
+    const RECONNECT_GAP_MS = 2500;
+    const CONNECT_TIMEOUT_MS = 12000;
+
     function connect(card, force = false) {
         if (card.dataset.streaming === '1' && !force) return;
+        // Back-to-back reconnects start two scrcpy sessions on the phone while
+        // the first is still coming up, and the second can hang on
+        // "connecting...". Coalesce them into one, a little later.
+        const sinceLast = Date.now() - (card._connectAt || 0);
+        if (force && card.dataset.streaming === '1' && sinceLast < RECONNECT_GAP_MS) {
+            if (!card._deferredConnect) {
+                card._deferredConnect = setTimeout(() => {
+                    card._deferredConnect = 0;
+                    if (card.dataset.streaming === '1') connect(card, true);
+                }, RECONNECT_GAP_MS - sinceLast);
+            }
+            return;
+        }
+        clearTimeout(card._deferredConnect);
+        card._deferredConnect = 0;
+        clearTimeout(card._autoTimer);
+        card._autoTimer = 0;
+        card._connectAt = Date.now();
+        clearTimeout(card._watchdog);
+        card._watchdog = setTimeout(() => {
+            card._watchdog = 0;
+            if (card.dataset.streaming !== '1' || card.querySelector('.connection-state').classList.contains('connected')) return;
+            card._retries = (card._retries || 0) + 1;
+            if (card._retries <= 2) connect(card, true);
+            else setState(card, 'error', '连接超时，点刷新按钮重连');
+        }, CONNECT_TIMEOUT_MS);
         if (card.dataset.streaming === '1' && force) {
             captureLastFrame(card);
             if (card.querySelector('.last-frame').src) card.classList.add('reconnecting');
@@ -1216,7 +1257,9 @@
         card._videoAspect = 0;
         card._streamInfo = '';
         delete card.querySelector('.card-operation-log')?.dataset.stream;
-        if (layoutMode !== 'carousel') {
+        // Keep the fitted size while reconnecting so the card doesn't turn into
+        // a wide black box; it is refitted once the new stream reports its size.
+        if (layoutMode !== 'carousel' && !card._lastAspect) {
             card.style.width = '';
             card.style.height = '';
         }
@@ -1566,8 +1609,39 @@
             }
         });
     });
+    // 窗口大小只有小/中/大三档：每次切档只重新适配一次，不会边拖边重连。
+    const sizeButtons = [...document.querySelectorAll('.size-switch [data-size]')];
+    function paintSizeButtons() {
+        for (const button of sizeButtons) {
+            const on = button.dataset.size === tileSize.value;
+            button.classList.toggle('active', on);
+            button.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+    }
+    try {
+        const saved = localStorage.getItem('phone-tile-size');
+        if (sizeButtons.some((button) => button.dataset.size === saved)) tileSize.value = saved;
+    } catch { /* keep the default size */ }
+    paintSizeButtons();
+    document.documentElement.style.setProperty('--phone-width', `${tileSize.value}px`);
+    for (const button of sizeButtons) {
+        button.addEventListener('click', () => {
+            if (tileSize.value === button.dataset.size) return;
+            tileSize.value = button.dataset.size;
+            try { localStorage.setItem('phone-tile-size', tileSize.value); } catch { /* per-browser convenience only */ }
+            paintSizeButtons();
+            tileSize.dispatchEvent(new Event('input'));
+            tileSize.dispatchEvent(new Event('change'));
+        });
+    }
     tileSize.addEventListener('change', () => {
-        updateStreamingMode(true);
+        // No reconnect needed for a size change: refit each card to its stream,
+        // and let 「自动」 step up later if the bigger window needs it.
+        cards.forEach((card) => {
+            if (card.classList.contains('closed')) return;
+            card._videoAspect = 0;
+            applyFrameState(card);
+        });
         needsInitialLayout = true;
         scheduleTile();
     });

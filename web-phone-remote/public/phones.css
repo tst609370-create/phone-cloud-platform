@@ -92,17 +92,18 @@ svg { flex: 0 0 auto; }
 .topbar button svg { width: 14px; height: 14px; }
 #tile-all { height: 32px; padding: 0 12px; border: 1px solid var(--tx-wash-5); border-radius: var(--tx-radius-md); color: var(--tx-fg-2); background: transparent; font-size: var(--tx-text-sub); }
 #tile-all:hover { color: var(--tx-fg); border-color: var(--tx-wash-6); background: var(--tx-wash-3); }
-.stream-switch, .layout-switch {
+.stream-switch, .layout-switch, .size-switch {
     height: 32px; display: flex; align-items: center; gap: 2px; padding: 3px;
     border: 1px solid var(--tx-line); border-radius: var(--tx-radius-lg); background: var(--tx-field); box-shadow: var(--tx-shadow-field);
 }
 .stream-switch { margin-left: auto; }
-.stream-switch button, .layout-switch button {
+.size-switch button { flex: 1; cursor: pointer; }
+.stream-switch button, .layout-switch button, .size-switch button {
     height: 24px; padding: 0 11px; border: 0; border-radius: var(--tx-radius-sm); color: var(--tx-fg-3); background: transparent;
     font-size: var(--tx-text-sub); font-weight: 500; white-space: nowrap;
 }
-.stream-switch button:hover, .layout-switch button:hover { color: var(--tx-fg-2); }
-.stream-switch button.active, .layout-switch button.active { color: var(--tx-fg); background: var(--tx-surface-3); box-shadow: var(--tx-shadow-raised); }
+.stream-switch button:hover, .layout-switch button:hover, .size-switch button:hover { color: var(--tx-fg-2); }
+.stream-switch button.active, .layout-switch button.active, .size-switch button.active { color: var(--tx-fg); background: var(--tx-surface-3); box-shadow: var(--tx-shadow-raised); }
 
 .carousel-nav {
     display: none; position: absolute; left: 50%; bottom: 14px; z-index: 20; transform: translateX(-50%);
@@ -131,7 +132,7 @@ svg { flex: 0 0 auto; }
     position: absolute; top: 10px; left: 10px;
     width: var(--phone-width); height: calc(var(--phone-width) * 1.82);
     min-width: 260px; min-height: 460px; max-width: calc(100vw - 100px); max-height: calc(100vh - 60px);
-    display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 36px minmax(0, 1fr) 36px 22px; overflow: hidden; resize: both;
+    display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 36px minmax(0, 1fr) 36px 22px; overflow: hidden; resize: none;
     border: 1px solid var(--tx-line-strong); border-radius: var(--tx-radius-lg); background: var(--tx-inset);
     box-shadow: 0 0 0 1px rgb(0 0 0 / .6), 0 24px 60px -24px rgb(0 0 0 / .9);
     transition: width .32s var(--tx-ease), height .32s var(--tx-ease), border-color .16s ease, box-shadow .24s ease;
