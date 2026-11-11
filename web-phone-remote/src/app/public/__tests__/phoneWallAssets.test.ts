@@ -36,4 +36,16 @@ describe('phone wall snapshot controls', () => {
         expect(source).toContain('/?refresh-token=');
         expect(source).toContain('response = await fetchConnectedDevices()');
     });
+
+    it('sends long-side maxSize so 720p is not shrunk to 324x720', () => {
+        const html = publicFile('index.html');
+        const options = [...html.matchAll(/<option value="(\d+)"[^>]*>[^<]*?(\d+)p<\/option>/g)];
+        expect(options.map((m) => m[2])).toEqual(['480', '720', '1080']);
+        for (const [, value, label] of options) {
+            // scrcpy max_size caps the longest side; a 20:9 phone needs ~2.2x the short side.
+            expect(Number(value)).toBeGreaterThanOrEqual(Number(label) * 2.2);
+        }
+        const source = publicFile('phones.js');
+        expect(source).toContain('requestedSize > 1600 ? 8000000 : requestedSize > 1080 ? 4000000 : 2000000');
+    });
 });

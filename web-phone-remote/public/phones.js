@@ -494,12 +494,14 @@
     }
 
     function videoProfile(card) {
+        // scrcpy maxSize limits the LONGEST side. Option values are long-side
+        // pixels (1080/1600/2400 ≈ 480p/720p/1080p on a 20:9 phone).
         const requestedSize = Number(quality.value);
         const requestedFps = Number(fps.value);
         const active = card.dataset.device === activeSerial;
-        const activeBitrate = requestedSize > 720 ? 1200000 : requestedSize > 480 ? 1000000 : 800000;
+        const activeBitrate = requestedSize > 1600 ? 8000000 : requestedSize > 1080 ? 4000000 : 2000000;
         return {
-            bitrate: adaptiveRemote && !active ? 350000 : activeBitrate,
+            bitrate: adaptiveRemote && !active ? 1000000 : activeBitrate,
             maxFps: adaptiveRemote && !active ? Math.min(15, requestedFps) : requestedFps,
             maxSize: requestedSize,
         };
