@@ -79,6 +79,30 @@ for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
         $ok = $page.Content -match 'login-assets/globe.js'
     } catch {}
 }
+Step '把本机控制台快捷方式换成独立窗口（Edge/Chrome 应用模式）'
+$browser = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe", "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+    "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe") | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+if ($browser) {
+    $shell = New-Object -ComObject WScript.Shell
+    $dirs = @([Environment]::GetFolderPath('Desktop'), (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\手机远控'))
+    foreach ($dir in $dirs) {
+        foreach ($name in '打开本机控制台', '管理后台') {
+            $url = Join-Path $dir "$name.url"
+            $lnk = Join-Path $dir "$name.lnk"
+            if (-not (Test-Path $url) -and -not (Test-Path $lnk)) { continue }
+            $sc = $shell.CreateShortcut($lnk)
+            $sc.TargetPath = $browser
+            $sc.Arguments = "--app=http://127.0.0.1:$port/admin-login"
+            $sc.IconLocation = "$browser,0"
+            $sc.Description = '手机远控本机控制台'
+            $sc.Save()
+            Remove-Item $url -ErrorAction SilentlyContinue
+            Write-Host "已更新：$lnk"
+        }
+    }
+} else { Write-Host '没找到 Edge 或 Chrome，快捷方式保持不变。' }
+
 if ($ok) {
     Write-Host "`n更新完成：http://127.0.0.1:$port/admin-login 已是新登录页。" -ForegroundColor Green
     Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue

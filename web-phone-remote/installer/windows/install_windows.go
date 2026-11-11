@@ -611,8 +611,33 @@ func placeShortcuts(root string, port int) error {
 				return err
 			}
 		}
+		writeAppWindowShortcuts(dir, localAdminEntry(port))
 	}
 	return nil
+}
+
+// writeAppWindowShortcuts swaps the console .url entries for Edge/Chrome
+// --app shortcuts so the console opens as its own window. Keeps the .url
+// when no browser is found or the .lnk cannot be written.
+func writeAppWindowShortcuts(dir, page string) {
+	browser := findAppBrowser(os.Getenv, func(path string) bool {
+		_, err := os.Stat(path)
+		return err == nil
+	})
+	if browser == "" {
+		return
+	}
+	for _, name := range appWindowShortcuts {
+		lnk := filepath.Join(dir, name+".lnk")
+		cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", appShortcutScript())
+		hide(cmd)
+		cmd.Env = append(os.Environ(), "PR_LNK="+lnk, "PR_BROWSER="+browser, "PR_PAGE="+page)
+		if err := cmd.Run(); err != nil {
+			noteInstallLog("创建独立窗口快捷方式失败，保留网页快捷方式：" + name)
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, name+".url"))
+	}
 }
 
 func copyFile(src, dst string) error {
@@ -656,6 +681,9 @@ func removeEntries() {
 		filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "手机远控"),
 	}
 	for _, dir := range dirs {
+		for _, name := range appWindowShortcuts {
+			_ = os.Remove(filepath.Join(dir, name+".lnk"))
+		}
 		for name := range files {
 			_ = os.Remove(filepath.Join(dir, name))
 		}

@@ -210,3 +210,31 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+func TestFindAppBrowserPrefersEdgeThenChrome(t *testing.T) {
+	env := func(key string) string {
+		return map[string]string{"ProgramFiles(x86)": `C:\PF86`, "ProgramFiles": `C:\PF`, "LOCALAPPDATA": `C:\U\AppData\Local`}[key]
+	}
+	only := func(paths ...string) func(string) bool {
+		return func(p string) bool {
+			for _, x := range paths {
+				if p == x {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	if got := findAppBrowser(env, only(`C:\PF\Google\Chrome\Application\chrome.exe`, `C:\PF86\Microsoft\Edge\Application\msedge.exe`)); got != `C:\PF86\Microsoft\Edge\Application\msedge.exe` {
+		t.Fatal(got)
+	}
+	if got := findAppBrowser(env, only(`C:\U\AppData\Local\Google\Chrome\Application\chrome.exe`)); got != `C:\U\AppData\Local\Google\Chrome\Application\chrome.exe` {
+		t.Fatal(got)
+	}
+	if got := findAppBrowser(env, only()); got != "" {
+		t.Fatal(got)
+	}
+	if !contains(appShortcutScript(), "'--app=' + $env:PR_PAGE") {
+		t.Fatal(appShortcutScript())
+	}
+}

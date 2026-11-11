@@ -325,6 +325,35 @@ func internetShortcut(url string) string {
 	return "[InternetShortcut]\r\nURL=" + url + "\r\n"
 }
 
+// appWindowShortcuts are the .url entries that get replaced by an Edge/Chrome
+// --app window shortcut (no address bar or tabs) when a browser is found.
+var appWindowShortcuts = []string{"打开本机控制台", "管理后台"}
+
+// findAppBrowser returns the first installed Edge or Chrome, or "" if none.
+func findAppBrowser(env func(string) string, exists func(string) bool) string {
+	var candidates []string
+	for _, base := range []string{env("ProgramFiles(x86)"), env("ProgramFiles"), env("LOCALAPPDATA")} {
+		if base == "" {
+			continue
+		}
+		candidates = append(candidates,
+			base+`\Microsoft\Edge\Application\msedge.exe`,
+			base+`\Google\Chrome\Application\chrome.exe`)
+	}
+	for _, path := range candidates {
+		if exists(path) {
+			return path
+		}
+	}
+	return ""
+}
+
+// appShortcutScript builds the PowerShell that writes one .lnk opening page
+// in a standalone browser window. Values come from env vars to avoid quoting.
+func appShortcutScript() string {
+	return `$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:PR_LNK); $s.TargetPath = $env:PR_BROWSER; $s.Arguments = '--app=' + $env:PR_PAGE; $s.IconLocation = $env:PR_BROWSER + ',0'; $s.Description = '手机远控本机控制台'; $s.Save()`
+}
+
 func shortcutFiles(installExe, logPath string, port int) (map[string]string, error) {
 	page := localAdminEntry(port)
 	if !strings.HasPrefix(page, "http://127.0.0.1:") || !strings.HasSuffix(page, "/admin-login") || strings.Contains(page, "https://") {
