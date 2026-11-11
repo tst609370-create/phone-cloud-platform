@@ -91,6 +91,10 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
     private stallCount = 0;
     /** Set by StreamClientScrcpy: sends scrcpy RESET_VIDEO so the phone re-sends config + keyframe. */
     public onNeedKeyframe?: (() => void) | undefined;
+    private lastBlackCheck = 0;
+    private blackSince = 0;
+    private healthReported = '';
+    private blackProbe?: HTMLCanvasElement;
     private static readonly SOFTWARE_KEY = 'webcodecs-prefer-software';
     private static readonly OUTPUT_TIMEOUT_MS = 3000;
 
@@ -158,6 +162,52 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
         this.needKeyframe = true;
     }
 
+    /** Tell the embedding page (phones.js) the picture is missing so 「自动」 can step down. */
+    private reportHealth(state: 'black' | 'none'): void {
+        if (this.healthReported === 'ok' && state === 'black') return;
+        if (this.healthReported === state) return;
+        this.healthReported = state;
+        try {
+            const win = this.tag.ownerDocument?.defaultView;
+            win?.dispatchEvent(new win.CustomEvent('phone-video-health', { detail: { state } }));
+        } catch {
+            /* cosmetic */
+        }
+    }
+
+    /**
+     * Some phone encoders (OnePlus/ColorOS at larger sizes) emit frames that
+     * decode to solid black. Android always draws a status bar, so a frame with
+     * no pixel brighter than ~16 for 4 s means the stream is broken.
+     */
+    private checkBlack(): void {
+        const now = Date.now();
+        if (now - this.lastBlackCheck < 1000) return;
+        this.lastBlackCheck = now;
+        try {
+            const { width, height } = this.tag;
+            if (!width || !height) return;
+            const probe = (this.blackProbe ??= this.tag.ownerDocument.createElement('canvas'));
+            probe.width = 96;
+            probe.height = 192;
+            const ctx = probe.getContext('2d', { willReadFrequently: true });
+            if (!ctx) return;
+            ctx.drawImage(this.tag, 0, 0, 96, 192);
+            const data = ctx.getImageData(0, 0, 96, 192).data;
+            let max = 0;
+            for (let i = 0; i < data.length && max <= 16; i += 4) max = Math.max(max, data[i]!, data[i + 1]!, data[i + 2]!);
+            if (max > 16) {
+                // Real picture seen: stop probing (only the start of a stream matters).
+                this.healthReported = 'ok';
+                return;
+            }
+            if (!this.blackSince) this.blackSince = now;
+            else if (now - this.blackSince >= 4000) this.reportHealth('black');
+        } catch {
+            /* unavailable: skip */
+        }
+    }
+
     private clearStallTimer(): void {
         if (this.stallTimer !== undefined) clearTimeout(this.stallTimer);
         this.stallTimer = undefined;
@@ -180,6 +230,7 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
                 /* control channel not ready yet */
             }
             this.drawNotice(this.stallCount >= 2 ? '手机没有出画面：可能息屏或停在锁屏，点「全部亮屏」' : '等待手机画面…');
+            if (this.stallCount >= 2) this.reportHealth('none');
             this.armStallTimer();
         }, 2500);
     }
@@ -434,6 +485,7 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
                     this.context.drawImage(frame, 0, 0);
                 }
                 frame.close?.();
+                if (!this.healthReported) this.checkBlack();
             }
         }
         if (this.decodedFrames.length) {

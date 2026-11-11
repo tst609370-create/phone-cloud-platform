@@ -523,7 +523,27 @@
         }
         const videoWidth = Math.min(boxWidth, boxHeight * aspect);
         const longSide = Math.max(videoWidth, videoWidth / aspect) * dpr;
-        return AUTO_SIZE_STEPS.find((size) => size >= longSide) || AUTO_SIZE_STEPS[AUTO_SIZE_STEPS.length - 1];
+        const size = AUTO_SIZE_STEPS.find((step) => step >= longSide) || AUTO_SIZE_STEPS[AUTO_SIZE_STEPS.length - 1];
+        return Math.min(size, autoCap(card.dataset.device));
+    }
+
+    // 有的手机（一加/ColorOS 等）在较大分辨率下编码出全黑画面。播放器发现黑屏或
+    // 没画面时，「自动」降一档并按设备记住，下次直接用能出画面的档位。
+    function autoCap(serial) {
+        try {
+            const value = Number(localStorage.getItem(`phone-auto-cap:${serial}`));
+            return value > 0 ? value : Infinity;
+        } catch { return Infinity; }
+    }
+
+    function onVideoHealth(card, state) {
+        const have = card._connectedProfile;
+        if (quality.value !== 'auto' || !have || card.dataset.streaming !== '1') return;
+        const lower = [...AUTO_SIZE_STEPS].reverse().find((step) => step < have.maxSize);
+        if (!lower) return;
+        try { localStorage.setItem(`phone-auto-cap:${card.dataset.device}`, String(lower)); } catch { /* per-session only */ }
+        logOperation(card, `画面${state === 'black' ? '全黑' : '没出来'}，自动画质降到 ${lower}`);
+        connect(card, true);
     }
 
     function videoProfile(card) {
@@ -545,7 +565,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261112p',
+                ui: '20261112q',
             });
             return `snapshot.html?${params}`;
         }
@@ -559,7 +579,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261112p',
+            ui: '20261112q',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         return `embed.html?${params}`;
@@ -948,6 +968,10 @@
                 applyFrameState(card);
                 const MutationObserverClass = doc.defaultView.MutationObserver;
                 card._statusObserver = new MutationObserverClass(() => applyFrameState(card));
+                if (!doc.defaultView._phoneHealthHooked) {
+                    doc.defaultView._phoneHealthHooked = true;
+                    doc.defaultView.addEventListener('phone-video-health', (event) => onVideoHealth(card, event.detail?.state));
+                }
                 card._statusObserver.observe(status, { attributes: true, childList: true, characterData: true, subtree: true });
                 card._documentObserver = new MutationObserverClass(() => applyFrameState(card));
                 card._documentObserver.observe(doc.body, { childList: true, subtree: true });

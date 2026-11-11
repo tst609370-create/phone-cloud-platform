@@ -121,10 +121,12 @@ describe('WebCodecsPlayer Annex B keyframe decode', () => {
         const latest = { displayWidth: 10, displayHeight: 20, codedWidth: 10, codedHeight: 20, close: vi.fn() };
         const internals = player as unknown as {
             receivedFirstFrame: boolean;
+            healthReported: string;
             decodedFrames: Array<{ width: number; height: number; frame: unknown }>;
             drawDecoded: () => void;
         };
         internals.receivedFirstFrame = true;
+        internals.healthReported = 'ok'; // skip the black-picture probe (it draws too)
         internals.decodedFrames = [
             { width: 10, height: 20, frame: stale },
             { width: 10, height: 20, frame: latest },
@@ -208,5 +210,26 @@ describe('WebCodecsPlayer Annex B keyframe decode', () => {
         expect(lastConfig?.hardwareAcceleration).toBe('prefer-software');
         vi.useRealTimers();
         localStorage.removeItem('webcodecs-prefer-software');
+    });
+
+    it('tells the page when no picture arrives so 自动 can step down', async () => {
+        vi.useFakeTimers();
+        const { WebCodecsPlayer } = await import('../WebCodecsPlayer');
+        const player = new WebCodecsPlayer('udid-health');
+        const asked = vi.fn();
+        player.onNeedKeyframe = asked;
+        const states: string[] = [];
+        const listener = (e: Event) => states.push((e as CustomEvent).detail.state);
+        window.addEventListener('phone-video-health', listener);
+        player.setMetadataSize(1280, 720);
+        player.pushVideoFrame(H264_CONFIG, 0n, true, false);
+        vi.advanceTimersByTime(2600);
+        expect(asked).toHaveBeenCalledTimes(1);
+        expect(states).toEqual([]);
+        vi.advanceTimersByTime(2600);
+        expect(states).toEqual(['none']);
+        window.removeEventListener('phone-video-health', listener);
+        player.stop();
+        vi.useRealTimers();
     });
 });
