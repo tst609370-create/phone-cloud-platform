@@ -513,10 +513,34 @@
         }
     }
 
+    const AUTO_SIZE_STEPS = [1080, 1600, 2400];
+
+    // 「自动」画质：按画面在屏幕上实际占的物理像素（CSS 尺寸 × devicePixelRatio）
+    // 选最小够用的档位。只依赖滑块、视口、展开状态和上次的画面比例，重连时
+    // 卡片尺寸被临时清空也不会算出不同结果，避免反复重连。
+    function autoMaxSize(card) {
+        const dpr = window.devicePixelRatio || 1;
+        const aspect = card._lastAspect || 9 / 20;
+        const frame = card.querySelector('iframe');
+        let boxWidth;
+        let boxHeight;
+        if (card.classList.contains('expanded') || layoutMode === 'carousel') {
+            boxWidth = frame?.clientWidth || 0;
+            boxHeight = frame?.clientHeight || 0;
+        }
+        if (!boxWidth || !boxHeight) {
+            boxWidth = Number(tileSize.value) - 2;
+            boxHeight = innerHeight - 60 - 96;
+        }
+        const videoWidth = Math.min(boxWidth, boxHeight * aspect);
+        const longSide = Math.max(videoWidth, videoWidth / aspect) * dpr;
+        return AUTO_SIZE_STEPS.find((size) => size >= longSide) || AUTO_SIZE_STEPS[AUTO_SIZE_STEPS.length - 1];
+    }
+
     function videoProfile(card) {
         // scrcpy maxSize limits the LONGEST side. Option values are long-side
         // pixels (1080/1600/2400 ≈ 480p/720p/1080p on a 20:9 phone).
-        const requestedSize = Number(quality.value);
+        const requestedSize = quality.value === 'auto' ? autoMaxSize(card) : Number(quality.value);
         const requestedFps = Number(fps.value);
         const active = card.dataset.device === activeSerial;
         const activeBitrate = requestedSize > 1600 ? 8000000 : requestedSize > 1080 ? 4000000 : 2000000;
@@ -532,7 +556,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261111w',
+                ui: '20261111x',
             });
             return `snapshot.html?${params}`;
         }
@@ -546,7 +570,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261111w',
+            ui: '20261111x',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         return `embed.html?${params}`;
@@ -678,8 +702,18 @@
             // 1 Mbps/15 fps forever. Reconnect once when it needs more.
             const want = videoProfile(card);
             const have = card._connectedProfile;
-            if (have && (want.bitrate > have.bitrate || want.maxFps > have.maxFps || want.maxSize > have.maxSize)) {
+            if (!have) return;
+            if (want.bitrate > have.bitrate || want.maxFps > have.maxFps || (quality.value !== 'auto' && want.maxSize > have.maxSize)) {
                 connect(card, true);
+                return;
+            }
+            if (quality.value === 'auto' && want.maxSize !== have.maxSize && !card._autoTimer) {
+                // Wait until resizing/expanding settles before switching tiers.
+                card._autoTimer = setTimeout(() => {
+                    card._autoTimer = 0;
+                    if (card.dataset.streaming === '1' && card._connectedProfile
+                        && videoProfile(card).maxSize !== card._connectedProfile.maxSize) connect(card, true);
+                }, 1200);
             }
             return;
         }
@@ -863,6 +897,7 @@
             const aspect = canvas?.width / canvas?.height;
             if (aspect && aspect !== card._videoAspect) {
                 card._videoAspect = aspect;
+                card._lastAspect = aspect;
                 fitCardToPhone(card, canvas, doc.querySelector('.control-buttons-list'));
                 if (layoutMode === 'carousel') layoutCarousel();
                 else if (autoArrange || needsInitialLayout) scheduleTile();
@@ -1250,6 +1285,7 @@
         cards.forEach((card) => card.classList.remove('expanded'));
         backdrop.classList.remove('visible');
         if (layoutMode === 'carousel') layoutCarousel();
+        refreshAutoQuality();
     }
 
     function expand(card) {
@@ -1257,6 +1293,13 @@
         activate(card);
         card.classList.add('expanded');
         backdrop.classList.add('visible');
+        refreshAutoQuality();
+    }
+
+    function refreshAutoQuality() {
+        if (quality.value !== 'auto') return;
+        // Let the expand/collapse transition finish before measuring.
+        setTimeout(() => cards.forEach(applyStreamProfile), 400);
     }
 
     function savePosition(card) {
@@ -1546,6 +1589,7 @@
     window.addEventListener('resize', () => {
         if (layoutMode === 'carousel') layoutCarousel();
         else if (autoArrange) scheduleTile();
+        refreshAutoQuality();
     });
     const events = new EventSource('/api/events');
     events.addEventListener('update', (event) => {
