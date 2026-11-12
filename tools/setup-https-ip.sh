@@ -63,8 +63,10 @@ https://$IP:$((p+OFFSET)) {
 }
 EOF
   done
+  echo "import /etc/caddy/conf.d/*.caddy"   # 其他服务（如 setup-chatwoot.sh）放这里，重跑本脚本不丢
 } > "$CONF"
-$SUDO mkdir -p /etc/caddy /var/lib/caddy
+$SUDO mkdir -p /etc/caddy/conf.d /var/lib/caddy
+[ -n "$(ls /etc/caddy/conf.d/*.caddy 2>/dev/null)" ] || echo "# 占位，保证 import 有文件可匹配" | $SUDO tee /etc/caddy/conf.d/00-empty.caddy >/dev/null
 $SUDO install -m 644 "$CONF" /etc/caddy/Caddyfile
 rm -f "$CONF"
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
