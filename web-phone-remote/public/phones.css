@@ -72,6 +72,20 @@ svg { flex: 0 0 auto; }
     color: var(--tx-fg-3); font-size: var(--tx-text-sub); text-decoration: none;
 }
 .admin[hidden] { display: none; }
+.add-device {
+    height: 32px; padding: 0 8px; display: flex; align-items: center; gap: 8px; border: 0; border-radius: var(--tx-radius-md);
+    color: var(--tx-fg-3); background: transparent; font-size: var(--tx-text-sub); text-align: left; cursor: pointer;
+}
+.add-device[hidden] { display: none; }
+.add-device svg { width: 14px; height: 14px; }
+.add-device:hover { color: var(--tx-fg); background: var(--tx-wash-3); }
+.remote-device-form { padding: 12px 10px 2px; display: grid; grid-template-columns: minmax(0,1.4fr) minmax(0,1fr) auto; gap: 6px; }
+.remote-device-input { min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--tx-line); border-radius: var(--tx-radius-md); outline: 0; color: var(--tx-fg); background: var(--tx-field); }
+.remote-device-input:focus { border-color: rgb(91 156 255 / .6); box-shadow: 0 0 0 3px rgb(91 156 255 / .15); }
+.remote-devices .state-ok { color: var(--tx-ok); }
+.remote-devices .state-bad { color: var(--tx-err); }
+.remote-devices .app-library-item button.secondary { color: var(--tx-fg-2); background: transparent; border: 1px solid var(--tx-wash-5); box-shadow: none; }
+@media (max-width: 560px) { .remote-device-form { grid-template-columns: 1fr; } }
 .admin svg { width: 14px; height: 14px; }
 .admin:hover { color: var(--tx-fg); background: var(--tx-wash-3); }
 

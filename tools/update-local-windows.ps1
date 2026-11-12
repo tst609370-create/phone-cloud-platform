@@ -75,13 +75,17 @@ if ($prSrc) {
     $env:PATH = "$nodeDir;$env:PATH"
     Write-Host "Node $ver"
 
-    Step '下载 main 最新代码'
+    # $env:PR_REF 可指定分支（试用未合并的 PR），默认 main
+    $ref = if ($env:PR_REF) { $env:PR_REF } else { 'main' }
+    Step "下载 $ref 最新代码"
     $src = Join-Path $work 'src.zip'
-    Get-FileWithFallback @('https://codeload.github.com/tst609370-create/phone-cloud-platform/zip/refs/heads/main',
-        'https://ghfast.top/https://github.com/tst609370-create/phone-cloud-platform/archive/refs/heads/main.zip',
-        'https://gh-proxy.com/https://github.com/tst609370-create/phone-cloud-platform/archive/refs/heads/main.zip') $src
+    Get-FileWithFallback @("https://codeload.github.com/tst609370-create/phone-cloud-platform/zip/refs/heads/$ref",
+        "https://ghfast.top/https://github.com/tst609370-create/phone-cloud-platform/archive/refs/heads/$ref.zip",
+        "https://gh-proxy.com/https://github.com/tst609370-create/phone-cloud-platform/archive/refs/heads/$ref.zip") $src
     Expand-Archive $src -DestinationPath $work
-    $repo = Join-Path $work 'phone-cloud-platform-main\web-phone-remote'
+    $top = Get-ChildItem $work -Directory -Filter 'phone-cloud-platform-*' | Select-Object -First 1
+    if (-not $top) { throw '代码包解压后找不到 phone-cloud-platform-* 目录' }
+    $repo = Join-Path $top.FullName 'web-phone-remote'
 
     Step '构建（npm ci + webpack，约 2–5 分钟）'
     Push-Location $repo

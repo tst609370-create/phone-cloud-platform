@@ -60,6 +60,7 @@ node --test installer/setup-auth.test.mjs installer/bootstrap/*.test.mjs   # 安
 
 - 界面风格（Tianxi UI，暗色）→ 令牌和通用控件改 `public/tianxi.css`、`public/tianxi.js`；页面布局改 `public/phones.css`、`admin.html` 内联样式；登录页（双栏 + 地球，照 tianxi-ui `#/login`）在 `src/server/auth/AuthGate.ts` 的 `authPage()`；地球脚本 `public/login-assets/globe.js` 由 `globe.src.js` 用 esbuild 打包 cobe@2.0.1 生成（`npx esbuild globe.src.js --bundle --minify --format=iife`），走免登录白名单 `/login-assets/`；内嵌画面工具栏色在 `src/style/ws-scrcpy.css`。下拉一律 `<select data-tx-select>`，提示用 `TX.toast`/`TX.confirm`，不用 alert/confirm
 - 租用识别码、有效期、外网域名 → `src/server/api/RentalsApi.ts`、`public/admin.html`、`src/server/auth/rentalExpiry.ts`
+- 添加模拟器/云手机（ADB 网络地址）→ 服务端 `src/server/remoteDevices.ts`（地址存 app_settings `remoteDevices`，`startReconnectLoop` 每 20 秒把掉线的重新 adb connect，本机模拟器端口扫描 `LOCAL_EMULATOR_PORTS`）、接口 `src/server/api/RemoteDevicesApi.ts`（`/api/remote-devices` GET/POST/DELETE、`/scan`，仅管理员）；前端 `public/index.html` 的 `#add-device` 按钮 + `#remote-devices` 弹窗，逻辑在 `phones.js` 的 `loadRemoteDevices`
 - 谁能看/控哪台手机 → `src/server/auth/deviceAccess.ts`、`AuthGate.ts`
 - 麦克风 → 服务端 `src/server/mic/`、前端 `src/app/mic/`、手机侧 `android/virtual-mic/`
 - scrcpy 版本/参数 → `src/server/ScrcpyOptions.ts`、`scrcpyServerVersion.ts`

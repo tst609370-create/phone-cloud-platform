@@ -6,7 +6,7 @@
     <title>手机远程控制</title>
     <link rel="icon" type="image/svg+xml" href="login-assets/tianxi-mark.svg"><link rel="icon" type="image/png" href="login-assets/favicon.png">
     <link rel="stylesheet" href="tianxi.css?v=20261112c">
-    <link rel="stylesheet" href="phones.css?v=20261112r">
+    <link rel="stylesheet" href="phones.css?v=20261112s">
 </head>
 <body class="tx-scroll">
     <div class="app">
@@ -37,6 +37,7 @@
                 <select id="fps" data-tx-select><option value="1">省流 1 FPS</option><option value="15">操作 15 FPS</option><option value="30" selected>流畅 30 FPS</option></select>
             </section>
             <nav class="device-nav sidebar-label tx-scroll" aria-label="设备"><h2 class="tx-eyebrow">我的设备</h2></nav>
+            <button id="add-device" class="add-device sidebar-label" type="button" title="添加模拟器或云手机（ADB 地址）" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>添加模拟器 / 云手机</span></button>
             <a class="admin sidebar-label" href="admin.html?v=20261112a" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg><span>管理员设置</span></a>
         </aside>
         <main class="workspace">
@@ -60,9 +61,22 @@
         <div id="app-library-list" class="app-library-list tx-scroll"><p>正在读取软件列表…</p></div>
         <footer><button id="app-local-install" class="tx-btn tx-btn-secondary" type="button">选择本地 APK 安装</button></footer>
     </dialog>
+    <dialog id="remote-devices" class="app-library remote-devices" aria-labelledby="remote-devices-title">
+        <header>
+            <div><span class="tx-eyebrow">ADD DEVICE</span><strong id="remote-devices-title">添加模拟器 / 云手机</strong><small>填 ADB 地址（IP:端口），保存后自动连接，服务重启后自动重连</small></div>
+            <button id="remote-devices-close" type="button" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </header>
+        <form id="remote-device-form" class="remote-device-form" autocomplete="off">
+            <input id="remote-device-address" class="remote-device-input" placeholder="127.0.0.1:5555 或 云手机IP:端口" required>
+            <input id="remote-device-label" class="remote-device-input" placeholder="备注（可选）" maxlength="40">
+            <button class="tx-btn tx-btn-primary" type="submit">添加</button>
+        </form>
+        <div id="remote-devices-list" class="app-library-list tx-scroll"><p>正在读取…</p></div>
+        <footer><button id="remote-devices-scan" class="tx-btn tx-btn-secondary" type="button">扫描本机模拟器（BlueStacks / MuMu / 雷电 / 夜神 / 逍遥）</button></footer>
+    </dialog>
     <script src="tianxi.js?v=20261112a"></script>
     <script src="browserMicPolicy.js?v=20261112a"></script>
     <script src="phoneAudio.js?v=20261112x"></script>
-    <script src="phones.js?v=20261112y"></script>
+    <script src="phones.js?v=20261112z"></script>
 </body>
 </html>
