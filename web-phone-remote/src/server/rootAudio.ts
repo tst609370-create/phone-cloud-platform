@@ -60,17 +60,38 @@ export interface RootProbe {
     reason?: string;
 }
 
-const SU_PATHS = ['/system/xbin/su', '/system/bin/su', '/sbin/su', '/su/bin/su', '/debug_ramdisk/su', '/system/sbin/su', '/vendor/bin/su'];
+// BlueStacks keeps its su at /system/xbin/bstk/su (root switch in Settings → Advanced).
+const SU_PATHS = [
+    '/system/xbin/su',
+    '/system/bin/su',
+    '/sbin/su',
+    '/su/bin/su',
+    '/debug_ramdisk/su',
+    '/system/sbin/su',
+    '/vendor/bin/su',
+    '/system/xbin/bstk/su',
+    '/system/xbin/*/su',
+    '/system/bin/*/su',
+];
 
-/** su spellings to try, best first. Different su builds take different syntax. */
+/**
+ * su spellings to try, best first. Different su builds take different syntax;
+ * some (BlueStacks' bstk su) ignore -c and only read commands from stdin, so
+ * the "{} |" forms pipe the command in.
+ */
 export function suCandidates(found: string[]): RootPrefix[] {
     const out = ['su -c', 'su 0 sh -c', 'su root sh -c'];
-    for (const p of found) out.push(`${p} -c`, `${p} 0 sh -c`);
+    for (const p of found) out.push(`${p} -c`, `${p} 0 sh -c`, `${p} root sh -c`);
+    out.push('| su');
+    for (const p of found) out.push(`| ${p}`);
     return [...new Set(out)];
 }
 
+/** Prefix "su -c" → su -c "cmd"; prefix "| su" → echo "cmd" | su; '' → cmd. */
 export function wrapRoot(prefix: RootPrefix, command: string): string {
-    return prefix ? `${prefix} "${command}"` : command;
+    if (!prefix) return command;
+    if (prefix.startsWith('| ')) return `echo "${command}" | ${prefix.slice(2)}`;
+    return `${prefix} "${command}"`;
 }
 
 export function noRootReason(foundSu: boolean, lastOutput: string): string {
@@ -82,7 +103,9 @@ export function noRootReason(foundSu: boolean, lastOutput: string): string {
 }
 
 const rootCache = new Map<string, { probe: RootProbe; at: number }>();
-const NEGATIVE_TTL_MS = 30_000;
+const NEGATIVE_TTL_MS = 120_000;
+// The picture waits for this probe, so keep a hard budget on it.
+const PROBE_BUDGET_MS = 20_000;
 
 async function tryShell(adb: RootAudioAdb, serial: string, command: string, timeoutMs: number): Promise<string> {
     try {
@@ -113,16 +136,25 @@ export async function probeRoot(adb: RootAudioAdb, serial: string, now = Date.no
     let last = '';
     const tried: string[] = [];
     let suSeen = found.length > 0;
+    const deadline = Date.now() + PROBE_BUDGET_MS;
     for (const prefix of suCandidates(found)) {
+        const left = deadline - Date.now();
+        if (left < 1_000) {
+            tried.push('（超时，没试完）');
+            break;
+        }
         // Magisk shows its grant prompt for ~10 s the first time; wait for it once.
-        const out = await tryShell(adb, serial, `${wrapRoot(prefix, 'id')} 2>&1 </dev/null`, prefix === 'su -c' ? 15_000 : 6_000);
+        const viaStdin = prefix.startsWith('| ');
+        const cmd = viaStdin ? `${wrapRoot(prefix, 'id')} 2>&1` : `${wrapRoot(prefix, 'id')} 2>&1 </dev/null`;
+        const out = await tryShell(adb, serial, cmd, Math.min(left, prefix === 'su -c' ? 12_000 : 4_000));
         if (isRootIdOutput(out)) return remember({ prefix });
         if (!/not found|No such file|inaccessible/i.test(out)) suSeen = true;
-        tried.push(prefix);
+        tried.push(`${prefix} → ${out.replace(/\s+/g, ' ').trim().slice(0, 40) || '(空)'}`);
         last = out;
     }
     log?.info(`root probe for ${serial} tried: ${tried.join(' | ')}; scan: ${scan.replace(/\s+/g, ' ').slice(0, 200)}`);
-    return remember({ reason: noRootReason(suSeen, `试了 ${tried.length} 种 su 写法，最后返回：${last}`) });
+    const scanLine = scan.replace(/\s+/g, ' ').trim().slice(0, 120);
+    return remember({ reason: noRootReason(suSeen, `adb shell: ${scanLine}；试了 ${tried.length} 种 su 写法，最后返回：${last}`) });
 }
 
 /** Back-compat yes/no wrapper. */
