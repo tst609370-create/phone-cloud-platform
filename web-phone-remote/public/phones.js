@@ -502,6 +502,8 @@
             const data = await response.json();
             const link = document.querySelector('.admin');
             if (link) link.hidden = data.user?.role !== 'admin';
+            const addDevice = document.getElementById('add-device');
+            if (addDevice) addDevice.hidden = data.user?.role !== 'admin';
             if (data.user?.role === 'admin') {
                 const rentalResponse = await fetch('/api/rentals', { cache: 'no-store' });
                 if (rentalResponse.ok) {
@@ -1997,6 +1999,114 @@
     });
     document.getElementById('app-library-close').addEventListener('click', () => appLibrary.close());
     document.getElementById('app-local-install').addEventListener('click', () => appPackage.click());
+    // 添加模拟器 / 云手机：地址存服务器，服务端后台自动 adb connect 并在重启后重连
+    const remoteDialog = document.getElementById('remote-devices');
+    const remoteList = document.getElementById('remote-devices-list');
+    const REMOTE_STATE = { device: ['已连接', 'state-ok'], offline: ['离线，正在重连', 'state-bad'], unauthorized: ['未授权，请在设备上点允许调试', 'state-bad'], '': ['未连接，后台每 20 秒重试', 'state-bad'] };
+    const remoteMessage = (text) => remoteList.replaceChildren(Object.assign(document.createElement('p'), { textContent: text }));
+    async function remoteApi(method, body, path = '/api/remote-devices') {
+        const response = await fetch(path, { method, cache: 'no-store', headers: body ? { 'content-type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        return result;
+    }
+    function remoteItem(title, meta, stateText, stateClass, buttons) {
+        const item = document.createElement('article');
+        item.className = 'app-library-item';
+        const info = document.createElement('div');
+        const name = document.createElement('strong');
+        name.textContent = title;
+        name.title = title;
+        const small = document.createElement('small');
+        small.textContent = meta;
+        const state = document.createElement('small');
+        state.textContent = stateText;
+        state.className = stateClass;
+        info.append(name, small, state);
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display:flex;gap:6px';
+        actions.append(...buttons);
+        item.append(info, actions);
+        return item;
+    }
+    async function loadRemoteDevices() {
+        try {
+            const { devices } = await remoteApi('GET');
+            if (!devices.length) return remoteMessage('还没有添加。BlueStacks 先在 设置 → 高级 里打开「Android 调试桥（ADB）」，再点下方扫描，或直接填 127.0.0.1:5555。');
+            remoteList.replaceChildren(...devices.map((device) => {
+                const [text, cls] = REMOTE_STATE[device.state] || [device.state, 'state-bad'];
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'secondary';
+                remove.textContent = '删除';
+                remove.addEventListener('click', async () => {
+                    if (window.TX && !(await window.TX.confirm(`删除 ${device.address}？会断开连接，以后不再自动重连。`, { title: '删除设备', okText: '删除', danger: true }))) return;
+                    remove.disabled = true;
+                    try { await remoteApi('DELETE', { address: device.address }); notify('已删除', 'ok'); } catch (error) { notify(error.message, 'err'); }
+                    void loadRemoteDevices();
+                });
+                return remoteItem(device.label || device.address, device.label ? device.address : 'ADB 网络设备', text, cls, [remove]);
+            }));
+        } catch (error) {
+            remoteMessage(error instanceof Error ? error.message : '读取失败');
+        }
+    }
+    async function addRemoteDevice(address, label) {
+        const result = await remoteApi('POST', { address, label });
+        if (result.connected) notify(`${result.address} 已连接，稍等几秒会出现在设备列表`, 'ok');
+        else notify(`已保存 ${result.address}，但暂时连不上：${result.message || ''}。后台会自动重试`, 'err');
+        await loadRemoteDevices();
+    }
+    document.getElementById('add-device').addEventListener('click', () => {
+        remoteDialog.showModal();
+        remoteMessage('正在读取…');
+        void loadRemoteDevices();
+    });
+    document.getElementById('remote-devices-close').addEventListener('click', () => remoteDialog.close());
+    remoteDialog.addEventListener('click', (event) => { if (event.target === remoteDialog) remoteDialog.close(); });
+    document.getElementById('remote-device-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const addressInput = document.getElementById('remote-device-address');
+        const labelInput = document.getElementById('remote-device-label');
+        const submit = event.submitter || event.target.querySelector('button[type="submit"]');
+        submit.disabled = true;
+        try {
+            await addRemoteDevice(addressInput.value.trim(), labelInput.value.trim());
+            addressInput.value = '';
+            labelInput.value = '';
+        } catch (error) {
+            notify(error.message, 'err');
+        } finally {
+            submit.disabled = false;
+        }
+    });
+    document.getElementById('remote-devices-scan').addEventListener('click', async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        remoteMessage('正在扫描本机模拟器端口…');
+        try {
+            const { found } = await remoteApi('POST', undefined, '/api/remote-devices/scan');
+            if (!found.length) {
+                remoteMessage('本机没扫到开着 ADB 的模拟器。请确认模拟器已启动，并在模拟器设置里打开 ADB 调试（BlueStacks：设置 → 高级 → Android 调试桥）。');
+                return;
+            }
+            remoteList.replaceChildren(...found.map((hit) => {
+                const add = document.createElement('button');
+                add.type = 'button';
+                add.textContent = hit.saved ? '已添加' : '添加';
+                add.disabled = hit.saved;
+                add.addEventListener('click', async () => {
+                    add.disabled = true;
+                    try { await addRemoteDevice(hit.address, hit.name); } catch (error) { notify(error.message, 'err'); add.disabled = false; }
+                });
+                return remoteItem(`${hit.name}${hit.model ? ` · ${hit.model}` : ''}`, hit.address, hit.saved ? (hit.state === 'device' ? '已保存，已连接' : '已保存，后台重连中') : hit.state === 'device' ? '已连接（未保存，重启会掉）' : '发现可连接', hit.state === 'device' ? 'state-ok' : '', [add]);
+            }));
+        } catch (error) {
+            remoteMessage(error instanceof Error ? error.message : '扫描失败');
+        } finally {
+            button.disabled = false;
+        }
+    });
     appLibrary.addEventListener('click', (event) => {
         if (event.target === appLibrary) appLibrary.close();
     });
@@ -2117,6 +2227,7 @@
             if (topic === 'devices' || topic === 'rentals') void refreshDevices();
             if (topic === 'rentals') void updateAdminVisibility();
             if (topic === 'apks' && appLibrary.open) void loadAppLibrary();
+            if (topic === 'devices' && remoteDialog.open && !remoteList.querySelector('button:not(.secondary)')) void loadRemoteDevices();
         } catch { /* reconnect delivers the next valid event */ }
     });
     window.addEventListener('message', (event) => {

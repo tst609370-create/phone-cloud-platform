@@ -78,10 +78,12 @@ if ($prSrc) {
     $env:PATH = "$nodeDir;$env:PATH"
     Write-Host "Node $ver"
 
-    Step '下载 main 最新代码'
+    # $env:PR_REF 可指定分支（试用未合并的 PR），默认 main
+    $ref = if ($env:PR_REF) { $env:PR_REF } else { 'main' }
+    Step "下载 $ref 最新代码"
     $src = Join-Path $work 'src.zip'
     if (-not $env:GH_TOKEN) { throw '仓库是私有的：本机构建需要 $env:GH_TOKEN（只读令牌）；或不设 PR_SRC，直接用广州服务器的包' }
-    Invoke-WebRequest 'https://api.github.com/repos/tst609370-create/phone-cloud-platform/zipball/main' -OutFile $src -UseBasicParsing -TimeoutSec 600 `
+    Invoke-WebRequest "https://api.github.com/repos/tst609370-create/phone-cloud-platform/zipball/$ref" -OutFile $src -UseBasicParsing -TimeoutSec 600 `
         -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; 'User-Agent' = 'phone-remote-update' }
     Expand-Archive $src -DestinationPath (Join-Path $work 'srcx')
     $repo = Join-Path (Get-ChildItem (Join-Path $work 'srcx') -Directory | Select-Object -First 1).FullName 'web-phone-remote'

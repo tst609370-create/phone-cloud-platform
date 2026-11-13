@@ -11,6 +11,7 @@ import { DeviceDiscoveryApi } from './api/DeviceDiscoveryApi';
 import { DeviceFileApi } from './api/DeviceFileApi';
 import { MicAudioApi } from './api/MicAudioApi';
 import { RealtimeEventsApi } from './api/RealtimeEventsApi';
+import { RemoteDevicesApi } from './api/RemoteDevicesApi';
 import { RentalsApi } from './api/RentalsApi';
 import { ServerShutdownApi } from './api/ServerShutdownApi';
 import { ServiceApi } from './api/ServiceApi';
@@ -35,6 +36,7 @@ import { resolveMac } from './network/MacResolver';
 import { NetworkScanner } from './network/NetworkScanner';
 import { consumeSuppressBrowserMarker, openBrowser, shouldAutoOpenBrowser } from './openBrowser';
 import { findAvailablePort, webPortOverride } from './PortPicker';
+import { startReconnectLoop } from './remoteDevices';
 import { ScrcpyConnection } from './ScrcpyConnection';
 import { setAllowedHosts } from './security/originGuard';
 import { makeProductionCoreDeps, parseSystemServiceArgs, runSystemServiceCli } from './service/systemServiceCli';
@@ -145,6 +147,7 @@ if (__ssArgs) {
     HttpServer.addApiHandler(new MicAudioApi());
     const discoveryApi = new DeviceDiscoveryApi();
     HttpServer.addApiHandler(discoveryApi);
+    HttpServer.addApiHandler(new RemoteDevicesApi());
 
     const capabilitiesApi = new CapabilitiesApi();
     HttpServer.addApiHandler(capabilitiesApi);
@@ -179,6 +182,9 @@ if (__ssArgs) {
 
     // Wire the scanner singleton
     const scanAdb = new AdbClient(config.adbPath);
+    // Saved emulators / cloud phones: adb forgets `adb connect` targets when the
+    // daemon restarts (we kill-server on exit), so keep re-connecting them.
+    startReconnectLoop(scanAdb, config.db.appSettings);
 
     // Kick the daemon spawn at module load so it's already up (or in-flight) by
     // the time anything async — port reconciliation, depManager checks, the WS
