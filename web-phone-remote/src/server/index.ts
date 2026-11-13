@@ -9,6 +9,7 @@ import { ConfigApi } from './api/ConfigApi';
 import { DependencyApi } from './api/DependencyApi';
 import { DeviceDiscoveryApi } from './api/DeviceDiscoveryApi';
 import { DeviceFileApi } from './api/DeviceFileApi';
+import { MicAudioApi } from './api/MicAudioApi';
 import { RealtimeEventsApi } from './api/RealtimeEventsApi';
 import { RemoteDevicesApi } from './api/RemoteDevicesApi';
 import { RentalsApi } from './api/RentalsApi';
@@ -143,6 +144,7 @@ if (__ssArgs) {
 
     HttpServer.addApiHandler(new DeviceFileApi());
     HttpServer.addApiHandler(new ApkLibraryApi());
+    HttpServer.addApiHandler(new MicAudioApi());
     const discoveryApi = new DeviceDiscoveryApi();
     HttpServer.addApiHandler(discoveryApi);
     HttpServer.addApiHandler(new RemoteDevicesApi());

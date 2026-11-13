@@ -30,6 +30,24 @@ public final class MicService extends Service {
     static volatile boolean streaming;
     private volatile LocalServerSocket server;
     private volatile Thread worker;
+    private volatile String current;
+    private volatile LocalSocket clientSock;
+
+    /** Extras denoise=1/0 and gate=<dBFS> (negative; 0 = no gate). */
+    private static void applyConfig(Intent intent) {
+        String on = intent.getStringExtra("denoise");
+        String gate = intent.getStringExtra("gate");
+        boolean denoise = on == null ? RootAudioMain.denoise : !"0".equals(on);
+        int db = RootAudioMain.gateDb;
+        if (gate != null) {
+            try {
+                db = Integer.parseInt(gate);
+            } catch (NumberFormatException ignored) {
+                // keep
+            }
+        }
+        RootAudioMain.setDenoise(denoise, db);
+    }
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -39,10 +57,24 @@ public final class MicService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         goForeground();
-        if (intent == null || "stop".equals(intent.getAction())) {
-            stopNow();
+        String action = intent != null ? intent.getAction() : null;
+        if (intent != null && "config".equals(action)) {
+            applyConfig(intent);
+            Thread w = worker;
+            if (w == null || !w.isAlive()) stopNow();
+            return 2;
+        }
+        if (intent == null || "stop".equals(action)) {
+            // Only stop the session that was asked to stop: a new one may have started.
+            String which = intent != null ? intent.getStringExtra("socket") : null;
+            if (which == null || which.equals(current)) stopNow();
+            else {
+                Thread w = worker;
+                if (w == null || !w.isAlive()) stopNow();
+            }
             return 2; // START_NOT_STICKY
         }
+        applyConfig(intent);
         final String name = intent.getStringExtra("socket");
         final String codec = intent.getStringExtra("codec") != null ? intent.getStringExtra("codec") : "aac";
         if (name == null) {
@@ -50,6 +82,7 @@ public final class MicService extends Service {
             return 2;
         }
         closeServer();
+        current = name;
         Thread t = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -66,6 +99,7 @@ public final class MicService extends Service {
         try {
             server = new LocalServerSocket(name);
             client = server.accept();
+            clientSock = client;
             RootAudioMain.diag = new java.util.concurrent.Callable<String>() {
                 @Override
                 public String call() {
@@ -155,6 +189,21 @@ public final class MicService extends Service {
     @Override
     public void onDestroy() {
         closeServer();
+        // Stop the recording thread too, so the microphone is released.
+        LocalSocket c = clientSock;
+        clientSock = null;
+        if (c != null) {
+            try {
+                c.shutdownOutput();
+            } catch (Throwable ignored) {
+                // ignore
+            }
+            try {
+                c.close();
+            } catch (Throwable ignored) {
+                // ignore
+            }
+        }
         super.onDestroy();
     }
 }

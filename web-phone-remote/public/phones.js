@@ -4,7 +4,7 @@
     const quality = document.getElementById('quality');
     const fps = document.getElementById('fps');
     const tileSize = document.getElementById('tile-size');
-    const UI_VERSION = '1113z5';
+    const UI_VERSION = '1113z6';
     const sizeValue = document.getElementById('size-value');
     const backdrop = document.getElementById('viewer-backdrop');
     const grid = document.getElementById('phone-grid');
@@ -270,6 +270,7 @@
         for (const [action, label, icon] of [
             ['browser-mic', '当前手机的浏览器麦克风。点一下关闭后不会自动再开。和听手机播放的声音不是一回事。', '开麦克风'],
             ['hear', '听这部手机正在播放的声音。不需要 root，也不是麦克风注入。再点一次停止。', '听声音'],
+            ['denoise', '降噪：去掉没 ROOT 的安卓 8-10 手机录外放时的底噪/电流声。点一下切换 标准 → 强 → 关。', '降噪'],
             ['tools', '展开功能', '功能'],
             ['upload', '安装 APP 或导入图片', CARD_ICONS.upload],
             ['reconnect', '重新连接', CARD_ICONS.reconnect],
@@ -379,6 +380,8 @@
         enableDragging(card);
         card.querySelector('[data-action="browser-mic"]').addEventListener('click', () => toggleBrowserMic(card));
         card.querySelector('[data-action="hear"]').addEventListener('click', () => toggleHear(card));
+        card.querySelector('[data-action="denoise"]').addEventListener('click', () => cycleDenoise(card));
+        paintDenoise(card);
         card.querySelector('[data-action="tools"]').addEventListener('click', () => {
             const open = card.classList.toggle('tools-open');
             card.querySelector('[data-action="tools"]').classList.toggle('active', open);
@@ -805,7 +808,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261113z5',
+                ui: '20261113z6',
             });
             return `snapshot.html?${params}`;
         }
@@ -819,9 +822,10 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261113z5',
+            ui: '20261113z6',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
+        if (card.dataset.hear === '1' && denoiseFor(card.dataset.device) !== 'normal') void sendDenoise(card, denoiseFor(card.dataset.device));
         if (card.dataset.hear === '1' && audioSourceFor(card.dataset.device) === 'playback') {
             params.set('audioSource', 'playback');
             params.set('audioDup', 'false');
@@ -894,6 +898,38 @@
         button.textContent = on ? '停止' : '听声音';
         button.classList.toggle('active', on);
         button.setAttribute('aria-pressed', on ? 'true' : 'false');
+        paintDenoise(card);
+    }
+
+    // 降噪（只对没 ROOT 的安卓 8-10 录外放有效）：标准 / 强 / 关，按手机记住，改了立即生效不用重连。
+    const DENOISE_LEVELS = ['normal', 'strong', 'off'];
+    const DENOISE_LABELS = { normal: '降噪', strong: '强降噪', off: '降噪关' };
+    function denoiseFor(serial) {
+        try { return DENOISE_LEVELS.includes(localStorage.getItem(`phone-denoise:${serial}`)) ? localStorage.getItem(`phone-denoise:${serial}`) : 'normal'; } catch { return 'normal'; }
+    }
+    function paintDenoise(card) {
+        const button = card.querySelector('[data-action="denoise"]');
+        if (!button) return;
+        const level = denoiseFor(card.dataset.device);
+        button.hidden = card.dataset.hear !== '1';
+        button.textContent = DENOISE_LABELS[level];
+        button.classList.toggle('active', level !== 'off');
+    }
+    async function sendDenoise(card, level) {
+        try {
+            await fetch('/api/devices/audio-denoise', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ device: card.dataset.device, level }),
+            });
+        } catch { /* best effort: applies on the next connect */ }
+    }
+    function cycleDenoise(card) {
+        const level = DENOISE_LEVELS[(DENOISE_LEVELS.indexOf(denoiseFor(card.dataset.device)) + 1) % DENOISE_LEVELS.length];
+        try { localStorage.setItem(`phone-denoise:${card.dataset.device}`, level); } catch { /* storage blocked */ }
+        paintDenoise(card);
+        logOperation(card, level === 'off' ? '已关闭降噪' : level === 'strong' ? '已开强降噪（小声也会被压掉）' : '已开降噪');
+        void sendDenoise(card, level);
     }
 
     let browserMic = PhoneBrowserMic.initialBrowserMic();
