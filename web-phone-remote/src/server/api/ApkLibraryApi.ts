@@ -1,4 +1,4 @@
-import { mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { AdbClient } from '../AdbClient';
@@ -7,6 +7,7 @@ import { canAccessDevice } from '../auth/deviceAccess';
 import { requireAdmin } from '../auth/requireAdmin';
 import { Config } from '../Config';
 import { Logger } from '../Logger';
+import { MIC_APP_PKG, MIC_APP_VERSION, resolveMicApk } from '../micApp';
 import { assertSerial } from '../security/deviceInput';
 import { safeUploadName, saveUploadRequest } from './DeviceFileApi';
 import { RealtimeEventsApi } from './RealtimeEventsApi';
@@ -20,6 +21,9 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
     res.end(JSON.stringify(body));
 }
 
+/** File name of the bundled no-root sound app in the APK library. */
+export const BUNDLED_MIC_APK_NAME = 'PhoneSound-shoujishengyin.apk';
+
 export class ApkLibraryApi {
     constructor(
         private readonly adb: ApkAdb = new AdbClient(Config.getInstance().adbPath),
@@ -27,7 +31,30 @@ export class ApkLibraryApi {
             Config.getInstance().dataRoot ?? path.dirname(Config.getInstance().dependenciesPath),
             'apk-library',
         ),
+        private readonly bundledMicApk: string | undefined = resolveMicApk(),
     ) {}
+
+    /**
+     * Put the bundled 「手机声音」 app (no-root phone sound) into the library once,
+     * so it can be batch-installed like any other APK. A marker file keeps an
+     * admin's delete from being undone on the next listing.
+     */
+    private async seedBundled(): Promise<void> {
+        if (!this.bundledMicApk) return;
+        const marker = path.join(this.root, `.seeded-${MIC_APP_PKG}-v${MIC_APP_VERSION}`);
+        try {
+            await stat(marker);
+            return;
+        } catch {
+            /* not seeded yet */
+        }
+        try {
+            await copyFile(this.bundledMicApk, path.join(this.root, BUNDLED_MIC_APK_NAME));
+            await writeFile(marker, '');
+        } catch {
+            /* bundled file missing: nothing to seed */
+        }
+    }
 
     async handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
         const url = new URL(req.url ?? '/', 'http://localhost');
@@ -38,6 +65,7 @@ export class ApkLibraryApi {
         try {
             await mkdir(this.root, { recursive: true });
             if (req.method === 'GET' && url.pathname === '/api/apks') {
+                await this.seedBundled();
                 const entries = await readdir(this.root, { withFileTypes: true });
                 const apks = await Promise.all(
                     entries
