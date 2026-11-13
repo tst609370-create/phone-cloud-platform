@@ -14,7 +14,7 @@ import type { RootAudioLog, RootAudioSession } from './rootAudio';
  */
 
 export const MIC_APP_PKG = 'com.wsphone.micaudio';
-export const MIC_APP_VERSION = 2;
+export const MIC_APP_VERSION = 3;
 const SERVICE = `${MIC_APP_PKG}/.MicService`;
 
 export interface MicAppAdb {
@@ -105,7 +105,7 @@ export async function ensureMicApp(adb: MicAppAdb, serial: string, apk: string):
         ),
     );
     if (!state.granted || state.op === 'deny' || state.op === 'ignore') {
-        return `「手机声音」App 没拿到录音权限（录音权限：${state.granted ? '已授予' : '没授予'}，录音开关：${state.op || '未知'}）。小米手机请确认开发者选项里「USB 调试（安全设置）」已打开，再点重连；还不行就在手机「设置 → 应用设置 → 手机声音 → 权限」里打开录音`;
+        return `「手机声音」App 没拿到录音权限（录音权限：${state.granted ? '已授予' : '没授予'}，录音开关：${state.op || '未知'}）。小米手机请确认开发者选项里「USB 调试（安全设置）」已打开，再点重连；还不行就在手机桌面点开「手机声音」，点「去授权」允许录音`;
     }
     return '';
 }

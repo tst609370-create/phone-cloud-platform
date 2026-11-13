@@ -310,7 +310,7 @@ export class ScrcpyConnection extends Mw {
         const err = this.rootAudio?.lastError();
         const said = err ? `手机端报错：${err}` : '';
         if (source === 'mic') {
-            return `${MIC_FALLBACK_FAILED}${said ? `（${said}）` : ''}。可以手动装：控制台「软件库」里的 PhoneSound，或浏览器打开 /mic-audio.apk 下载；装好后在手机「设置 → 应用设置 → 手机声音」里允许录音、自启动和后台弹出界面，再重连。不想外放就得 ROOT：${noRootReason}`;
+            return `${MIC_FALLBACK_FAILED}${said ? `（${said}）` : ''}。可以手动装：控制台「软件库」里的 PhoneSound，或浏览器打开 /mic-audio.apk 下载；装好后在手机桌面点开「手机声音」→「去授权」允许录音，再重连。不想外放就得 ROOT：${noRootReason}`;
         }
         return said ? `${ROOT_AUDIO_FAILED}。${said}` : ROOT_AUDIO_FAILED;
     }
