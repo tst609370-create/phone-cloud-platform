@@ -248,12 +248,11 @@ svg { flex: 0 0 auto; }
 .phone-card:not(.expanded) .sync-controls { margin-left: auto; }
 .back-to-grid { display: none; }
 .phone-card.expanded .back-to-grid {
-    display: inline-flex; align-items: center; height: 24px; padding: 0 10px; margin-right: 4px; flex: 0 0 auto;
-    border: 1px solid rgb(91 156 255 / .35); border-radius: var(--tx-radius-sm); color: var(--tx-fg); background: rgb(91 156 255 / .14);
-    font-size: 12px; font-weight: 500; cursor: pointer;
+    display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; margin: 0 2px 0 -2px; flex: 0 0 auto;
+    border: 0; border-radius: var(--tx-radius-sm); color: var(--tx-fg-3); background: transparent; cursor: pointer;
 }
-.phone-card.expanded .back-to-grid:hover { background: rgb(91 156 255 / .26); }
-.phone-card.expanded > header { cursor: default; }
+.phone-card.expanded .back-to-grid svg { width: 14px; height: 14px; }
+.phone-card.expanded .back-to-grid:hover { color: var(--tx-fg); background: var(--tx-wash-4); }
 #viewer-backdrop { display: none; position: fixed; inset: 0; z-index: 900; background: var(--tx-overlay); backdrop-filter: blur(4px); }
 #viewer-backdrop.visible { display: block; }
 
@@ -299,21 +298,36 @@ svg { flex: 0 0 auto; }
     resize: none; border-radius: var(--tx-radius-lg); box-shadow: var(--tx-shadow-overlay);
     grid-template-rows: auto minmax(0, 1fr) 36px 22px;
 }
-/* 放大窗口宽度=画面宽度：标题栏放不下就换行，不撑宽窗口 */
-.phone-card.expanded > header { flex-wrap: wrap; min-height: 36px; padding: 5px 6px; row-gap: 4px; }
-.phone-card.expanded .card-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 2px; }
-.phone-card.expanded.narrow .back-to-grid { padding: 0 8px; font-size: 14px; }
-.phone-card.expanded.narrow .back-to-grid span { display: none; }
-.phone-card.expanded.narrow header strong { max-width: 64px; }
-.phone-card.expanded.narrow .card-actions { flex-basis: 100%; margin-left: 0; gap: 0; }
-.phone-card.expanded.narrow .card-actions button { min-width: 20px; padding: 0 3px; font-size: 10.5px; }
-.phone-card.expanded.narrow .card-actions [data-action="fullscreen"], .phone-card.expanded.narrow .rental-badge { display: none; }
-.phone-card.expanded.narrow .phone-nav { gap: 2px; padding: 4px 3px; }
-.phone-card.expanded.narrow .phone-nav button { font-size: 10.5px; padding: 0; letter-spacing: -.02em; }
-/* 窄窗口状态行只留网络统计（延迟/帧/码率），操作记录看小窗或悬停 */
-.phone-card.expanded.narrow .card-operation-log { padding: 3px 6px; font-size: 0; }
-.phone-card.expanded.narrow .card-operation-log::before { display: none; }
-.phone-card.expanded.narrow .card-operation-log::after { left: 6px; right: 6px; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 放大后就是原来本地版的操作窗口：一行标题栏（序号·状态点·主/跟·麦克风·听声音·功能·+），
+   画面贴满宽度，底部五个按钮 + 一行状态。回九宫格只占一个小图标，名字看侧栏。 */
+.phone-card.expanded > header { flex-wrap: wrap; min-height: 36px; padding: 0 4px 0 6px; gap: 4px; row-gap: 2px; }
+.phone-card.expanded header strong,
+.phone-card.expanded .card-actions [data-action="fullscreen"],
+.phone-card.expanded .card-actions [data-action="reconnect"],
+.phone-card.expanded .card-actions [data-action="close"] { display: none; }
+.phone-card.expanded .sync-controls { margin-left: 0; }
+.phone-card.expanded .card-actions { margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.phone-card.expanded .card-actions button { padding: 0 4px; font-size: 12px; color: var(--tx-fg-2); }
+.phone-card.expanded .phone-nav button { font-size: 12px; }
+.phone-card.expanded.narrow .card-actions button { padding: 0 3px; font-size: 11px; }
+.phone-card.expanded.narrow .phone-nav button { font-size: 11px; }
+/* 黑屏状态提示 */
+.stream-hint {
+    grid-row: 2; grid-column: 1; z-index: 6; align-self: center; justify-self: center; max-width: calc(100% - 24px);
+    display: grid; gap: 10px; padding: 14px 16px; text-align: center; color: var(--tx-fg-2); font-size: 12px; line-height: 1.5;
+    border: 1px solid var(--tx-line-strong); border-radius: var(--tx-radius-md); background: rgb(15 16 17 / .88); backdrop-filter: blur(8px);
+}
+.stream-hint[hidden] { display: none; }
+.stream-hint p { margin: 0; }
+.stream-hint div { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.stream-hint button {
+    height: 28px; padding: 0 12px; border: 1px solid var(--tx-wash-5); border-radius: var(--tx-radius-md);
+    color: var(--tx-fg-2); background: transparent; font-size: 12px; cursor: pointer;
+}
+.stream-hint button.primary { color: var(--tx-bg); background: var(--tx-fg); border-color: transparent; font-weight: 500; }
+.stream-hint button:disabled { opacity: .5; cursor: wait; }
+.phone-card:not(.expanded) .stream-hint { padding: 8px 10px; font-size: 11px; }
+.phone-card:not(.expanded) .stream-hint div { display: none; }
 
 /* ---------- 侧栏收起 ---------- */
 .sidebar-collapsed .sidebar { padding: 12px 8px; }
