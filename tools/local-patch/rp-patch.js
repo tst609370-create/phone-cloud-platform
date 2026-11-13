@@ -185,22 +185,25 @@
 .rp-tools{grid-column:2;grid-row:2;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:6px;padding:6px 5px;border-left:1px solid var(--tx-line,#262626);background:var(--tx-surface,#121315);scrollbar-width:none}
 .rp-tools::-webkit-scrollbar{display:none}
 .rp-tools .sync-controls{margin:0!important;display:flex;justify-content:center;gap:3px}
-.rp-tools .card-actions,.rp-tools .phone-nav{margin:0!important;display:flex!important;flex-direction:column;gap:3px;width:100%;height:auto!important;min-height:0;padding:6px 0 0!important;border:0!important;border-top:1px solid var(--tx-line,#262626)!important;background:transparent!important;overflow:visible!important}
-.rp-tools .card-actions button,.rp-tools .phone-nav button{width:100%;min-width:0;height:auto;min-height:30px;padding:3px 2px;display:grid;place-items:center;border:1px solid transparent;border-radius:6px;color:var(--tx-fg-2,#ccc);background:var(--tx-wash-2,rgba(255,255,255,.04));font-size:11px;line-height:1.25;white-space:normal;word-break:break-all;text-align:center}
-.rp-tools button:hover{color:var(--tx-fg,#fff);border-color:var(--tx-line-strong,#333)}
-.rp-tools .card-actions button.active,.rp-tools .card-actions button[aria-pressed="true"]{color:var(--tx-bg,#08090a);background:var(--tx-fg,#f7f8f8)}
+.rp-tools .card-actions,.rp-tools .phone-nav{margin:0!important;display:flex!important;flex-direction:column;gap:2px;width:100%;height:auto!important;min-height:0;padding:4px 0 0!important;border:0!important;background:transparent!important;overflow:visible!important}
+.rp-tools .card-actions button,.rp-tools .phone-nav button{width:100%;min-width:0;height:auto;min-height:30px;padding:3px 2px;display:grid;place-items:center;border:0!important;border-radius:6px;box-shadow:none!important;outline:0!important;color:var(--tx-fg-2,#ccc);background:transparent!important;font-size:11px;line-height:1.25;white-space:normal;word-break:break-all;text-align:center}
+.rp-tools button:hover{color:var(--tx-fg,#fff)!important;background:rgba(255,255,255,.08)!important}
+.rp-tools .sync-controls button,.rp-tools .sync-controls span,.rp-tools .sync-controls label{border:0!important;box-shadow:none!important;background:transparent!important}
+.rp-tools .sync-controls input:checked+span{color:var(--tx-accent,#5b9cff)!important}
+.rp-toggle,.rp-toggle:focus,.rp-toggle:focus-visible{outline:0!important;border:0!important;box-shadow:none!important}
+.rp-tools .card-actions button.active,.rp-tools .card-actions button[aria-pressed="true"]{color:var(--tx-accent,#5b9cff)!important;background:rgba(91,156,255,.12)!important}
 .rp-tools [data-action="fullscreen"],.rp-tools [data-action="close"]{display:none!important}
 .phone-card.rp-side header strong{max-width:none!important}
 .phone-card.rp-side:not(.expanded){min-width:0!important}
 .phone-card.rp-side>iframe{width:100%!important;height:100%!important}
 .phone-card.rp-side{border:0!important;box-shadow:none!important;outline:0!important;border-radius:8px!important;background:#000!important}
 .phone-card.rp-side>iframe,.phone-card.rp-side>.last-frame{border:0!important;margin:0!important;padding:0!important;display:block}
-.rp-tools{border-left:0!important}
+.rp-tools{border-left:0!important;background:transparent!important}
 .rp-toggle{margin-left:auto;width:24px;height:24px;display:grid;place-items:center;padding:0;border:0;border-radius:6px;color:var(--tx-fg-3,#999);background:transparent;cursor:pointer;font-size:14px;line-height:1}
 .rp-toggle:hover{color:var(--tx-fg,#fff);background:var(--tx-wash-4,rgba(255,255,255,.08))}
-html.rp-hide-tools .phone-card.rp-side{grid-template-columns:minmax(0,1fr)!important}
-html.rp-hide-tools .rp-tools{display:none!important}
-html.rp-hide-tools .phone-card.rp-side>.resume-stream{right:0!important}`;
+.phone-card.rp-side.rp-collapsed{grid-template-columns:minmax(0,1fr)!important}
+.phone-card.rp-collapsed .rp-tools{display:none!important}
+.phone-card.rp-collapsed>.resume-stream{right:0!important}`;
     document.head.appendChild(css);
     function apply(card) {
         if (!card || card.classList.contains('rp-side')) return;
@@ -220,15 +223,17 @@ html.rp-hide-tools .phone-card.rp-side>.resume-stream{right:0!important}`;
             const t = document.createElement('button');
             t.type = 'button';
             t.className = 'rp-toggle';
-            const paint = () => { const h = document.documentElement.classList.contains('rp-hide-tools'); t.textContent = h ? '‹' : '›'; t.title = h ? '显示按钮' : '隐藏按钮（全部窗口）'; };
+            const key = `rp-hide-tools:${card.dataset.device || ''}`;
+            try { if (localStorage.getItem(key) === '1') card.classList.add('rp-collapsed'); } catch { /* ignore */ }
+            const paint = () => { const h = card.classList.contains('rp-collapsed'); t.textContent = h ? '‹' : '›'; t.title = h ? '显示按钮' : '隐藏按钮'; };
             paint();
             t.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const hide = !document.documentElement.classList.contains('rp-hide-tools');
-                document.documentElement.classList.toggle('rp-hide-tools', hide);
-                try { localStorage.setItem('rp-hide-tools', hide ? '1' : '0'); } catch { /* ignore */ }
-                document.querySelectorAll('.rp-toggle').forEach((b) => b._paint?.());
-                document.querySelectorAll('.phone-card.rp-side').forEach(fit);
+                const hide = !card.classList.contains('rp-collapsed');
+                card.classList.toggle('rp-collapsed', hide);
+                try { localStorage.setItem(key, hide ? '1' : '0'); } catch { /* ignore */ }
+                paint();
+                fit(card);
             });
             t._paint = paint;
             t.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -236,11 +241,10 @@ html.rp-hide-tools .phone-card.rp-side>.resume-stream{right:0!important}`;
         }
     }
     // 窗口大小跟画面比例走：画面宽 = 窗口大小档（小/中/大），右侧加 62px 工具栏，高度 = 标题栏 + 画面 + 状态行，不留黑边
-    try { if (localStorage.getItem('rp-hide-tools') === '1') document.documentElement.classList.add('rp-hide-tools'); } catch { /* ignore */ }
     // 画面铺满 iframe：去掉内嵌页的留白，画面与 touch 层同尺寸拉满（窗口已按画面比例，拉伸可忽略）
     const INNER_CSS = 'html,body{margin:0!important;padding:0!important;overflow:hidden!important;background:#000!important}'
         + '.device-view,.video{width:100vw!important;height:100vh!important;margin:0!important;padding:0!important}'
-        + '.video-layer,.touch-layer{width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important}';
+        + '.video-layer,.touch-layer,.video canvas,.video video,body>video,body>canvas{width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;object-fit:fill!important}';
     function fillInner(card) {
         try {
             const doc = card.querySelector('iframe')?.contentDocument;
@@ -251,8 +255,23 @@ html.rp-hide-tools .phone-card.rp-side>.resume-stream{right:0!important}`;
             doc.head.appendChild(st);
         } catch { /* cross-origin or navigating */ }
     }
-    const toolW = () => (document.documentElement.classList.contains('rp-hide-tools') ? 0 : 62);
-    function ratioOf(card) {
+    const toolW = (card) => (card.classList.contains('rp-collapsed') ? 0 : 62);
+    // 实测内嵌页里画面（最大的 canvas/video）的显示尺寸；画面没贴满 iframe 时按实测比例改窗口，确保不留黑缝
+    function measured(card) {
+        try {
+            const frame = card.querySelector('iframe');
+            const doc = frame?.contentDocument;
+            if (!doc) return null;
+            let best = null;
+            for (const el of doc.querySelectorAll('canvas, video')) {
+                const r = el.getBoundingClientRect();
+                if (r.width > 20 && r.height > 20 && (!best || r.width * r.height > best.width * best.height)) best = r;
+            }
+            if (!best) return null;
+            return { w: best.width, h: best.height, fw: frame.clientWidth, fh: frame.clientHeight };
+        } catch { return null; }
+    }
+    function streamRatio(card) {
         const m = /(\d+)\s*[×x]\s*(\d+)/.exec(card.querySelector('.card-operation-log')?.dataset.stream || '');
         if (m && +m[1] && +m[2]) return +m[1] / +m[2];
         try {
@@ -263,6 +282,16 @@ html.rp-hide-tools .phone-card.rp-side>.resume-stream{right:0!important}`;
         const img = card.querySelector('.last-frame');
         if (img?.naturalWidth && img.naturalHeight) return img.naturalWidth / img.naturalHeight;
         return 0;
+    }
+    function ratioOf(card) {
+        const base = streamRatio(card);
+        if (base && card._rpBase !== base) { card._rpBase = base; card._rpRatio = 0; }
+        const m = measured(card);
+        if (m && m.fw > 0 && m.fh > 0 && (m.fw - m.w > 2 || m.fh - m.h > 2)) {
+            const r = m.w / m.h;
+            if (r > 0.2 && r < 5) card._rpRatio = r;
+        }
+        return card._rpRatio || base;
     }
     function fit(card) {
         if (!card.classList.contains('rp-side') || card.classList.contains('expanded') || card.classList.contains('closed')) return;
@@ -277,7 +306,7 @@ html.rp-hide-tools .phone-card.rp-side>.resume-stream{right:0!important}`;
         let picH = picW / ratio;
         const maxH = Math.max(200, innerHeight - 90 - headerH - logH - border);
         if (picH > maxH) { picH = maxH; picW = picH * ratio; }
-        const w = Math.round(picW + toolW() + border);
+        const w = Math.round(picW + toolW(card) + border);
         const h = Math.round(picH + headerH + logH + border);
         if (!(Math.abs(parseFloat(card.style.width) - w) <= 1)) card.style.width = `${w}px`;
         if (!(Math.abs(parseFloat(card.style.height) - h) <= 1)) card.style.height = `${h}px`;
