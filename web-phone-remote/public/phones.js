@@ -4,7 +4,7 @@
     const quality = document.getElementById('quality');
     const fps = document.getElementById('fps');
     const tileSize = document.getElementById('tile-size');
-    const UI_VERSION = '1113v';
+    const UI_VERSION = '1113x';
     const sizeValue = document.getElementById('size-value');
     const backdrop = document.getElementById('viewer-backdrop');
     const grid = document.getElementById('phone-grid');
@@ -241,7 +241,7 @@
         backToGrid.type = 'button';
         backToGrid.className = 'back-to-grid';
         backToGrid.title = '缩回小窗（Esc 全部缩回）';
-        backToGrid.textContent = '‹ 九宫格';
+        backToGrid.innerHTML = '‹<span>&nbsp;九宫格</span>';
         backToGrid.addEventListener('click', () => collapseCard(card));
         header.append(backToGrid, number, title, state, rentalBadge, syncControls, actions);
 
@@ -297,6 +297,10 @@
         shield.setAttribute('aria-label', `放大操作 ${name}`);
         shield.innerHTML = '<span>点击放大操作</span>';
         shield.addEventListener('click', () => expand(card));
+        // 放大动画结束后标题栏才是最终宽度，再按实际标题栏高度校正一次窗口高度。
+        card.addEventListener('transitionend', (event) => {
+            if (event.target === card && event.propertyName === 'width') sizeExpanded(card);
+        });
         card.append(header, lastFrame, frame, nativeInput, resume, shield, phoneNav, operationStatus, fileInput);
         grid.appendChild(card);
         void refreshScreenLockButton(card);
@@ -692,7 +696,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261113v',
+                ui: '20261113x',
             });
             return `snapshot.html?${params}`;
         }
@@ -706,7 +710,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261113v',
+            ui: '20261113x',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         if (card.dataset.hear === '1' && audioSourceFor(card.dataset.device) === 'playback') {
@@ -1659,7 +1663,7 @@
     // 收回一台（电脑上可以同时放大多台，各自收回）。
     function collapseCard(card) {
         if (!card.classList.contains('expanded')) return;
-        card.classList.remove('expanded');
+        card.classList.remove('expanded', 'narrow');
         if (!cards.some((item) => item.classList.contains('expanded'))) {
             backdrop.classList.remove('visible');
             document.body.classList.remove('has-expanded');
@@ -1669,7 +1673,7 @@
 
     function collapseExpanded() {
         const was = cards.filter((card) => card.classList.contains('expanded'));
-        cards.forEach((card) => card.classList.remove('expanded'));
+        cards.forEach((card) => card.classList.remove('expanded', 'narrow'));
         backdrop.classList.remove('visible');
         document.body.classList.remove('has-expanded');
         // 回到九宫格后重新排一下，免得放大时的位置把小窗挡住。
@@ -1683,14 +1687,19 @@
         if (!card.classList.contains('expanded') || !isDesktop()) return;
         const aspect = card._lastAspect || 9 / 20;
         const gap = 12;
-        const chrome = 36 + 36 + 22 + 2; // 标题栏 + 导航按钮 + 状态行 + 边框
+        // 标题栏窄的时候会折成两行，按实际高度算，保证画面区域正好是手机比例、左右没有黑边。
+        const header = card.querySelector('header');
+        const chrome = Math.max(36, header?.offsetHeight || 36) + 36 + 22 + 2; // 标题栏 + 导航按钮 + 状态行 + 边框
         const available = Math.max(300, (grid.clientHeight || innerHeight - 52) - gap * 2);
-        // 侧栏「窗口大小」小/中/大 决定放大窗口的高度：小 65%、中 82%、大 占满一屏高。
-        const tier = { 300: 0.65, 400: 0.82, 520: 1 }[tileSize.value] || 0.82;
-        const videoHeight = Math.max(240, (available - chrome) * tier);
-        const videoWidth = Math.min(videoHeight * aspect, (grid.clientWidth || innerWidth) - gap * 2 - 2);
-        const width = Math.max(420, Math.round(videoWidth + 2));
-        const height = Math.round(Math.min(videoHeight, videoWidth / aspect) + chrome);
+        // 侧栏「窗口大小」小/中/大 决定放大窗口的高度：小 72%、中 86%、大 占满一屏高。
+        const tier = { 300: 0.72, 400: 0.86, 520: 1 }[tileSize.value] || 0.86;
+        // 再小也保证画面至少约 230px 宽，太窄点不准。
+        const videoHeight = Math.min(available - chrome, Math.max(240, 230 / aspect, (available - chrome) * tier));
+        const videoWidth = Math.round(Math.min(videoHeight * aspect, (grid.clientWidth || innerWidth) - gap * 2 - 2));
+        // 卡片宽度严格等于画面宽度，不再给最小宽度（之前的 420 最小值就是两边黑边的来源）。
+        const width = videoWidth + 2;
+        const height = Math.round(videoWidth / aspect) + chrome;
+        card.classList.toggle('narrow', width < 360);
         card.style.setProperty('--expanded-w', `${width}px`);
         card.style.setProperty('--expanded-h', `${height}px`);
     }

@@ -168,9 +168,10 @@ function createAudioNote(): { set(problem: string | undefined): void } {
     note.id = 'audio-note';
     note.hidden = true;
     note.style.cssText =
-        'position:fixed;left:8px;right:8px;bottom:8px;z-index:30;padding:6px 10px;border-radius:6px;' +
-        'background:rgba(20,20,20,.86);color:#ffd27a;font:12px/1.45 system-ui,sans-serif;cursor:pointer;' +
-        'text-align:center;';
+        // 只占顶部一行小条，不挡手机画面下半部分（导航栏、输入框）；完整原因在悬停提示里。
+        'position:fixed;left:6px;top:6px;max-width:calc(100% - 12px);z-index:30;padding:2px 8px;border-radius:999px;' +
+        'background:rgba(20,20,20,.72);color:#ffd27a;font:11px/1.5 system-ui,sans-serif;cursor:pointer;' +
+        'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-sizing:border-box;';
     note.title = '点一下重试播放声音';
     note.addEventListener('click', (event) => {
         event.stopPropagation();
@@ -182,6 +183,7 @@ function createAudioNote(): { set(problem: string | undefined): void } {
     return {
         set(problem) {
             note.textContent = problem ?? '';
+            note.title = problem ? `${problem}\n（点一下重试播放声音）` : '点一下重试播放声音';
             note.hidden = !problem;
         },
     };
