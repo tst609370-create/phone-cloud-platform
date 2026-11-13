@@ -69,6 +69,20 @@ describe('root audio helper', () => {
         expect(wrapRoot('su 0 sh -c', 'id')).toBe('su 0 sh -c "id"');
     });
 
+    it('finds BlueStacks su that only reads commands from stdin', async () => {
+        const shell = vi.fn(async (_s: string, cmd: string) => {
+            if (cmd.startsWith('id;')) return 'uid=2000(shell) gid=2000(shell)\nSU=/system/xbin/bstk/su\n';
+            if (cmd.startsWith('echo "id" | /system/xbin/bstk/su')) return 'uid=0(root) gid=0(root)';
+            if (cmd.includes('/system/xbin/bstk/su')) return 'usage: su';
+            return '/system/bin/sh: su: not found';
+        });
+        const probe = await probeRoot({ shell } as unknown as RootAudioAdb, 'B', 1);
+        expect(probe.prefix).toBe('| /system/xbin/bstk/su');
+        expect(rootAudioCommand('n', 'aac', probe.prefix)).toBe(
+            'echo "CLASSPATH=/data/local/tmp/ws-root-audio.jar app_process / com.wsphone.rootaudio.RootAudioMain n aac" | /system/xbin/bstk/su',
+        );
+    });
+
     it('remembers a root yes, retries a no after a while', async () => {
         const shell = vi
             .fn()
@@ -82,7 +96,7 @@ describe('root audio helper', () => {
         expect(shell).toHaveBeenCalledTimes(calls);
         shell.mockReset();
         shell.mockResolvedValueOnce('uid=2000(shell)\nSU=/sbin/su').mockResolvedValue('uid=0(root)');
-        expect(await hasRoot(adb, 'S', 40_000)).toBe(true);
+        expect(await hasRoot(adb, 'S', 200_000)).toBe(true);
         expect(await hasRoot(adb, 'S', 10_000_000)).toBe(true);
         expect(shell).toHaveBeenCalledTimes(2);
     });
