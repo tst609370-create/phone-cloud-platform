@@ -142,6 +142,12 @@ describe('root audio helper', () => {
         expect(adbErrorText(e)).toBe('adb exit：退出码 1：Permission denied');
     });
 
+    it('runs the mic fallback without su', () => {
+        expect(rootAudioCommand('n', 'aac', '', 'mic')).toBe(
+            'CLASSPATH=/data/local/tmp/ws-root-audio.jar app_process / com.wsphone.rootaudio.RootAudioMain n aac mic',
+        );
+    });
+
     it('remembers a root yes, retries a no after a while', async () => {
         const shell = vi
             .fn()

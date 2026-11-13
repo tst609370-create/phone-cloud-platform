@@ -14,6 +14,7 @@ import { Logger } from './Logger';
 import { Mw, type RequestParameters } from './mw/Mw';
 import {
     probeRoot,
+    MIC_FALLBACK_FAILED,
     ROOT_AUDIO_FAILED,
     ROOT_AUDIO_MIN_SDK,
     type RootAudioSession,
@@ -156,6 +157,8 @@ export class ScrcpyConnection extends Mw {
         // under su records the device output instead (see rootAudio.ts).
         let rootAudioJar: string | undefined;
         let rootPrefix = '';
+        let rootSource: 'submix' | 'mic' = 'submix';
+        let noRootReason = '';
         if (audioBlock && sdkInt >= ROOT_AUDIO_MIN_SDK) {
             const jar = resolveRootAudioJar();
             const probe = jar ? await probeRoot(this.adbClient, this.serial, Date.now(), log) : undefined;
@@ -163,8 +166,12 @@ export class ScrcpyConnection extends Mw {
                 rootAudioJar = jar;
                 rootPrefix = probe.prefix;
                 audioBlock = undefined;
-            } else if (probe?.reason) {
-                audioBlock = `Android API ${sdkInt} 低于 11，要 ROOT 才能听手机声音：${probe.reason}`;
+            } else if (jar && probe?.reason) {
+                // No root: fall back to the microphone hearing the phone's own speaker.
+                rootAudioJar = jar;
+                rootSource = 'mic';
+                noRootReason = probe.reason;
+                audioBlock = undefined;
             }
         }
         if (audioBlock || rootAudioJar) {
@@ -199,9 +206,10 @@ export class ScrcpyConnection extends Mw {
                 log,
                 10_000,
                 rootPrefix,
+                rootSource,
             );
             log.info(
-                `root audio capture requested for ${this.serial} (sdk=${sdkInt}, codec=${codec}, via="${rootPrefix || 'adb shell'}")`,
+                `root audio capture requested for ${this.serial} (sdk=${sdkInt}, codec=${codec}, source=${rootSource}, via="${rootPrefix || 'adb shell'}")`,
             );
         }
 
@@ -224,8 +232,7 @@ export class ScrcpyConnection extends Mw {
                 this.audioSocket.destroy();
                 this.audioSocket = rootSocket;
             } else {
-                const err = this.rootAudio.lastError();
-                audioBlock = err ? `${ROOT_AUDIO_FAILED}。手机端报错：${err}` : ROOT_AUDIO_FAILED;
+                audioBlock = this.rootAudioFailure(rootSource, noRootReason);
             }
         }
 
@@ -275,13 +282,17 @@ export class ScrcpyConnection extends Mw {
                 onVideoEnd: () => this.release(),
             },
             undefined,
-            this.rootAudio
-                ? () => {
-                      const err = this.rootAudio?.lastError();
-                      return err ? `${ROOT_AUDIO_FAILED}。手机端报错：${err}` : ROOT_AUDIO_FAILED;
-                  }
-                : undefined,
+            this.rootAudio ? () => this.rootAudioFailure(rootSource, noRootReason) : undefined,
         );
+    }
+
+    private rootAudioFailure(source: 'submix' | 'mic', noRootReason: string): string {
+        const err = this.rootAudio?.lastError();
+        const said = err ? `手机端报错：${err}` : '';
+        if (source === 'mic') {
+            return `${MIC_FALLBACK_FAILED}${said ? `（${said}）` : ''}。要听系统声音需要 ROOT：${noRootReason}`;
+        }
+        return said ? `${ROOT_AUDIO_FAILED}。${said}` : ROOT_AUDIO_FAILED;
     }
 
     private async getSdkInt(): Promise<number> {
