@@ -18,6 +18,7 @@
 | `tools/serve-update.sh` | 所有电脑的更新源：服务器用只读令牌（~/.config/phone-cloud/github-token）直连 api.github.com 拉私有仓库、构建、开 8099 下载（dist.zip、update.bin、tools/*）；自装到 ~/pr-update/serve-update.sh，以后 `bash ~/pr-update/serve-update.sh` | bash |
 | `tools/setup-relay-server.sh` | 新服务器一键装 frps 公网中转（root 执行）：BBR、frps TCP/KCP/QUIC、systemd、ufw、随机令牌、测速 | bash |
 | `tools/switch-relay-windows.ps1` | 把本机 frpc 切到新 frps（交互输入令牌，先 QUIC 后 TCP，失败自动恢复旧配置） | PowerShell |
+| `tools/local-patch/` | 不替换程序的本机补丁：`apply-rp-patch.ps1` 往已装的 dist\public 放 `rp-patch.js` 并在 index.html 加一行 script（添加模拟器/云手机 + 卡片按钮挂右侧竖排），给有本机独有改动、不能整包更新的电脑用 | PowerShell/JS |
 | `tools/deskflow/` | Deskflow 键鼠共享配置（Win 服务端 / Mac 客户端） | conf |
 | `web-phone-remote/` | **主体**。上游 [ws-scrcpy-web](https://github.com/bilbospocketses/ws-scrcpy-web)（GPL-3.0）+ 本仓库定制：租用/登录鉴权、APK 库、快照墙、虚拟麦克风、Windows 一键安装包、邀请注册服务 | TS/Rust/Go/Java |
 
