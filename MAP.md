@@ -11,10 +11,11 @@
 | `启动手机SK5.cmd` | Windows 双击启动 `pythonw phone_socks_manager.py` | cmd |
 | `mac-phoneproxy/` | macOS 版手机代理管理（`manager.rb` 逻辑、`ui.rb` 界面、AppleScript 启动/授权/升级） | Ruby |
 | `tools/xiaomi-router-proxy.mjs` | 小米路由器代理辅助脚本 | Node |
-| `tools/update-local-windows.ps1` | 把 Windows 本机已装的手机远控（%LOCALAPPDATA%\PhoneRemote）更新到 main：下载源码 → 构建 → 备份并替换 app\dist → 重启任务 PhoneRemote-Node → 桌面/开始菜单控制台快捷方式换成 Chrome/Edge `--app` 独立窗口（优先 Chrome） | PowerShell |
+| `tools/update-local-windows.ps1` | 把 Windows 本机已装的手机远控（%LOCALAPPDATA%\PhoneRemote）更新到 main：仓库私有后默认从广州服务器 8099 下载已构建 dist（`$env:PR_SRC='github'`+`GH_TOKEN` 才本机构建） → 备份并替换 app\dist → 重启任务 PhoneRemote-Node → 桌面/开始菜单控制台快捷方式换成 Chrome/Edge `--app` 独立窗口（优先 Chrome） | PowerShell |
+| `tools/find-wechat-backup.ps1` | 在 app\dist.bak-* 备份里找含微信相关代码（本机加过、仓库里没有）的旧版本，打包到桌面 zip 并默认换回运行；`$env:NO_RESTORE='1'` 只查不换 | PowerShell |
 | `tools/setup-https-ip.sh` | 中转服务器公网 IP 挂 HTTPS（Caddy + Let's Encrypt IP 短期证书自动续期），frp 端口 P → https 端口 P+10000，需 80 可达 | bash |
 | `tools/setup-chatwoot.sh` | 广州服务器一键部署 Chatwoot 在线客服（Docker：rails+sidekiq+pgvector+redis，/opt/chatwoot，http :3000；有 caddy-ip 时 https :8443 写 /etc/caddy/conf.d/chatwoot.caddy）；重跑即升级 | bash |
-| `tools/serve-update.sh` | 连不上 GitHub 的电脑用：在中转服务器上缓存代码包+更新脚本、开 8099 下载；电脑设 `$env:PR_SRC` 后跑更新（Node/npm 走 npmmirror） | bash |
+| `tools/serve-update.sh` | 所有电脑的更新源：服务器用只读令牌（~/.config/phone-cloud/github-token）直连 api.github.com 拉私有仓库、构建、开 8099 下载（dist.zip、update.bin、tools/*）；自装到 ~/pr-update/serve-update.sh，以后 `bash ~/pr-update/serve-update.sh` | bash |
 | `tools/setup-relay-server.sh` | 新服务器一键装 frps 公网中转（root 执行）：BBR、frps TCP/KCP/QUIC、systemd、ufw、随机令牌、测速 | bash |
 | `tools/switch-relay-windows.ps1` | 把本机 frpc 切到新 frps（交互输入令牌，先 QUIC 后 TCP，失败自动恢复旧配置） | PowerShell |
 | `tools/deskflow/` | Deskflow 键鼠共享配置（Win 服务端 / Mac 客户端） | conf |
@@ -71,7 +72,10 @@ node --test installer/setup-auth.test.mjs installer/bootstrap/*.test.mjs   # 安
 - 视频尺寸对齐 → `src/server/ScrcpyOptions.ts` 默认 `min_size_alignment=16`（scrcpy 4.x 默认按编码器报的 2px 对齐，一加 ColorOS 出 486 宽黑帧）
 - http://公网IP（非安全上下文）没有 WebCodecs → `src/app/player/mseDecoder.ts` + `fmp4.ts` 用 MSE 回退（仅 H.264）；画面卡住要关键帧 → `WebCodecsPlayer.armStallTimer` + `onNeedKeyframe`（RESET_VIDEO）
 - 画面黑屏/解码失败自愈 → `web-phone-remote/src/app/player/WebCodecsPlayer.ts`（`recoverDecoder`、`armOutputWatchdog`：出错或 3 秒无输出改软件解码，记在 localStorage `webcodecs-prefer-software`）
-- 网速跟不上时的丢帧/追帧 → `src/server/videoBackpressure.ts`（阈值），接入点 `ScrcpyConnection.ts` 的 `onVideoFrame`；WebSocket 心跳 → `services/WebSocketServer.ts` 的 `startHeartbeat`
+- 网速跟不上时的丢帧/追帧 → `src/server/videoBackpressure.ts`（`ackedThresholds` 按码率定阈值，`StreamNetMeter` 统计在途/往返/送达码率），接入点 `ScrcpyConnection.ts` 的 `onVideoFrame`/`onAck`/`startStats`；浏览器每帧回 ACK（`ChannelId.ACK`，`ScrcpyDemuxer.sendAck`），服务器每秒发 `ChannelId.STATS`；WebSocket 心跳 → `services/WebSocketServer.ts` 的 `startHeartbeat`
+- 九宫格小窗（只看不操作）→ 点小窗全屏操作：`public/phones.js` 的 `expand`/`collapseExpanded`、小窗挡板 `.preview-shield`（`createCard` 里）、小窗尺寸 `gridFit`/`refitCards`、小窗低码率 `videoProfile`（`PREVIEW_BITRATE`），操作中不为升画质重连 `userBusy`；样式在 `phones.css` 的「九宫格小窗」段和 700px 以下媒体查询
+- 触控手感 → `src/app/interactionHandler/`：拖出画面边缘贴边不断（`buildTouchOnClient` 的 `clampToEdge`）、真手指多点触控各自 pointerId（`buildPointerTouch`、`FeaturedInteractionHandler.fingerId`）、滚轮按幅度每帧合并（`buildScrollEvent`/`flushScroll`，`WHEEL_PX_PER_UNIT`）
+- 手机窗口下方的「延迟/帧/码率」显示和按实测带宽自动降码率 → `public/phones.js` 的 `onNetStats`（事件 `phone-net-stats` 由 `StreamClientScrcpy.onNetStats` 发出），颜色在 `phones.css` 的 `[data-net]`
 - frpc 配置与守护脚本 → `installer/windows/logic.go`（`renderFrpcToml`、`frpcRunScript`）；已装机器由 `tools/update-local-windows.ps1` 补丁
 - 安装包、中转服务器地址 → `installer/windows/logic.go`（`relayHost`）
 - 桌面快捷方式 → `logic.go`（`shortcutFiles`、`appWindowShortcuts`、`findAppBrowser`），写入在 `install_windows.go`（`writeAppWindowShortcuts`）

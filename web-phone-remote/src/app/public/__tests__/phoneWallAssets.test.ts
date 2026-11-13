@@ -69,7 +69,7 @@ describe('phone wall snapshot controls', () => {
 
     it('streams at the chosen quality and reconnects to upgrade (scrcpy 4.1 ignores live settings)', () => {
         const source = publicFile('phones.js');
-        expect(source).toContain('maxSize: requestedSize,');
+        expect(source).toContain('maxSize: requestedSize };');
         expect(source).not.toContain('displayMaxSize');
         const apply = source.slice(source.indexOf('function applyStreamProfile'), source.indexOf('function setState'));
         expect(apply).toContain('connect(card, true)');
@@ -92,5 +92,18 @@ describe('phone wall snapshot controls', () => {
         expect(admin).not.toMatch(/(?<![.\w])confirm\(/);
         expect(admin).toContain('window.TX.enhance(');
         expect(tianxi).toContain('window.TX = { toast, confirm: confirmDialog');
+    });
+});
+
+describe('phone wall preview grid', () => {
+    it('keeps small windows view-only and operates the phone only when expanded', () => {
+        const source = publicFile('phones.js');
+        const css = publicFile('phones.css');
+        expect(source).toContain("shield.addEventListener('click', () => expand(card))");
+        expect(source).toContain("item.classList.contains('expanded')"); // keyboard only to the expanded phone
+        expect(css).toMatch(/\.phone-card\.expanded \.preview-shield \{ display: none; \}/);
+        expect(css).toMatch(/\.preview-shield \{[^}]*z-index: 7/);
+        // previews stream light; expanded uses the full profile
+        expect(source).toContain('bitrate: Math.min(PREVIEW_BITRATE, activeBitrate)');
     });
 });

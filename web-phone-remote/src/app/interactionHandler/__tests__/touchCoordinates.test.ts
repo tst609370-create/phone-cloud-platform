@@ -10,11 +10,13 @@ abstract class TestInteractionHandler extends InteractionHandler {
         screenInfo: ScreenInfo,
     ) {
         const result = super.buildTouchOnClient(event, screenInfo);
-        return result && {
-            client: result.client,
-            point: result.touch.position.point,
-            invalid: result.touch.invalid,
-        };
+        return (
+            result && {
+                client: result.client,
+                point: result.touch.position.point,
+                invalid: result.touch.invalid,
+            }
+        );
     }
 }
 

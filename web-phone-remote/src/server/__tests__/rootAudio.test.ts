@@ -97,8 +97,10 @@ describe('root audio helper', () => {
         shell.mockReset();
         shell.mockResolvedValueOnce('uid=2000(shell)\nSU=/sbin/su').mockResolvedValue('uid=0(root)');
         expect(await hasRoot(adb, 'S', 200_000)).toBe(true);
+        expect(shell).toHaveBeenCalledWith('S', expect.stringContaining('magisk --sqlite'), 5_000); // made permanent
+        const after = shell.mock.calls.length;
         expect(await hasRoot(adb, 'S', 10_000_000)).toBe(true);
-        expect(shell).toHaveBeenCalledTimes(2);
+        expect(shell).toHaveBeenCalledTimes(after);
     });
 
     it('hands over the socket the helper connects with, and cleans up', async () => {

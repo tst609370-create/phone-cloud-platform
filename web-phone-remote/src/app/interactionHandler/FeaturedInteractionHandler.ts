@@ -32,15 +32,15 @@ export class FeaturedInteractionHandler extends InteractionHandler {
         'wheel',
     ];
     private static readonly keyEventsNames: KeyEventNames[] = ['keydown', 'keyup'];
-    public static SCROLL_EVENT_THROTTLING_TIME = 30;
     public static DPAD_SCROLL_DEBOUNCE_TIME = 400; // cooldown after first fire, absorbs hardware burst
     private readonly storedFromMouseEvent = new Map<number, TouchControlMessage>();
     private readonly storedFromTouchEvent = new Map<number, TouchControlMessage>();
     private readonly storedFromPointerEvent = new Map<number, TouchControlMessage>();
     private readonly handledEvents = new WeakSet<Event>();
     private lastPointerMouseEvent = 0;
+    /** Browser pointerId → small Android pointer id (0, 1, 2 …) for real fingers. */
+    private readonly fingerIds = new Map<number, number>();
     private lastPointerTouchEvent = 0;
-    private lastScrollEvent?: { time: number; hScroll: number; vScroll: number };
     private dpadScrollCooldown = false;
     private dpadScrollTimer?: ReturnType<typeof setTimeout>;
     // Phones and tablets are the primary target. Default to coordinate touch so
@@ -54,7 +54,11 @@ export class FeaturedInteractionHandler extends InteractionHandler {
     ) {
         super(player, FeaturedInteractionHandler.touchEventsNames, FeaturedInteractionHandler.keyEventsNames);
         FeaturedInteractionHandler.touchEventsNames.forEach((eventName) => {
-            this.tag.addEventListener(eventName, this.onDirectInteraction, FeaturedInteractionHandler.directListenerOptions);
+            this.tag.addEventListener(
+                eventName,
+                this.onDirectInteraction,
+                FeaturedInteractionHandler.directListenerOptions,
+            );
         });
         this.tag.addEventListener('mouseleave', this.onMouseLeave);
         this.tag.addEventListener('mouseenter', this.onMouseEnter);
@@ -111,24 +115,59 @@ export class FeaturedInteractionHandler extends InteractionHandler {
         return messages;
     }
 
+    /** Browser wheel pixels that make one Android scroll unit (one mouse notch ≈ 100 px in Chrome/Edge). */
+    public static WHEEL_PX_PER_UNIT = 100;
+    private pendingScroll: { h: number; v: number; position: ScrollControlMessage['position'] } | undefined;
+    private scrollFrame = 0;
+
+    /**
+     * Wheel / trackpad → Android scroll, proportional to how far the wheel
+     * actually moved (a trackpad flick scrolls further than a nudge) and merged
+     * once per animation frame, so a burst of trackpad events is one smooth
+     * step instead of many full-size jumps. One notch = one Android scroll unit,
+     * the same as desktop scrcpy (it used to be 1/8 of that — barely moved).
+     */
     public buildScrollEvent(event: WheelEvent, screenInfo: ScreenInfo): ScrollControlMessage[] {
-        const messages: ScrollControlMessage[] = [];
         const touchOnClient = InteractionHandler.buildTouchOnClient(event, screenInfo);
-        if (touchOnClient) {
-            const hScroll = event.deltaX > 0 ? -1 : event.deltaX < 0 ? 1 : 0;
-            const vScroll = event.deltaY > 0 ? -1 : event.deltaY < 0 ? 1 : 0;
-            const time = Date.now();
-            if (
-                !this.lastScrollEvent ||
-                time - this.lastScrollEvent.time > FeaturedInteractionHandler.SCROLL_EVENT_THROTTLING_TIME ||
-                this.lastScrollEvent.vScroll !== vScroll ||
-                this.lastScrollEvent.hScroll !== hScroll
-            ) {
-                this.lastScrollEvent = { time, hScroll, vScroll };
-                messages.push(new ScrollControlMessage(touchOnClient.touch.position, hScroll, vScroll, 0));
-            }
+        if (!touchOnClient) return [];
+        const scale = event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? 800 : 1;
+        let dx = event.deltaX * scale;
+        let dy = event.deltaY * scale;
+        if (event.shiftKey && dx === 0) {
+            dx = dy;
+            dy = 0;
         }
-        return messages;
+        // ScrollControlMessage takes "ticks" where 8 ticks = 1 Android scroll unit.
+        const toTicks = (px: number) => (-px / FeaturedInteractionHandler.WHEEL_PX_PER_UNIT) * 8;
+        const pending = this.pendingScroll ?? { h: 0, v: 0, position: touchOnClient.touch.position };
+        pending.h += toTicks(dx);
+        pending.v += toTicks(dy);
+        pending.position = touchOnClient.touch.position;
+        this.pendingScroll = pending;
+        if (!this.scrollFrame) {
+            const raf =
+                typeof requestAnimationFrame === 'function'
+                    ? requestAnimationFrame
+                    : (cb: () => void) => setTimeout(cb, 16);
+            this.scrollFrame = raf(() => this.flushScroll()) as unknown as number;
+        }
+        return [];
+    }
+
+    private flushScroll(): void {
+        this.scrollFrame = 0;
+        const pending = this.pendingScroll;
+        this.pendingScroll = undefined;
+        if (!pending || (pending.h === 0 && pending.v === 0)) return;
+        // One message carries at most ±128 ticks (±16 units); split bigger flings.
+        let { h, v } = pending;
+        do {
+            const sh = Math.max(-128, Math.min(128, h));
+            const sv = Math.max(-128, Math.min(128, v));
+            this.listener.sendMessage(new ScrollControlMessage(pending.position, sh, sv, 0));
+            h -= sh;
+            v -= sv;
+        } while (Math.abs(h) > 0.01 || Math.abs(v) > 0.01);
     }
 
     // Mouse button → Android keycode mapping (matches scrcpy desktop client defaults)
@@ -155,16 +194,19 @@ export class FeaturedInteractionHandler extends InteractionHandler {
             // WKWebView may retarget pointermove/pointerup to body even after a
             // canvas pointerdown. Keep the gesture bound to the touch canvas so
             // coordinate mapping and MOVE/UP delivery remain continuous.
-            const touchEvent = event.target === this.tag ? event : {
-                clientX: event.clientX,
-                clientY: event.clientY,
-                type: event.type,
-                target: this.tag,
-                button: event.button,
-                buttons: event.buttons,
-                ctrlKey: event.ctrlKey,
-                shiftKey: event.shiftKey,
-            };
+            const touchEvent =
+                event.target === this.tag
+                    ? event
+                    : {
+                          clientX: event.clientX,
+                          clientY: event.clientY,
+                          type: event.type,
+                          target: this.tag,
+                          button: event.button,
+                          buttons: event.buttons,
+                          ctrlKey: event.ctrlKey,
+                          shiftKey: event.shiftKey,
+                      };
             if (event.pointerType === 'mouse') {
                 this.lastPointerMouseEvent = Date.now();
                 const keycode = FeaturedInteractionHandler.BUTTON_KEYCODE_MAP[event.button];
@@ -190,7 +232,10 @@ export class FeaturedInteractionHandler extends InteractionHandler {
                 if (this.over) this.lastPosition = event;
             } else {
                 this.lastPointerTouchEvent = Date.now();
-                messages = this.buildTouchEvent(touchEvent, screenInfo, storage);
+                // Real fingers: one Android pointer per finger (pinch/rotate), not
+                // the single synthetic pointer the mouse path uses.
+                const id = this.fingerId(event.pointerId, event.type);
+                messages = this.buildPointerTouch(touchEvent, screenInfo, storage, id, event.pressure);
             }
             try {
                 if (event.isTrusted && event.type === 'pointerdown') {
@@ -209,7 +254,10 @@ export class FeaturedInteractionHandler extends InteractionHandler {
             if (event.target !== this.tag && !continuingGesture) {
                 return;
             }
-            if (!(window['WheelEvent'] && event instanceof WheelEvent) && Date.now() - this.lastPointerMouseEvent < 80) {
+            if (
+                !(window['WheelEvent'] && event instanceof WheelEvent) &&
+                Date.now() - this.lastPointerMouseEvent < 80
+            ) {
                 return;
             }
             // Right-click → back, middle-click → home (always, both modes)
@@ -240,16 +288,19 @@ export class FeaturedInteractionHandler extends InteractionHandler {
                 return;
             } else {
                 storage = this.storedFromMouseEvent;
-                const touchEvent = event.target === this.tag ? event : {
-                    clientX: event.clientX,
-                    clientY: event.clientY,
-                    type: event.type,
-                    target: this.tag,
-                    button: event.button,
-                    buttons: event.buttons,
-                    ctrlKey: event.ctrlKey,
-                    shiftKey: event.shiftKey,
-                };
+                const touchEvent =
+                    event.target === this.tag
+                        ? event
+                        : {
+                              clientX: event.clientX,
+                              clientY: event.clientY,
+                              type: event.type,
+                              target: this.tag,
+                              button: event.button,
+                              buttons: event.buttons,
+                              ctrlKey: event.ctrlKey,
+                              shiftKey: event.shiftKey,
+                          };
                 messages = this.buildTouchEvent(touchEvent, screenInfo, storage);
             }
             if (this.over) {
@@ -300,6 +351,18 @@ export class FeaturedInteractionHandler extends InteractionHandler {
         this.buildTouchEvent(props, screenInfo, new Map());
     }
 
+    private fingerId(pointerId: number, type: string): number {
+        let id = this.fingerIds.get(pointerId);
+        if (id === undefined) {
+            const used = new Set(this.fingerIds.values());
+            id = 0;
+            while (used.has(id)) id++;
+            this.fingerIds.set(pointerId, id);
+        }
+        if (type === 'pointerup' || type === 'pointercancel') this.fingerIds.delete(pointerId);
+        return id;
+    }
+
     private onMouseEnter = (): void => {
         this.over = true;
     };
@@ -320,7 +383,11 @@ export class FeaturedInteractionHandler extends InteractionHandler {
     public override release(): void {
         super.release();
         FeaturedInteractionHandler.touchEventsNames.forEach((eventName) => {
-            this.tag.removeEventListener(eventName, this.onDirectInteraction, FeaturedInteractionHandler.directListenerOptions);
+            this.tag.removeEventListener(
+                eventName,
+                this.onDirectInteraction,
+                FeaturedInteractionHandler.directListenerOptions,
+            );
         });
         this.tag.removeEventListener('mouseleave', this.onMouseLeave);
         this.tag.removeEventListener('mouseenter', this.onMouseEnter);

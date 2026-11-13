@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { VideoBackpressure } from '../videoBackpressure';
+import { ackedThresholds, StreamNetMeter, VideoBackpressure } from '../videoBackpressure';
 
 describe('VideoBackpressure', () => {
     const opts = { highWater: 1000, lowWater: 200, resetIntervalMs: 1000 };
@@ -32,5 +32,50 @@ describe('VideoBackpressure', () => {
         const bp = new VideoBackpressure(opts);
         expect(bp.audio(1500)).toBe(true);
         expect(bp.audio(2500)).toBe(false);
+    });
+
+    it('counts each fall-behind once and asks for a keyframe as soon as an ACK shows the backlog drained', () => {
+        const bp = new VideoBackpressure(opts);
+        bp.video('delta', 1500, 0);
+        bp.video('delta', 1600, 5);
+        expect(bp.episodes).toBe(1);
+        expect(bp.drained(500, 10)).toBe(false);
+        expect(bp.drained(100, 20)).toBe(true);
+        expect(bp.drained(100, 30)).toBe(false); // throttled
+        bp.video('keyframe', 100, 40);
+        expect(bp.drained(0, 5000)).toBe(false); // not dropping any more
+    });
+});
+
+describe('ackedThresholds', () => {
+    it('scales with bitrate but keeps floors for one keyframe + a round trip', () => {
+        expect(ackedThresholds(2_000_000)).toEqual({ highWater: 192 * 1024, lowWater: 64 * 1024 });
+        const hi = ackedThresholds(8_000_000);
+        expect(hi.highWater).toBe(450_000);
+        expect(hi.lowWater).toBe(150_000);
+        expect(ackedThresholds(undefined).highWater).toBeLessThan(1024 * 1024);
+    });
+});
+
+describe('StreamNetMeter', () => {
+    it('tracks in-flight bytes, round trip and delivered rate from browser ACKs', () => {
+        const m = new StreamNetMeter();
+        m.onSent(100_000);
+        m.onSent(50_000);
+        expect(m.inflight).toBe(150_000);
+        m.tick(1000, false);
+        m.onAck(125_000, 0, 1200);
+        expect(m.ackSeen).toBe(true);
+        expect(m.inflight).toBe(25_000);
+        expect(m.rttMs).toBe(-1);
+        m.onAck(150_000, 1500, 1740);
+        expect(m.rttMs).toBe(240);
+        // stale / bogus acks never move the counter backwards or past what was sent
+        m.onAck(10, 0, 1800);
+        m.onAck(999_999, 0, 1800);
+        expect(m.ackedBytes).toBe(150_000);
+        m.tick(2000, true);
+        expect(m.goodputKbps).toBe(1200);
+        expect(m.capacityKbps).toBe(1200);
     });
 });

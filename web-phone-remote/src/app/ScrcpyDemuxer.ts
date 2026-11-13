@@ -1,5 +1,5 @@
 // src/app/ScrcpyDemuxer.ts
-import { ChannelId } from '../common/ChannelId';
+import { ChannelId, type StreamNetStats } from '../common/ChannelId';
 import type { ControlMessage } from './controlMessage/ControlMessage';
 
 const FRAME_HEADER_SIZE = 12; // 8 (PTS) + 4 (size)
@@ -24,6 +24,7 @@ export type AudioFrameCallback = (data: Uint8Array, pts: bigint, isConfig: boole
 export type DeviceMessageCallback = (data: Uint8Array) => void;
 export type MetadataCallback = (meta: SessionMetadata) => void;
 export type DisconnectCallback = (ev: CloseEvent) => void;
+export type StatsCallback = (stats: StreamNetStats) => void;
 
 export class ScrcpyDemuxer {
     private ws: WebSocket;
@@ -32,7 +33,12 @@ export class ScrcpyDemuxer {
     private deviceMsgCallback?: DeviceMessageCallback;
     private metadataCallback?: MetadataCallback;
     private disconnectCallback?: DisconnectCallback;
+    private statsCallback?: StatsCallback;
     private pendingControl: Uint8Array[] = [];
+    /** Video bytes received (whole WS messages), acknowledged back to the server. */
+    private videoBytes = 0;
+    private readonly ackMsg = new Uint8Array(17);
+    private readonly ackView = new DataView(this.ackMsg.buffer);
 
     constructor(url: string) {
         this.ws = new WebSocket(url);
@@ -57,6 +63,10 @@ export class ScrcpyDemuxer {
 
     onMetadata(cb: MetadataCallback): void {
         this.metadataCallback = cb;
+    }
+
+    onStats(cb: StatsCallback): void {
+        this.statsCallback = cb;
     }
 
     onDisconnect(cb: DisconnectCallback): void {
@@ -98,7 +108,12 @@ export class ScrcpyDemuxer {
 
         switch (channel) {
             case ChannelId.VIDEO:
+                this.videoBytes += raw.length;
+                this.sendAck(0);
                 this.handleMediaFrame(payload, true);
+                break;
+            case ChannelId.STATS:
+                this.handleStats(payload);
                 break;
             case ChannelId.AUDIO:
                 this.handleMediaFrame(payload, false);
@@ -128,6 +143,33 @@ export class ScrcpyDemuxer {
             this.videoCallback?.(data, pts, isConfig, isKeyframe);
         } else {
             this.audioCallback?.(data, pts, isConfig);
+        }
+    }
+
+    /**
+     * Tell the server how much video really arrived (it skips frames when too
+     * much is still in flight) and echo its clock so it can measure the round
+     * trip through the video queue. Old servers ignore this channel.
+     */
+    private sendAck(echoT: number): void {
+        if (this.ws.readyState !== WebSocket.OPEN) return;
+        this.ackMsg[0] = ChannelId.ACK;
+        this.ackView.setFloat64(1, this.videoBytes);
+        this.ackView.setFloat64(9, echoT);
+        try {
+            this.ws.send(this.ackMsg);
+        } catch {
+            /* closing */
+        }
+    }
+
+    private handleStats(payload: Uint8Array): void {
+        try {
+            const stats = JSON.parse(new TextDecoder().decode(payload)) as StreamNetStats;
+            if (typeof stats.t === 'number') this.sendAck(stats.t);
+            this.statsCallback?.(stats);
+        } catch {
+            /* malformed: ignore */
         }
     }
 
