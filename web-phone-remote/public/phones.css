@@ -209,6 +209,37 @@ svg { flex: 0 0 auto; }
 .phone-card.closed { height: 36px; min-height: 36px; resize: none; background: var(--tx-surface); }
 .phone-card.closed > header { border-bottom: 0; }
 .phone-card.closed iframe, .phone-card.closed .last-frame, .phone-card.closed .resume-stream, .phone-card.closed .phone-nav, .phone-card.closed .card-operation-log { display: none; }
+/* ---------- 九宫格小窗：只看不操作，点一下全屏操作 ---------- */
+.preview-shield {
+    grid-row: 2; grid-column: 1; position: relative; z-index: 7; display: grid; place-items: end center;
+    width: 100%; height: 100%; padding: 0 0 14px; border: 0; background: transparent; cursor: zoom-in;
+}
+.preview-shield span {
+    padding: 5px 12px; border: 1px solid rgb(91 156 255 / .35); border-radius: 999px; color: var(--tx-fg);
+    background: rgb(8 9 10 / .78); backdrop-filter: blur(6px); font-size: 12px; opacity: 0; transform: translateY(4px);
+    transition: opacity .16s ease, transform .16s ease; pointer-events: none;
+}
+.preview-shield:hover span, .preview-shield:focus-visible span, .phone-card.closed .preview-shield span { opacity: 1; transform: none; }
+.phone-card.expanded .preview-shield { display: none; }
+.phone-card:not(.expanded) { grid-template-rows: 36px minmax(0, 1fr) 0 0; }
+.phone-card:not(.expanded) .phone-nav { display: none; }
+.phone-card:not(.expanded) { min-width: 150px; min-height: 0; }
+/* 小窗标题栏只留编号、名字、状态和图标按钮；麦克风/听声音/功能进全屏再用 */
+.phone-card:not(.expanded) .card-actions [data-action="browser-mic"],
+.phone-card:not(.expanded) .card-actions [data-action="hear"]:not(.active),
+.phone-card:not(.expanded) .card-actions [data-action="tools"],
+.phone-card:not(.expanded) .card-actions [data-action="upload"],
+.phone-card:not(.expanded) .card-actions [data-action="reconnect"],
+.phone-card:not(.expanded) .card-operation-log { display: none; }
+.phone-card:not(.expanded) .sync-controls { margin-left: auto; }
+.back-to-grid { display: none; }
+.phone-card.expanded .back-to-grid {
+    display: inline-flex; align-items: center; height: 24px; padding: 0 10px; margin-right: 4px; flex: 0 0 auto;
+    border: 1px solid rgb(91 156 255 / .35); border-radius: var(--tx-radius-sm); color: var(--tx-fg); background: rgb(91 156 255 / .14);
+    font-size: 12px; font-weight: 500; cursor: pointer;
+}
+.phone-card.expanded .back-to-grid:hover { background: rgb(91 156 255 / .26); }
+.phone-card.expanded > header { cursor: default; }
 #viewer-backdrop { display: none; position: fixed; inset: 0; z-index: 900; background: var(--tx-overlay); backdrop-filter: blur(4px); }
 #viewer-backdrop.visible { display: block; }
 
@@ -246,7 +277,7 @@ svg { flex: 0 0 auto; }
 
 .phone-card.expanded {
     position: fixed; inset: 18px; left: 18px !important; top: 18px !important; z-index: 901;
-    width: auto; height: auto; min-width: 0; min-height: 0; max-width: none; max-height: none;
+    width: auto !important; height: auto !important; min-width: 0; min-height: 0; max-width: none; max-height: none;
     resize: none; border-radius: var(--tx-radius-lg); box-shadow: var(--tx-shadow-overlay);
 }
 
@@ -289,20 +320,29 @@ svg { flex: 0 0 auto; }
     .stream-switch button { height: 32px; padding: 0 10px; font-size: 13px; }
     .mobile-picker { display: block; flex: 1; }
     .mobile-picker .tx-select-trigger { height: 40px; }
-    .phone-grid { min-height: 0; height: calc(100dvh - 112px); overflow: hidden; background-image: none; }
-    .phone-card {
-        display: none; top: 4px !important; left: 4px !important;
-        width: calc(100vw - 8px) !important; height: calc(100dvh - 120px) !important;
-        min-width: 0; min-height: 0; max-width: none; max-height: none; resize: none; border-radius: var(--tx-radius-md);
+    /* 手机上：先三列小窗，点一下全屏操作 */
+    .phone-grid {
+        min-height: 0; height: calc(100dvh - 112px); overflow: auto; background-image: none;
+        display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 6px; align-content: start;
     }
-    .phone-card.active-stream { display: grid; }
+    .phone-card {
+        position: relative; top: auto !important; left: auto !important; width: auto !important; height: auto !important;
+        aspect-ratio: 9 / 18; min-width: 0; min-height: 0; max-width: none; max-height: none; resize: none; border-radius: var(--tx-radius-md);
+    }
+    .phone-card:not(.expanded) { grid-template-rows: 26px minmax(0, 1fr) 0 0; min-width: 0; }
+    .phone-card:not(.expanded) .card-actions, .phone-card:not(.expanded) .card-operation-log, .phone-card:not(.expanded) .rental-badge { display: none; }
+    .phone-card:not(.expanded) > header { padding: 0 4px; }
+    .phone-card:not(.expanded) header strong { font-size: 11px; }
+    .phone-card.expanded {
+        position: fixed !important; inset: 56px 4px calc(64px + env(safe-area-inset-bottom)) 4px !important;
+        width: auto !important; height: auto !important; aspect-ratio: auto; z-index: 901;
+    }
     .phone-card > header { gap: 4px; padding: 0 4px 0 6px; }
     .phone-card header strong { max-width: 100px; font-size: 13px; }
     .sync-controls { display: none; }
     .card-actions { margin-left: auto; }
     .card-actions button { min-width: 30px; height: 30px; }
     .phone-nav button { font-size: 13px; }
-    .phone-card.expanded { position: absolute; inset: auto; }
     #viewer-backdrop { display: none !important; }
 }
 

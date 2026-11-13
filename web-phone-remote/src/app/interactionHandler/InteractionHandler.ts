@@ -218,7 +218,17 @@ export abstract class InteractionHandler {
         return pointerId;
     }
 
-    protected static buildTouchOnClient(event: CommonTouchAndMouse, screenInfo: ScreenInfo): TouchOnClient | null {
+    /**
+     * @param clampToEdge a gesture is already in progress: a finger that slides
+     *   past the picture edge stays on the edge instead of being dropped, so a
+     *   swipe that overshoots (pull down the notification shade, swipe up for
+     *   home, fast scrolling) keeps moving and lifts where it should.
+     */
+    protected static buildTouchOnClient(
+        event: CommonTouchAndMouse,
+        screenInfo: ScreenInfo,
+        clampToEdge = false,
+    ): TouchOnClient | null {
         const action = this.mapTypeToAction(event.type);
         const { width, height } = screenInfo.videoSize;
         const target: HTMLElement = event.target as HTMLElement;
@@ -258,8 +268,13 @@ export abstract class InteractionHandler {
             touchX -= left;
             clientWidth = realWidth;
         }
-        const x = (touchX * width) / clientWidth;
-        const y = (touchY * height) / clientHeight;
+        let x = (touchX * width) / clientWidth;
+        let y = (touchY * height) / clientHeight;
+        if (clampToEdge) {
+            x = Math.min(Math.max(x, 0), width - 1);
+            y = Math.min(Math.max(y, 0), height - 1);
+            invalid = false;
+        }
         const size = new Size(width, height);
         const point = new Point(x, y);
         const position = new Position(point, size);
@@ -280,7 +295,7 @@ export abstract class InteractionHandler {
         };
     }
 
-    private static validateMessage(
+    protected static validateMessage(
         originalEvent: MiniMouseEvent | TouchEvent,
         message: TouchControlMessage,
         storage: Map<number, TouchControlMessage>,
@@ -339,8 +354,9 @@ export abstract class InteractionHandler {
         screenInfo: ScreenInfo,
         ctrlKey: boolean,
         shiftKey: boolean,
+        clampToEdge = false,
     ): Touch[] | null {
-        const touchOnClient = InteractionHandler.buildTouchOnClient(e, screenInfo);
+        const touchOnClient = InteractionHandler.buildTouchOnClient(e, screenInfo, clampToEdge && !ctrlKey);
         if (!touchOnClient) {
             return null;
         }
@@ -486,6 +502,7 @@ export abstract class InteractionHandler {
                     continue;
                 }
                 const previous = storage.get(pointerId);
+                const continuing = !!previous && e.type !== 'touchstart';
                 const item: CommonTouchAndMouse = {
                     clientX: touch.clientX,
                     clientY: touch.clientY,
@@ -493,7 +510,7 @@ export abstract class InteractionHandler {
                     buttons: MotionEvent.BUTTON_PRIMARY,
                     target: e.target,
                 };
-                const event = InteractionHandler.buildTouchOnClient(item, screenInfo);
+                const event = InteractionHandler.buildTouchOnClient(item, screenInfo, continuing);
                 if (event) {
                     const { action, buttons, position, invalid } = event.touch;
                     let pressure = 1;
@@ -529,7 +546,8 @@ export abstract class InteractionHandler {
         storage: Map<number, TouchControlMessage>,
     ): TouchControlMessage[] {
         const logPrefix = `${TAG}[buildTouchEvent]`;
-        const touches = this.getTouch(e, screenInfo, e.ctrlKey, e.shiftKey);
+        const continuing = storage.size > 0 && InteractionHandler.mapTypeToAction(e.type) !== MotionEvent.ACTION_DOWN;
+        const touches = this.getTouch(e, screenInfo, e.ctrlKey, e.shiftKey, continuing);
         if (!touches) {
             return [];
         }
@@ -572,6 +590,43 @@ export abstract class InteractionHandler {
             storage.clear();
         }
         return messages;
+    }
+
+    /**
+     * One real finger (or pen) from a PointerEvent. Each finger keeps its own
+     * Android pointer id, so two-finger pinch/rotate works from a phone or
+     * tablet browser; lifting one finger does not lift the others.
+     */
+    public buildPointerTouch(
+        e: MiniMouseEvent,
+        screenInfo: ScreenInfo,
+        storage: Map<number, TouchControlMessage>,
+        pointerId: number,
+        pressure: number,
+    ): TouchControlMessage[] {
+        const action = InteractionHandler.mapTypeToAction(e.type);
+        const previous = storage.get(pointerId);
+        const event = InteractionHandler.buildTouchOnClient(
+            e,
+            screenInfo,
+            !!previous && action !== MotionEvent.ACTION_DOWN,
+        );
+        if (!event) return [];
+        if (event.touch.invalid) {
+            if (!previous) return [];
+            storage.delete(pointerId);
+            return [InteractionHandler.createEmulatedMessage(MotionEvent.ACTION_UP, previous)];
+        }
+        const value = action === MotionEvent.ACTION_UP ? 0 : pressure > 0 ? pressure : 1;
+        const message = new TouchControlMessage(
+            action,
+            pointerId,
+            event.touch.position,
+            value,
+            0,
+            MotionEvent.BUTTON_PRIMARY,
+        );
+        return InteractionHandler.validateMessage(e, message, storage, `${TAG}[buildPointerTouch]`);
     }
 
     public release(): void {

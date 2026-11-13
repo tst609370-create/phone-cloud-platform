@@ -72,6 +72,8 @@ node --test installer/setup-auth.test.mjs installer/bootstrap/*.test.mjs   # 安
 - http://公网IP（非安全上下文）没有 WebCodecs → `src/app/player/mseDecoder.ts` + `fmp4.ts` 用 MSE 回退（仅 H.264）；画面卡住要关键帧 → `WebCodecsPlayer.armStallTimer` + `onNeedKeyframe`（RESET_VIDEO）
 - 画面黑屏/解码失败自愈 → `web-phone-remote/src/app/player/WebCodecsPlayer.ts`（`recoverDecoder`、`armOutputWatchdog`：出错或 3 秒无输出改软件解码，记在 localStorage `webcodecs-prefer-software`）
 - 网速跟不上时的丢帧/追帧 → `src/server/videoBackpressure.ts`（`ackedThresholds` 按码率定阈值，`StreamNetMeter` 统计在途/往返/送达码率），接入点 `ScrcpyConnection.ts` 的 `onVideoFrame`/`onAck`/`startStats`；浏览器每帧回 ACK（`ChannelId.ACK`，`ScrcpyDemuxer.sendAck`），服务器每秒发 `ChannelId.STATS`；WebSocket 心跳 → `services/WebSocketServer.ts` 的 `startHeartbeat`
+- 九宫格小窗（只看不操作）→ 点小窗全屏操作：`public/phones.js` 的 `expand`/`collapseExpanded`、小窗挡板 `.preview-shield`（`createCard` 里）、小窗尺寸 `gridFit`/`refitCards`、小窗低码率 `videoProfile`（`PREVIEW_BITRATE`），操作中不为升画质重连 `userBusy`；样式在 `phones.css` 的「九宫格小窗」段和 700px 以下媒体查询
+- 触控手感 → `src/app/interactionHandler/`：拖出画面边缘贴边不断（`buildTouchOnClient` 的 `clampToEdge`）、真手指多点触控各自 pointerId（`buildPointerTouch`、`FeaturedInteractionHandler.fingerId`）、滚轮按幅度每帧合并（`buildScrollEvent`/`flushScroll`，`WHEEL_PX_PER_UNIT`）
 - 手机窗口下方的「延迟/帧/码率」显示和按实测带宽自动降码率 → `public/phones.js` 的 `onNetStats`（事件 `phone-net-stats` 由 `StreamClientScrcpy.onNetStats` 发出），颜色在 `phones.css` 的 `[data-net]`
 - frpc 配置与守护脚本 → `installer/windows/logic.go`（`renderFrpcToml`、`frpcRunScript`）；已装机器由 `tools/update-local-windows.ps1` 补丁
 - 安装包、中转服务器地址 → `installer/windows/logic.go`（`relayHost`）

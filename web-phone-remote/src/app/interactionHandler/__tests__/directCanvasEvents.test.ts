@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { BasePlayer } from '../../player/BasePlayer';
 import { TouchControlMessage } from '../../controlMessage/TouchControlMessage';
 import MotionEvent from '../../MotionEvent';
+import type { BasePlayer } from '../../player/BasePlayer';
 import Rect from '../../Rect';
 import ScreenInfo from '../../ScreenInfo';
 import Size from '../../Size';
@@ -80,15 +80,36 @@ describe('direct canvas interaction', () => {
         vi.stubGlobal('PointerEvent', TestPointerEvent);
         const { canvas, handler, sendMessage } = createHarness();
 
-        canvas.dispatchEvent(new TestPointerEvent('pointerdown', {
-            bubbles: true, cancelable: true, clientX: 40, clientY: 150, button: 0, buttons: 1,
-        }));
-        document.body.dispatchEvent(new TestPointerEvent('pointermove', {
-            bubbles: true, cancelable: true, clientX: 40, clientY: 50, button: 0, buttons: 1,
-        }));
-        document.body.dispatchEvent(new TestPointerEvent('pointerup', {
-            bubbles: true, cancelable: true, clientX: 40, clientY: 50, button: 0, buttons: 0,
-        }));
+        canvas.dispatchEvent(
+            new TestPointerEvent('pointerdown', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 40,
+                clientY: 150,
+                button: 0,
+                buttons: 1,
+            }),
+        );
+        document.body.dispatchEvent(
+            new TestPointerEvent('pointermove', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 40,
+                clientY: 50,
+                button: 0,
+                buttons: 1,
+            }),
+        );
+        document.body.dispatchEvent(
+            new TestPointerEvent('pointerup', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 40,
+                clientY: 50,
+                button: 0,
+                buttons: 0,
+            }),
+        );
 
         expect(sendMessage.mock.calls.map(([message]) => message.action)).toEqual([
             MotionEvent.ACTION_DOWN,
