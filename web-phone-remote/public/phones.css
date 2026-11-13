@@ -145,6 +145,7 @@ svg { flex: 0 0 auto; }
     min-width: 24px; height: 24px; padding: 0 5px; display: inline-grid; place-items: center; border: 0; border-radius: var(--tx-radius-sm);
     color: var(--tx-fg-3); background: transparent; font-size: 11px; white-space: nowrap; cursor: pointer;
 }
+.card-actions button[hidden] { display: none; }
 .card-actions button svg { width: 14px; height: 14px; }
 .card-actions button:hover { color: var(--tx-fg); background: var(--tx-wash-4); }
 .card-actions button[data-action="close"]:hover { color: var(--tx-err); background: rgb(242 85 90 / .1); }

@@ -14,8 +14,28 @@ import type { RootAudioLog, RootAudioSession } from './rootAudio';
  */
 
 export const MIC_APP_PKG = 'com.wsphone.micaudio';
-export const MIC_APP_VERSION = 3;
+export const MIC_APP_VERSION = 4;
 const SERVICE = `${MIC_APP_PKG}/.MicService`;
+
+/** Noise reduction for the mic app: off, normal (suppressor + gate at -48 dBFS), strong (-40). */
+export type DenoiseLevel = 'off' | 'normal' | 'strong';
+const denoiseBySerial = new Map<string, DenoiseLevel>();
+export function getDenoise(serial: string): DenoiseLevel {
+    return denoiseBySerial.get(serial) ?? 'normal';
+}
+export function denoiseExtras(level: DenoiseLevel): string {
+    const gate = level === 'strong' ? -40 : level === 'normal' ? -48 : 0;
+    return `--es denoise ${level === 'off' ? 0 : 1} --es gate ${gate}`;
+}
+/** Remember the level and apply it live to a running mic app (no reconnect). */
+export async function setDenoise(adb: Pick<MicAppAdb, 'shell'>, serial: string, level: DenoiseLevel): Promise<void> {
+    denoiseBySerial.set(serial, level);
+    await sh(
+        adb as MicAppAdb,
+        serial,
+        `am start-foreground-service -n ${SERVICE} -a config ${denoiseExtras(level)} >/dev/null 2>&1`,
+    );
+}
 
 export interface MicAppAdb {
     shell(serial: string, command: string, timeoutMs?: number): Promise<string>;
@@ -180,6 +200,13 @@ export async function startMicApp(
         if (stopped) return;
         stopped = true;
         sock?.destroy();
+        // Make the app release the microphone and drop its notification even if the
+        // closed socket goes unnoticed on the phone.
+        sh(
+            adb,
+            serial,
+            `am start-foreground-service -n ${SERVICE} -a stop --es socket wsmic_${scid} >/dev/null 2>&1`,
+        ).catch(() => undefined);
         if (forwarded) adb.removeForward(serial, forwarded).catch(() => undefined);
     };
     const fail = (why: string): RootAudioSession => {
@@ -195,7 +222,7 @@ export async function startMicApp(
     const started = await sh(
         adb,
         serial,
-        `am start-foreground-service -n ${SERVICE} --es socket ${name} --es codec ${codec} 2>&1`,
+        `am start-foreground-service -n ${SERVICE} --es socket ${name} --es codec ${codec} ${denoiseExtras(getDenoise(serial))} 2>&1`,
         10_000,
     );
     if (/Error|Exception|not allowed|Unable/i.test(started))

@@ -87,6 +87,7 @@ public final class RootAudioMain {
     public static void stream(java.io.OutputStream raw, String codec, boolean mic, boolean fakeContext) throws IOException {
         DataOutputStream out = new DataOutputStream(new BufferedOutputStream(raw, 1 << 16));
         AudioRecord recorder;
+        micMode = mic;
         try {
             if (fakeContext) prepareProcess();
             recorder = mic ? openMic() : openRecorder(SOURCE_REMOTE_SUBMIX, CHANNEL_IN_STEREO);
@@ -125,6 +126,7 @@ public final class RootAudioMain {
         } catch (IOException closed) {
             // The computer closed the socket: session over.
         } finally {
+            releaseSuppressor();
             try {
                 recorder.stop();
             } catch (Throwable ignored) {
@@ -193,6 +195,99 @@ public final class RootAudioMain {
     private static double resPos;
     private static int lastL, lastR;
     private static byte[] inBuf = new byte[0];
+    /** Mic noise reduction (live: the app's service updates these). gateDb 0 = gate off. */
+    public static volatile boolean denoise = true;
+    static boolean micMode;
+    public static volatile int gateDb = -50;
+    private static volatile android.media.audiofx.NoiseSuppressor suppressor;
+    private static double gateGain = 1;
+    private static int gateHold;
+
+    /** Turn noise reduction on/off while streaming. */
+    public static void setDenoise(boolean on, int db) {
+        denoise = on;
+        gateDb = db;
+        android.media.audiofx.NoiseSuppressor ns = suppressor;
+        if (ns != null) {
+            try {
+                ns.setEnabled(on);
+            } catch (Throwable ignored) {
+                // ignore
+            }
+        }
+    }
+
+    private static void attachSuppressor(AudioRecord recorder) {
+        try {
+            if (android.media.audiofx.NoiseSuppressor.isAvailable()) {
+                android.media.audiofx.NoiseSuppressor ns = android.media.audiofx.NoiseSuppressor.create(recorder.getAudioSessionId());
+                if (ns != null) {
+                    ns.setEnabled(denoise);
+                    suppressor = ns;
+                }
+            }
+        } catch (Throwable thrown) {
+            System.err.println("root-audio: NoiseSuppressor unavailable: " + thrown);
+        }
+    }
+
+    private static void releaseSuppressor() {
+        android.media.audiofx.NoiseSuppressor ns = suppressor;
+        suppressor = null;
+        if (ns != null) {
+            try {
+                ns.release();
+            } catch (Throwable ignored) {
+                // ignore
+            }
+        }
+    }
+
+    /**
+     * Noise gate on 48 kHz stereo s16: blocks quieter than {@code gateDb} dBFS (after a
+     * 250 ms hold) fade to silence, louder blocks fade back in over ~10 ms, so the
+     * constant hiss between sounds is gone without clicks.
+     */
+    static void gate(byte[] buf, int n) {
+        boolean on = denoise && gateDb < 0;
+        if (n < 4) return;
+        double target;
+        if (!on) {
+            target = 1;
+        } else {
+            long sum = 0;
+            int count = 0;
+            for (int i = 0; i + 1 < n; i += 2) {
+                int v = (short) ((buf[i] & 0xff) | (buf[i + 1] << 8));
+                sum += (long) v * v;
+                count++;
+            }
+            double rms = Math.sqrt((double) sum / Math.max(1, count));
+            double threshold = 32768.0 * Math.pow(10, gateDb / 20.0);
+            if (rms >= threshold) {
+                gateHold = 12; // ~250 ms of 21 ms blocks
+                target = 1;
+            } else if (gateHold > 0) {
+                gateHold--;
+                target = 1;
+            } else {
+                target = 0;
+            }
+        }
+        if (target == 1 && gateGain >= 1) return;
+        double step = 1.0 / 480; // 10 ms at 48 kHz
+        for (int i = 0; i + 3 < n; i += 4) {
+            if (gateGain < target) gateGain = Math.min(target, gateGain + step);
+            else if (gateGain > target) gateGain = Math.max(target, gateGain - step);
+            for (int c = 0; c < 4; c += 2) {
+                int v = (short) ((buf[i + c] & 0xff) | (buf[i + c + 1] << 8));
+                int g = (int) Math.round(v * gateGain);
+                buf[i + c] = (byte) g;
+                buf[i + c + 1] = (byte) (g >> 8);
+            }
+        }
+    }
+
     /** Set by the app: permission / busy state, appended to a mic failure. */
     public static volatile java.util.concurrent.Callable<String> diag;
 
@@ -215,6 +310,9 @@ public final class RootAudioMain {
                             resPos = 0;
                             lastL = lastR = 0;
                             System.err.println("root-audio: mic open source=" + source + " rate=" + rate + " ch=" + capChannels);
+                            gateGain = 1;
+                            gateHold = 0;
+                            attachSuppressor(r);
                             return r;
                         } catch (RuntimeException failed) {
                             if (first == null) first = failed.getMessage();
@@ -322,6 +420,7 @@ public final class RootAudioMain {
         while (true) {
             int n = readStereo(recorder, buf);
             if (n < 0) throw new IllegalStateException("AudioRecord.read " + n);
+            if (micMode) gate(buf, n);
             if (n == 0) continue;
             writePacket(out, frames * 1000000L / SAMPLE_RATE, buf, 0, n);
             out.flush();
@@ -337,6 +436,7 @@ public final class RootAudioMain {
         while (true) {
             int n = readStereo(recorder, buf);
             if (n < 0) throw new IllegalStateException("AudioRecord.read " + n);
+            if (micMode) gate(buf, n);
             int off = 0;
             while (off < n) {
                 int index = encoder.dequeueInputBuffer(20000);
