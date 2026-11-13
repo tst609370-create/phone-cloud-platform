@@ -14,7 +14,7 @@ import type { RootAudioLog, RootAudioSession } from './rootAudio';
  */
 
 export const MIC_APP_PKG = 'com.wsphone.micaudio';
-export const MIC_APP_VERSION = 4;
+export const MIC_APP_VERSION = 5;
 const SERVICE = `${MIC_APP_PKG}/.MicService`;
 
 /** Noise reduction for the mic app: off, normal (suppressor + gate at -48 dBFS), strong (-40). */
@@ -24,8 +24,10 @@ export function getDenoise(serial: string): DenoiseLevel {
     return denoiseBySerial.get(serial) ?? 'normal';
 }
 export function denoiseExtras(level: DenoiseLevel): string {
+    // normal: gate -48 dBFS, 100 Hz-8 kHz; strong: gate -40, 150 Hz-4.5 kHz (voice band).
     const gate = level === 'strong' ? -40 : level === 'normal' ? -48 : 0;
-    return `--es denoise ${level === 'off' ? 0 : 1} --es gate ${gate}`;
+    const band = level === 'strong' ? '--es hp 150 --es lp 4500' : '--es hp 100 --es lp 8000';
+    return `--es denoise ${level === 'off' ? 0 : 1} --es gate ${gate} ${band}`;
 }
 /** Remember the level and apply it live to a running mic app (no reconnect). */
 export async function setDenoise(adb: Pick<MicAppAdb, 'shell'>, serial: string, level: DenoiseLevel): Promise<void> {

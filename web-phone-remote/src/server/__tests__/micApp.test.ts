@@ -60,7 +60,7 @@ describe('no-root mic app', () => {
     it('reports a record permission MIUI silently refused', async () => {
         const shell = vi.fn(async (_s: string, cmd: string) =>
             cmd.includes('versionCode')
-                ? 'versionCode=4'
+                ? 'versionCode=5'
                 : cmd.includes('__OPS')
                   ? 'android.permission.RECORD_AUDIO: granted=false\n__OPS\nRECORD_AUDIO: ignore'
                   : '',
@@ -73,14 +73,14 @@ describe('no-root mic app', () => {
 
     it('turns noise reduction on by default and changes it live', async () => {
         expect(getDenoise('D')).toBe('normal');
-        expect(denoiseExtras('normal')).toBe('--es denoise 1 --es gate -48');
-        expect(denoiseExtras('off')).toBe('--es denoise 0 --es gate 0');
+        expect(denoiseExtras('normal')).toBe('--es denoise 1 --es gate -48 --es hp 100 --es lp 8000');
+        expect(denoiseExtras('off')).toBe('--es denoise 0 --es gate 0 --es hp 100 --es lp 8000');
         const shell = vi.fn(async () => '');
         await setDenoise({ shell } as unknown as MicAppAdb, 'D', 'strong');
         expect(getDenoise('D')).toBe('strong');
         expect(shell).toHaveBeenCalledWith(
             'D',
-            expect.stringContaining('-a config --es denoise 1 --es gate -40'),
+            expect.stringContaining('-a config --es denoise 1 --es gate -40 --es hp 150 --es lp 4500'),
             10_000,
         );
     });
@@ -105,7 +105,7 @@ describe('no-root mic app', () => {
         const adb: MicAppAdb = {
             shell: vi.fn(async (_s: string, cmd: string) =>
                 cmd.includes('versionCode')
-                    ? 'versionCode=4'
+                    ? 'versionCode=5'
                     : cmd.includes('__OPS')
                       ? GRANTED
                       : 'Starting service: Intent { }',
