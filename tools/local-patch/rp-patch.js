@@ -191,6 +191,8 @@
 .rp-tools .card-actions button.active,.rp-tools .card-actions button[aria-pressed="true"]{color:var(--tx-bg,#08090a);background:var(--tx-fg,#f7f8f8)}
 .rp-tools [data-action="fullscreen"],.rp-tools [data-action="close"]{display:none!important}
 .phone-card.rp-side header strong{max-width:none!important}
+.phone-card.rp-side:not(.expanded){min-width:0!important}
+.phone-card.rp-side>iframe{width:100%!important;height:100%!important}
 @media (max-width:760px){.phone-card.rp-side{grid-template-columns:minmax(0,1fr) 54px!important}}`;
     document.head.appendChild(css);
     function apply(card) {
@@ -208,8 +210,49 @@
         card.appendChild(tools);
         card.classList.add('rp-side');
     }
-    const scan = () => document.querySelectorAll('.phone-card').forEach(apply);
+    // 窗口大小跟画面比例走：画面宽 = 窗口大小档（小/中/大），右侧加 62px 工具栏，高度 = 标题栏 + 画面 + 状态行，不留黑边
+    const TOOL_W = 62;
+    function ratioOf(card) {
+        const m = /(\d+)\s*[×x]\s*(\d+)/.exec(card.querySelector('.card-operation-log')?.dataset.stream || '');
+        if (m && +m[1] && +m[2]) return +m[1] / +m[2];
+        try {
+            const c = card.querySelector('iframe')?.contentDocument?.querySelector('.touch-layer');
+            if (c && c.width && c.height) return c.width / c.height;
+        } catch { /* ignore */ }
+        if (typeof card._lastAspect === 'number' && card._lastAspect > 0) return card._lastAspect;
+        const img = card.querySelector('.last-frame');
+        if (img?.naturalWidth && img.naturalHeight) return img.naturalWidth / img.naturalHeight;
+        return 0;
+    }
+    function fit(card) {
+        if (!card.classList.contains('rp-side') || card.classList.contains('expanded') || card.classList.contains('closed')) return;
+        const ratio = ratioOf(card);
+        if (!ratio) return;
+        const border = 2;
+        const headerH = card.querySelector(':scope > header')?.offsetHeight || 36;
+        const logH = card.querySelector(':scope > .card-operation-log')?.offsetHeight || 22;
+        const tile = Number(document.getElementById('tile-size')?.value) || 400;
+        let picW = Math.max(120, tile - border);
+        let picH = picW / ratio;
+        const maxH = Math.max(200, innerHeight - 90 - headerH - logH - border);
+        if (picH > maxH) { picH = maxH; picW = picH * ratio; }
+        const w = Math.round(picW + TOOL_W + border);
+        const h = Math.round(picH + headerH + logH + border);
+        if (Math.abs(parseFloat(card.style.width) - w) > 1) card.style.width = `${w}px`;
+        if (Math.abs(parseFloat(card.style.height) - h) > 1) card.style.height = `${h}px`;
+    }
+    const styleWatch = new MutationObserver((records) => {
+        for (const r of records) fit(r.target);
+    });
+    const scan = () => document.querySelectorAll('.phone-card').forEach((card) => {
+        const fresh = !card.classList.contains('rp-side');
+        apply(card);
+        if (fresh && card.classList.contains('rp-side')) styleWatch.observe(card, { attributes: true, attributeFilter: ['style', 'class'] });
+        fit(card);
+    });
     scan();
+    setInterval(() => document.querySelectorAll('.phone-card.rp-side').forEach(fit), 1500);
+    addEventListener('resize', () => setTimeout(() => document.querySelectorAll('.phone-card.rp-side').forEach(fit), 50));
     const grid = document.getElementById('phone-grid');
     new MutationObserver(scan).observe(grid || document.body, { childList: true, subtree: !grid });
 })();
