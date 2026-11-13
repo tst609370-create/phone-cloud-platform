@@ -11,6 +11,7 @@ import { Config } from './Config';
 import { ensureScrcpyServerPushed } from './ensureScrcpyServerPushed';
 import { ControlCenter } from './goog-device/services/ControlCenter';
 import { Logger } from './Logger';
+import { resolveMicApk, startMicApp } from './micApp';
 import { Mw, type RequestParameters } from './mw/Mw';
 import {
     probeRoot,
@@ -197,17 +198,22 @@ export class ScrcpyConnection extends Mw {
         await ensureScrcpyServerPushed(this.adbClient, this.serial, serverFile());
         if (rootAudioJar) {
             const codec = options.audioCodec === 'raw' ? 'raw' : 'aac';
-            this.rootAudio = await startRootAudio(
-                this.adbClient,
-                this.serial,
-                String(options.scid),
-                codec,
-                rootAudioJar,
-                log,
-                10_000,
-                rootPrefix,
-                rootSource,
-            );
+            // Without root the adb shell user cannot record on Android 8-10; an installed
+            // app with RECORD_AUDIO can (installed and granted over adb, see micApp.ts).
+            const micApk = rootSource === 'mic' ? resolveMicApk() : undefined;
+            this.rootAudio = micApk
+                ? await startMicApp(this.adbClient, this.serial, String(options.scid), codec, micApk, log)
+                : await startRootAudio(
+                      this.adbClient,
+                      this.serial,
+                      String(options.scid),
+                      codec,
+                      rootAudioJar,
+                      log,
+                      10_000,
+                      rootPrefix,
+                      rootSource,
+                  );
             log.info(
                 `root audio capture requested for ${this.serial} (sdk=${sdkInt}, codec=${codec}, source=${rootSource}, via="${rootPrefix || 'adb shell'}")`,
             );

@@ -68,19 +68,39 @@ public final class RootAudioMain {
 
         LocalSocket socket = new LocalSocket();
         socket.connect(new LocalSocketAddress(args[0]));
-        DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream(), 1 << 16));
+        try {
+            stream(socket.getOutputStream(), codec, mic, true);
+        } finally {
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+                // ignore
+            }
+        }
+    }
 
+    /**
+     * Record and write the scrcpy-style audio stream to {@code raw} until the reader
+     * goes away. On a capture failure writes AUDIO_ERROR followed by a length-prefixed
+     * UTF-8 reason (readers that only know scrcpy stop after the error code anyway).
+     * {@code fakeContext} is for app_process only; an installed app must pass false.
+     */
+    public static void stream(java.io.OutputStream raw, String codec, boolean mic, boolean fakeContext) throws IOException {
+        DataOutputStream out = new DataOutputStream(new BufferedOutputStream(raw, 1 << 16));
         AudioRecord recorder;
         try {
-            prepareProcess();
+            if (fakeContext) prepareProcess();
             recorder = mic ? openMic() : openRecorder(SOURCE_REMOTE_SUBMIX, CHANNEL_IN_STEREO);
         } catch (Throwable thrown) {
-            status("ROOT_AUDIO_NO:" + sanitize(thrown));
-            Thread.sleep(400); // let the reason reach the computer before the error code
+            String reason = sanitize(thrown);
+            status("ROOT_AUDIO_NO:" + reason);
+            sleep(400); // let the reason reach the computer before the error code
+            byte[] text = reason.getBytes("UTF-8");
             out.writeInt(AUDIO_ERROR);
+            out.writeInt(text.length);
+            out.write(text);
             out.flush();
-            Thread.sleep(500);
-            socket.close();
+            sleep(500);
             return;
         }
 
@@ -120,11 +140,14 @@ public final class RootAudioMain {
                 }
                 encoder.release();
             }
-            try {
-                socket.close();
-            } catch (IOException ignored) {
-                // ignore
-            }
+        }
+    }
+
+    private static void sleep(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -166,6 +189,7 @@ public final class RootAudioMain {
     }
 
     private static AudioRecord openMic() {
+        mono = false;
         try {
             return openRecorder(SOURCE_MIC, CHANNEL_IN_STEREO);
         } catch (RuntimeException stereoFailed) {
@@ -224,7 +248,7 @@ public final class RootAudioMain {
         return codec;
     }
 
-    private static void pumpRaw(AudioRecord recorder, DataOutputStream out) throws IOException {
+    static void pumpRaw(AudioRecord recorder, DataOutputStream out) throws IOException {
         byte[] buf = new byte[CHUNK_BYTES];
         long frames = 0;
         while (true) {
@@ -237,7 +261,7 @@ public final class RootAudioMain {
         }
     }
 
-    private static void pumpAac(AudioRecord recorder, MediaCodec encoder, DataOutputStream out) throws IOException {
+    static void pumpAac(AudioRecord recorder, MediaCodec encoder, DataOutputStream out) throws IOException {
         byte[] buf = new byte[CHUNK_BYTES];
         byte[] packet = new byte[64 * 1024];
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
