@@ -5,7 +5,7 @@ import os from 'os';
 import path from 'path';
 import { PassThrough } from 'stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearRootCache, hasRoot, isRootIdOutput, type RootAudioAdb, rootAudioCommand, startRootAudio } from '../rootAudio';
+import { clearRootCache, hasRoot, isRootIdOutput, probeRoot, type RootAudioAdb, rootAudioCommand, startRootAudio, wrapRoot } from '../rootAudio';
 
 function fakeProc() {
     const proc = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough; killed: boolean; kill: () => void };
@@ -41,12 +41,47 @@ describe('root audio helper', () => {
         );
     });
 
-    it('remembers a root yes, retries a no after a while', async () => {
-        const shell = vi.fn().mockResolvedValueOnce('su: not found').mockResolvedValue('uid=0(root) gid=0(root)');
-        const adb = { shell } as unknown as RootAudioAdb;
-        expect(await hasRoot(adb, 'S', 1000)).toBe(false);
-        expect(await hasRoot(adb, 'S', 2000)).toBe(false); // cached no
+    it('uses adb shell directly when it already is root (emulators)', async () => {
+        const shell = vi.fn().mockResolvedValue('uid=0(root) gid=0(root)\nSU=/system/xbin/su\n');
+        const probe = await probeRoot({ shell } as unknown as RootAudioAdb, 'E', 1);
+        expect(probe.prefix).toBe('');
         expect(shell).toHaveBeenCalledTimes(1);
+        expect(rootAudioCommand('n', 'raw', '')).toBe('CLASSPATH=/data/local/tmp/ws-root-audio.jar app_process / com.wsphone.rootaudio.RootAudioMain n raw');
+    });
+
+    it('says there is no su so the user turns root on', async () => {
+        const shell = vi.fn(async (_s: string, cmd: string) =>
+            cmd.startsWith('id;') ? 'uid=2000(shell) gid=2000(shell)\n' : '/system/bin/sh: su: not found',
+        );
+        const probe = await probeRoot({ shell } as unknown as RootAudioAdb, 'E', 1);
+        expect(probe.prefix).toBeUndefined();
+        expect(probe.reason).toContain('找不到 su');
+    });
+
+    it('tries other su spellings when su -c is refused', async () => {
+        const shell = vi.fn(async (_s: string, cmd: string) => {
+            if (cmd.startsWith('id;')) return 'uid=2000(shell)\nSU=/system/xbin/su\n';
+            if (cmd.startsWith('su 0 sh -c')) return 'uid=0(root) gid=0(root)';
+            return 'su: invalid option -- c';
+        });
+        const probe = await probeRoot({ shell } as unknown as RootAudioAdb, 'E', 1);
+        expect(probe.prefix).toBe('su 0 sh -c');
+        expect(wrapRoot('su 0 sh -c', 'id')).toBe('su 0 sh -c "id"');
+    });
+
+    it('remembers a root yes, retries a no after a while', async () => {
+        const shell = vi
+            .fn()
+            .mockResolvedValueOnce('uid=2000(shell)\nSU=/sbin/su')
+            .mockResolvedValue('Permission denied');
+        const adb = { shell } as unknown as RootAudioAdb;
+        const no = await probeRoot(adb, 'S', 1000);
+        expect(no.reason).toContain('Permission denied');
+        const calls = shell.mock.calls.length;
+        expect(await hasRoot(adb, 'S', 2000)).toBe(false); // cached no
+        expect(shell).toHaveBeenCalledTimes(calls);
+        shell.mockReset();
+        shell.mockResolvedValueOnce('uid=2000(shell)\nSU=/sbin/su').mockResolvedValue('uid=0(root)');
         expect(await hasRoot(adb, 'S', 40_000)).toBe(true);
         expect(await hasRoot(adb, 'S', 10_000_000)).toBe(true);
         expect(shell).toHaveBeenCalledTimes(2);
