@@ -1,7 +1,8 @@
 # 把本机已安装的“手机远程控制”（%LOCALAPPDATA%\PhoneRemote）更新到 GitHub main 的最新代码。
 # 只换 app\dist（前端页面 + 服务端打包），不动配置、账号、租用数据、FRP；旧 dist 会备份。
-# 用法（PowerShell）：irm https://raw.githubusercontent.com/tst609370-create/phone-cloud-platform/main/tools/update-local-windows.ps1 | iex
-# 连不上 GitHub 的电脑：中转服务器先跑 tools/serve-update.sh，电脑执行它最后打印的那条命令（设 $env:PR_SRC，只下载已构建好的 dist.zip）
+# 仓库已私有，统一从广州服务器取已构建好的包：服务器先跑 tools/serve-update.sh，电脑再执行
+#   $env:PR_SRC='http://81.71.94.90:8099'; iex ([Text.Encoding]::UTF8.GetString((iwr "$env:PR_SRC/update.bin" -UseBasicParsing).Content))
+# 不设 PR_SRC 时默认就用该服务器；设 $env:PR_SRC='github' 且有 $env:GH_TOKEN（只读令牌）才在本机下载源码构建
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 # 很多电脑执行策略是 Restricted，会拦住 npm.ps1 之类的脚本；只放宽本进程，不改系统设置
@@ -47,6 +48,8 @@ $work = Join-Path $env:TEMP ("phone-remote-update-" + (Get-Date -Format 'yyyyMMd
 New-Item -ItemType Directory -Path $work | Out-Null
 
 $prSrc = "$env:PR_SRC".TrimEnd('/')
+if (-not $prSrc) { $prSrc = 'http://81.71.94.90:8099'; Write-Host "未设 PR_SRC，默认从 $prSrc 下载已构建好的包" }
+if ($prSrc -eq 'github') { $prSrc = '' }
 $commit = ''
 if ($prSrc) {
     # 国内电脑连不上 GitHub/npm：直接下载广州服务器上已构建好的 dist（tools/serve-update.sh 生成）
@@ -77,11 +80,11 @@ if ($prSrc) {
 
     Step '下载 main 最新代码'
     $src = Join-Path $work 'src.zip'
-    Get-FileWithFallback @('https://codeload.github.com/tst609370-create/phone-cloud-platform/zip/refs/heads/main',
-        'https://ghfast.top/https://github.com/tst609370-create/phone-cloud-platform/archive/refs/heads/main.zip',
-        'https://gh-proxy.com/https://github.com/tst609370-create/phone-cloud-platform/archive/refs/heads/main.zip') $src
-    Expand-Archive $src -DestinationPath $work
-    $repo = Join-Path $work 'phone-cloud-platform-main\web-phone-remote'
+    if (-not $env:GH_TOKEN) { throw '仓库是私有的：本机构建需要 $env:GH_TOKEN（只读令牌）；或不设 PR_SRC，直接用广州服务器的包' }
+    Invoke-WebRequest 'https://api.github.com/repos/tst609370-create/phone-cloud-platform/zipball/main' -OutFile $src -UseBasicParsing -TimeoutSec 600 `
+        -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; 'User-Agent' = 'phone-remote-update' }
+    Expand-Archive $src -DestinationPath (Join-Path $work 'srcx')
+    $repo = Join-Path (Get-ChildItem (Join-Path $work 'srcx') -Directory | Select-Object -First 1).FullName 'web-phone-remote'
 
     Step '构建（npm ci + webpack，约 2–5 分钟）'
     Push-Location $repo
