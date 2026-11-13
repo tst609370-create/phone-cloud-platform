@@ -4,7 +4,7 @@
     const quality = document.getElementById('quality');
     const fps = document.getElementById('fps');
     const tileSize = document.getElementById('tile-size');
-    const UI_VERSION = '1113s';
+    const UI_VERSION = '1113u';
     const sizeValue = document.getElementById('size-value');
     const backdrop = document.getElementById('viewer-backdrop');
     const grid = document.getElementById('phone-grid');
@@ -222,7 +222,7 @@
             ['tools', '展开功能', '功能'],
             ['upload', '安装 APP 或导入图片', CARD_ICONS.upload],
             ['reconnect', '重新连接', CARD_ICONS.reconnect],
-            ['fullscreen', '全屏操作', CARD_ICONS.fullscreen],
+            ['fullscreen', '放大操作', CARD_ICONS.fullscreen],
             ['close', '关闭', CARD_ICONS.close],
         ]) {
             const button = document.createElement('button');
@@ -240,9 +240,9 @@
         const backToGrid = document.createElement('button');
         backToGrid.type = 'button';
         backToGrid.className = 'back-to-grid';
-        backToGrid.title = '返回九宫格（Esc）';
+        backToGrid.title = '缩回小窗（Esc 全部缩回）';
         backToGrid.textContent = '‹ 九宫格';
-        backToGrid.addEventListener('click', collapseExpanded);
+        backToGrid.addEventListener('click', () => collapseCard(card));
         header.append(backToGrid, number, title, state, rentalBadge, syncControls, actions);
 
         const frame = document.createElement('iframe');
@@ -294,8 +294,8 @@
         const shield = document.createElement('button');
         shield.type = 'button';
         shield.className = 'preview-shield';
-        shield.setAttribute('aria-label', `全屏操作 ${name}`);
-        shield.innerHTML = '<span>点击全屏操作</span>';
+        shield.setAttribute('aria-label', `放大操作 ${name}`);
+        shield.innerHTML = '<span>点击放大操作</span>';
         shield.addEventListener('click', () => expand(card));
         card.append(header, lastFrame, frame, nativeInput, resume, shield, phoneNav, operationStatus, fileInput);
         grid.appendChild(card);
@@ -313,13 +313,13 @@
         card.querySelector('[data-action="upload"]').addEventListener('click', () => fileInput.click());
         card.querySelector('[data-action="reconnect"]').addEventListener('click', () => activate(card, true, true));
         card.querySelector('[data-action="fullscreen"]').addEventListener('click', () => {
-            if (card.classList.contains('expanded')) collapseExpanded();
+            if (card.classList.contains('expanded')) collapseCard(card);
             else expand(card);
         });
         card.querySelector('[data-action="close"]').addEventListener('click', () => {
             const wasExpanded = card.classList.contains('expanded');
             close(card);
-            if (wasExpanded) collapseExpanded();
+            if (wasExpanded) collapseCard(card);
             else refitCards();
         });
         master.addEventListener('change', () => master.checked && setMaster(card));
@@ -583,6 +583,7 @@
                     localStorage.setItem(`phone-auto-cap:${card.dataset.device}`, String(have.maxSize));
                 }
             } catch { /* per-session only */ }
+            card._goodProfile = { ...have };
             if (have.maxSize > autoVerified(card.dataset.device)) {
                 try { localStorage.setItem(`phone-auto-ok:${card.dataset.device}`, String(have.maxSize)); } catch { /* per-session only */ }
                 if (quality.value === 'auto') applyStreamProfile(card);
@@ -590,7 +591,17 @@
             return;
         }
         const lower = [...AUTO_SIZE_STEPS].reverse().find((step) => step < have.maxSize);
-        if (!lower) return;
+        if (!lower) {
+            // 已是最小尺寸还没画面：多半是刚才为放大/升码率重连后出不来（如安卓 9 的旧手机）。
+            // 退回上次出过画面的设置并在本次打开期间固定，不再黑屏。
+            const good = card._goodProfile;
+            if (good && !card._pinProfile && (good.bitrate !== have.bitrate || good.maxFps !== have.maxFps)) {
+                card._pinProfile = good;
+                logOperation(card, '提高画质后没出画面，已退回原来的画质');
+                connect(card, true);
+            }
+            return;
+        }
         card._healthRetries = (card._healthRetries || 0) + 1;
         if (card._healthRetries > 2) return; // still black at the lowest size: stop reconnecting
         try { localStorage.setItem(`phone-auto-cap:${card.dataset.device}`, String(lower)); } catch { /* per-session only */ }
@@ -651,7 +662,12 @@
         return Date.now() - (card._lastInputAt || 0) < INPUT_IDLE_MS;
     }
 
+    function openCount() {
+        return cards.filter((item) => !item.classList.contains('closed')).length;
+    }
+
     function videoProfile(card) {
+        if (card._pinProfile) return { ...card._pinProfile };
         // scrcpy maxSize limits the LONGEST side. Option values are long-side
         // pixels (1080/1600/2400 ≈ 480p/720p/1080p on a 20:9 phone).
         const netBitrate = card._netBitrate || Infinity;
@@ -662,7 +678,8 @@
         const requestedFps = Number(fps.value);
         const activeBitrate = Math.min(netBitrate, requestedSize > 1600 ? 8000000 : requestedSize > 1080 ? 4000000 : 2000000);
         // 九宫格小窗只用来看：低码率、15 帧、最多 1080，省流量；点开全屏才用正常画质。
-        if (!card.classList.contains('expanded')) {
+        // 只有 4 台以上才压低小窗画质；台数少时小窗和放大用同一路流，点开不用重连、不会黑一下。
+        if (!card.classList.contains('expanded') && openCount() > 3) {
             return {
                 bitrate: Math.min(PREVIEW_BITRATE, activeBitrate),
                 maxFps: Math.min(15, requestedFps),
@@ -677,7 +694,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261113p',
+                ui: '20261113t',
             });
             return `snapshot.html?${params}`;
         }
@@ -691,7 +708,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261113p',
+            ui: '20261113t',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         if (card.dataset.hear === '1' && audioSourceFor(card.dataset.device) === 'playback') {
@@ -1181,6 +1198,7 @@
             if (aspect && aspect !== card._videoAspect) {
                 card._videoAspect = aspect;
                 card._lastAspect = aspect;
+                sizeExpanded(card);
                 fitCardToPhone(card, canvas, doc.querySelector('.control-buttons-list'));
                 if (autoArrange || needsInitialLayout) scheduleTile();
             }
@@ -1339,7 +1357,8 @@
         if (source?.closest('input, select, textarea, [contenteditable="true"]')) return false;
         if (source?.closest('button, a') && (event.key === 'Enter' || event.key === ' ')) return false;
         // 键盘只发给全屏的那台；九宫格状态下不发，避免误操作。
-        const card = cards.find((item) => item.classList.contains('expanded') && !item.classList.contains('closed'));
+        const expandedCards = cards.filter((item) => item.classList.contains('expanded') && !item.classList.contains('closed'));
+        const card = expandedCards.find((item) => item.dataset.device === activeSerial) || expandedCards[expandedCards.length - 1];
         const doc = card?.querySelector('iframe')?.contentDocument;
         if (!card || !doc?.body) return false;
         const copy = new doc.defaultView.KeyboardEvent(event.type, {
@@ -1536,6 +1555,7 @@
             if (card._retries <= 2) connect(card, true);
             else setState(card, 'error', '连接超时，点刷新按钮重连');
         }, CONNECT_TIMEOUT_MS);
+        const wasStreaming = card.dataset.streaming === '1';
         if (card.dataset.streaming === '1' && force) {
             captureLastFrame(card);
             if (card.querySelector('.last-frame').src) card.classList.add('reconnecting');
@@ -1554,11 +1574,26 @@
             card.style.height = '';
         }
         setState(card, '', '连接中');
-        card.querySelector('iframe').src = streamUrl(card);
+        const frame = card.querySelector('iframe');
+        const url = streamUrl(card);
+        clearTimeout(card._srcTimer);
+        if (wasStreaming && force) {
+            // 先断开旧会话，等服务器把手机上的旧 scrcpy 收掉再连新的；
+            // 两个会话叠在一起时部分手机（安卓 9 等）新会话只出黑屏。期间显示最后一帧。
+            frame.src = 'about:blank';
+            card._srcTimer = setTimeout(() => {
+                card._srcTimer = 0;
+                if (card.dataset.streaming === '1') frame.src = url;
+            }, 800);
+        } else {
+            frame.src = url;
+        }
         watchState(card);
     }
 
     function close(card, update = true) {
+        clearTimeout(card._srcTimer);
+        card._srcTimer = 0;
         clearFrameObservers(card);
         card.querySelector('iframe').src = 'about:blank';
         card.dataset.streaming = '0';
@@ -1618,23 +1653,61 @@
         applyBrowserMic({ type: 'activate', serial: card.dataset.device, gesture: gesture === true });
     }
 
+    const isDesktop = () => innerWidth > 700;
+
+    // 收回一台（电脑上可以同时放大多台，各自收回）。
+    function collapseCard(card) {
+        if (!card.classList.contains('expanded')) return;
+        card.classList.remove('expanded');
+        if (!cards.some((item) => item.classList.contains('expanded'))) {
+            backdrop.classList.remove('visible');
+            document.body.classList.remove('has-expanded');
+        }
+        refitCards();
+    }
+
     function collapseExpanded() {
         const was = cards.filter((card) => card.classList.contains('expanded'));
         cards.forEach((card) => card.classList.remove('expanded'));
         backdrop.classList.remove('visible');
         document.body.classList.remove('has-expanded');
-        // 回到九宫格后重新排一下，免得全屏前的位置把小窗挡住。
+        // 回到九宫格后重新排一下，免得放大时的位置把小窗挡住。
         if (was.length) refitCards();
     }
 
-    // 九宫格小窗只看不操作；点小窗进入全屏才能操作手机，避免误触。
+    // 九宫格小窗只看不操作；点小窗放大成操作窗口才能操作手机，避免误触。
+    // 电脑上：在九宫格里原地放大成手机比例的窗口（大小跟侧栏小/中/大），可以同时放大多台并排操作；
+    // 手机浏览器上：一次铺满一台。
+    function sizeExpanded(card) {
+        if (!card.classList.contains('expanded') || !isDesktop()) return;
+        const aspect = card._lastAspect || 9 / 20;
+        const gap = 12;
+        const chrome = 36 + 36 + 22 + 2; // 标题栏 + 导航按钮 + 状态行 + 边框
+        const available = Math.max(300, (grid.clientHeight || innerHeight - 52) - gap * 2);
+        // 侧栏「窗口大小」小/中/大 决定放大窗口的高度：小 65%、中 82%、大 占满一屏高。
+        const tier = { 300: 0.65, 400: 0.82, 520: 1 }[tileSize.value] || 0.82;
+        const videoHeight = Math.max(240, (available - chrome) * tier);
+        const videoWidth = Math.min(videoHeight * aspect, (grid.clientWidth || innerWidth) - gap * 2 - 2);
+        const width = Math.max(420, Math.round(videoWidth + 2));
+        const height = Math.round(Math.min(videoHeight, videoWidth / aspect) + chrome);
+        card.style.setProperty('--expanded-w', `${width}px`);
+        card.style.setProperty('--expanded-h', `${height}px`);
+    }
+
     function expand(card) {
         if (card.classList.contains('expanded')) return;
-        collapseExpanded();
+        if (!isDesktop()) collapseExpanded();
         card.classList.add('expanded');
+        sizeExpanded(card);
         card._expandAt = Date.now();
-        backdrop.classList.add('visible');
-        document.body.classList.add('has-expanded');
+        if (!isDesktop()) {
+            backdrop.classList.add('visible');
+            document.body.classList.add('has-expanded');
+        } else {
+            card.style.zIndex = String(++topLayer);
+            refitCards();
+            setTimeout(() => card.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' }), 520);
+        }
         activate(card, false, true);
         // 布局定下来以后按全屏尺寸升到正常画质（只重连这一次）。
         setTimeout(() => {
@@ -1932,6 +2005,7 @@
         });
     }
     tileSize.addEventListener('change', () => {
+        cards.forEach(sizeExpanded);
         // No reconnect needed for a size change: refit each card to its stream,
         // and let 「自动」 step up later if the bigger window needs it.
         cards.forEach((card) => {
@@ -1943,7 +2017,7 @@
         scheduleTile();
     });
     // 手动换画质/帧率 = 重新按设定来，清掉网络自适应降下来的码率。
-    const resetNetBitrate = () => cards.forEach((card) => { card._netBitrate = 0; card._episodeTimes = []; });
+    const resetNetBitrate = () => cards.forEach((card) => { card._netBitrate = 0; card._episodeTimes = []; card._pinProfile = null; });
     quality.addEventListener('change', () => { resetNetBitrate(); updateStreamingMode(true); });
     fps.addEventListener('change', () => { resetNetBitrate(); updateStreamingMode(true); });
     backdrop.addEventListener('click', collapseExpanded);
@@ -1958,7 +2032,10 @@
     let refitTimer = 0;
     window.addEventListener('resize', () => {
         clearTimeout(refitTimer);
-        refitTimer = setTimeout(refitCards, 200);
+        refitTimer = setTimeout(() => {
+            refitCards();
+            cards.forEach(sizeExpanded);
+        }, 200);
         refreshAutoQuality();
     });
     const events = new EventSource('/api/events');
