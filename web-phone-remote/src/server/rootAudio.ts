@@ -2,6 +2,7 @@ import type { ChildProcess } from 'child_process';
 import fs from 'fs';
 import net from 'net';
 import path from 'path';
+import { MAGISK_SHELL_FOREVER, autoGrantWhile } from './rootGrant';
 
 /**
  * Phone playback sound for Android 8-10 phones that have root.
@@ -99,7 +100,7 @@ export function noRootReason(foundSu: boolean, lastOutput: string): string {
         return '这台没有 ROOT（找不到 su）。模拟器：在模拟器「设置 → 其他/高级」里打开 ROOT 权限并重启模拟器；真机要先刷 Magisk。然后重连即可听声音';
     }
     const detail = lastOutput.replace(/\s+/g, ' ').trim().slice(0, 120);
-    return `有 su 但没给到 Shell 权限${detail ? `（${detail}）` : ''}。在 Magisk/KernelSU 超级用户里允许「Shell」，模拟器在弹出的授权框里点「允许/永久」，再重连即可听声音`;
+    return `有 su 但没给到 Shell 权限${detail ? `（${detail}）` : ''}。Magisk 的授权框会自动点允许，没弹框多半是 Magisk「设置 → 超级用户访问权限」不是「应用和 ADB」，或「自动响应」设成了拒绝；KernelSU 要在管理器里把「Shell」加进超级用户；模拟器在弹框里点「允许/永久」。改好后重连即可听声音`;
 }
 
 const rootCache = new Map<string, { probe: RootProbe; at: number }>();
@@ -146,8 +147,16 @@ export async function probeRoot(adb: RootAudioAdb, serial: string, now = Date.no
         // Magisk shows its grant prompt for ~10 s the first time; wait for it once.
         const viaStdin = prefix.startsWith('| ');
         const cmd = viaStdin ? `${wrapRoot(prefix, 'id')} 2>&1` : `${wrapRoot(prefix, 'id')} 2>&1 </dev/null`;
-        const out = await tryShell(adb, serial, cmd, Math.min(left, prefix === 'su -c' ? 12_000 : 4_000));
-        if (isRootIdOutput(out)) return remember({ prefix });
+        const attempt = tryShell(adb, serial, cmd, Math.min(left, prefix === 'su -c' ? 12_000 : 4_000));
+        // First real su call may raise Magisk's prompt: tap "允许" for the user.
+        const tapped = prefix === 'su -c' && found.length > 0 ? autoGrantWhile(adb, serial, attempt, Math.min(left, 11_000)) : Promise.resolve(false);
+        const out = await attempt;
+        if (await tapped) log?.info(`tapped the superuser prompt on ${serial}`);
+        if (isRootIdOutput(out)) {
+            // Make the grant permanent so the prompt never comes back (Magisk only; harmless elsewhere).
+            await tryShell(adb, serial, `${wrapRoot(prefix, MAGISK_SHELL_FOREVER)} 2>&1${viaStdin ? '' : ' </dev/null'}`, 5_000);
+            return remember({ prefix });
+        }
         if (!/not found|No such file|inaccessible/i.test(out)) suSeen = true;
         tried.push(`${prefix} → ${out.replace(/\s+/g, ' ').trim().slice(0, 40) || '(空)'}`);
         last = out;
