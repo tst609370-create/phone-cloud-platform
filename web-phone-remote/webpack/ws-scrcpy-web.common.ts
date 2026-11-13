@@ -1,6 +1,6 @@
 import path from 'path';
 import webpack from 'webpack';
-import { copyFileSync, existsSync, readFileSync } from 'fs';
+import { copyFileSync, existsSync, readFileSync, mkdirSync } from 'fs';
 import MiniCssExtractPlugin from 'mini-css-extract-plugin';
 
 export const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -225,9 +225,14 @@ class CopyVirtualMicJarPlugin {
                 ['android/virtual-mic/prebuilt/virtual-mic.jar', 'virtual-mic.jar'],
                 ['android/root-audio/prebuilt/root-audio.jar', 'root-audio.jar'],
                 ['android/root-audio/prebuilt/mic-audio.apk', 'mic-audio.apk'],
+                // Also downloadable from the console: /mic-audio.apk
+                ['android/root-audio/prebuilt/mic-audio.apk', 'public/mic-audio.apk'],
             ] as const) {
                 const src = path.resolve(PROJECT_ROOT, rel);
-                if (existsSync(src)) copyFileSync(src, path.resolve(SERVER_DIST_PATH, name));
+                if (!existsSync(src)) continue;
+                const dest = path.resolve(SERVER_DIST_PATH, name);
+                mkdirSync(path.dirname(dest), { recursive: true });
+                copyFileSync(src, dest);
             }
         });
     }

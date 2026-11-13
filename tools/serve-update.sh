@@ -101,6 +101,8 @@ z.close()' "$WWW/dist.zip.tmp" )
 mv "$WWW/dist.zip.tmp" "$WWW/dist.zip"
 TOOLS="$ROOT/tools"
 cp "$TOOLS/update-local-windows.ps1" "$WWW/update.bin"
+# 「手机声音」小 App（没 ROOT 的安卓 8-10 听声音用），可直接下载：http://IP:PORT/mic-audio.apk
+[ -f "$APP/dist/mic-audio.apk" ] && cp "$APP/dist/mic-audio.apk" "$WWW/mic-audio.apk" || true
 # 其他一键脚本也放到 8099/tools/ 下（不含令牌），仓库私有后从这里取
 rm -rf "$WWW/tools" && mkdir -p "$WWW/tools" && cp "$TOOLS"/*.sh "$TOOLS"/*.ps1 "$WWW/tools/" 2>/dev/null || true
 # 自更新：下次直接 bash ~/pr-update/serve-update.sh（先写临时文件再 mv，不影响正在运行的这份）

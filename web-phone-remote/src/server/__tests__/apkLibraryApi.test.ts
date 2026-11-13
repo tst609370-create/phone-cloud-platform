@@ -46,7 +46,7 @@ describe('ApkLibraryApi', () => {
                 return 'Success';
             },
         };
-        const api = new ApkLibraryApi(adb as never, root);
+        const api = new ApkLibraryApi(adb as never, root, '');
 
         const list = makeReqRes('GET', '/api/apks');
         await api.handle(list.req, list.res);
@@ -89,7 +89,7 @@ describe('ApkLibraryApi', () => {
                 installed.push(serial);
                 return 'Success';
             },
-        } as never, root);
+        } as never, root, '');
 
         const list = makeReqRes('GET', '/api/apks');
         (list.req as typeof list.req & { user: { id: number } }).user = { id: tenant.id };
@@ -107,5 +107,20 @@ describe('ApkLibraryApi', () => {
         await api.handle(denied.req, denied.res);
         expect(denied.getStatus()).toBe(403);
         expect(installed).toEqual(['PHONE_A']);
+    });
+
+    it('puts the bundled 手机声音 app into the library once', async () => {
+        const root = setup();
+        const bundled = path.join(path.dirname(root), 'mic-audio.apk');
+        fs.writeFileSync(bundled, 'mic');
+        const api = new ApkLibraryApi({} as never, root, bundled);
+        const list = makeReqRes('GET', '/api/apks');
+        await api.handle(list.req, list.res);
+        expect(list.getJson()).toMatchObject({ apks: [{ name: 'PhoneSound-shoujishengyin.apk', size: 3 }] });
+        // An admin deleting it is respected.
+        fs.rmSync(path.join(root, 'PhoneSound-shoujishengyin.apk'));
+        const again = makeReqRes('GET', '/api/apks');
+        await api.handle(again.req, again.res);
+        expect(again.getJson()).toMatchObject({ apks: [] });
     });
 });
