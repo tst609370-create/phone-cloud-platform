@@ -9,6 +9,7 @@ import { playbackAudioBlockReason } from '../common/AudioDefaults';
 import { AdbClient } from './AdbClient';
 import { Config } from './Config';
 import { ensureScrcpyServerPushed } from './ensureScrcpyServerPushed';
+import { ROOT_AUDIO_FAILED, ROOT_AUDIO_HINT, ROOT_AUDIO_MIN_SDK, type RootAudioSession, hasRoot, resolveRootAudioJar, startRootAudio } from './rootAudio';
 import { pipeScrcpySockets } from './scrcpyMedia';
 import { ControlCenter } from './goog-device/services/ControlCenter';
 import { Logger } from './Logger';
@@ -45,6 +46,7 @@ export class ScrcpyConnection extends Mw {
     private tcpServer?: net.Server;
     private videoSocket?: net.Socket;
     private audioSocket?: net.Socket;
+    private rootAudio?: RootAudioSession;
     private controlSocket?: net.Socket;
     private reverseTunnel?: string;
     private forwardTunnel?: string;
@@ -138,8 +140,20 @@ export class ScrcpyConnection extends Mw {
         //    rather than surprise them with silence.
         //  (Default source is `output`, which works on every audio-capable SDK.)
         const requestedAudio = options.audio !== false;
-        const audioBlock = requestedAudio ? playbackAudioBlockReason(sdkInt) : undefined;
-        if (audioBlock) {
+        let audioBlock = requestedAudio ? playbackAudioBlockReason(sdkInt) : undefined;
+        // Android 8-10 with root: scrcpy still runs without audio, and a helper
+        // under su records the device output instead (see rootAudio.ts).
+        let rootAudioJar: string | undefined;
+        if (audioBlock && sdkInt >= ROOT_AUDIO_MIN_SDK) {
+            const jar = resolveRootAudioJar();
+            if (jar && (await hasRoot(this.adbClient, this.serial))) {
+                rootAudioJar = jar;
+                audioBlock = undefined;
+            } else if (jar) {
+                audioBlock = `${audioBlock}。${ROOT_AUDIO_HINT}`;
+            }
+        }
+        if (audioBlock || rootAudioJar) {
             options.audio = false;
         } else if (sdkInt > 0 && sdkInt < 33 && options.audioSource === 'playback') {
             // playback capture needs Android 13+: use the whole-output source instead
@@ -160,6 +174,11 @@ export class ScrcpyConnection extends Mw {
         //    Android's dexopt cache warm and drops ~15s off cold-start on older
         //    devices.
         await ensureScrcpyServerPushed(this.adbClient, this.serial, serverFile());
+        if (rootAudioJar) {
+            const codec = options.audioCodec === 'raw' ? 'raw' : 'aac';
+            this.rootAudio = await startRootAudio(this.adbClient, this.serial, String(options.scid), codec, rootAudioJar, log);
+            log.info(`root audio capture requested for ${this.serial} (sdk=${sdkInt}, codec=${codec})`);
+        }
 
         // 2. Set up tunnel + launch scrcpy-server + collect 3 sockets.
         const sockets = useTunnelForward
@@ -168,6 +187,15 @@ export class ScrcpyConnection extends Mw {
         this.videoSocket = sockets[0]!;
         this.audioSocket = sockets[1]!;
         this.controlSocket = sockets[2]!;
+        if (this.rootAudio) {
+            const rootSocket = await this.rootAudio.socket;
+            if (rootSocket) {
+                this.audioSocket.destroy();
+                this.audioSocket = rootSocket;
+            } else {
+                audioBlock = ROOT_AUDIO_FAILED;
+            }
+        }
 
         log.info(`Reading video before audio for ${this.serial}`);
         await pipeScrcpySockets(
@@ -210,6 +238,8 @@ export class ScrcpyConnection extends Mw {
                 onControl: (data) => this.sendChannel(ChannelId.DEVICE_MSG, data),
                 onVideoEnd: () => this.release(),
             },
+            undefined,
+            this.rootAudio ? ROOT_AUDIO_FAILED : undefined,
         );
     }
 
@@ -470,6 +500,7 @@ export class ScrcpyConnection extends Mw {
         this.videoSocket?.destroy();
         this.audioSocket?.destroy();
         this.controlSocket?.destroy();
+        this.rootAudio?.stop();
 
         if (this.serverProcess && !this.serverProcess.killed) {
             this.serverProcess.kill();

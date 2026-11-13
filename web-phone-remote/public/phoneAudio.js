@@ -77,6 +77,7 @@
         const useOpus = window.isSecureContext && typeof window.AudioDecoder === 'function';
         const codec = useOpus ? 'opus' : 'raw';
         let decoder = null;
+        let streamCodec = codec;
         let next = 0;
         let stopped = false;
         let gotAudio = false;
@@ -128,11 +129,20 @@
             if (msg.kind === 'meta') {
                 const m = msg.meta || {};
                 if ((m.audioCodec === 'disabled' || m.audioCodec === 'error') && m.audioReason) onStatus(`没有声音：${m.audioReason}`, true);
+                // 安卓 8-10 的 ROOT 采集只能出 AAC（系统没有 Opus 编码器）。
+                streamCodec = m.audioCodec || streamCodec;
                 return;
             }
-            if (msg.config) return;
+            if (msg.config) {
+                if (streamCodec === 'aac' && decoder) {
+                    try {
+                        decoder.configure({ codec: 'mp4a.40.2', sampleRate: 48000, numberOfChannels: 2, description: msg.data.slice() });
+                    } catch (e) { onStatus(`声音解码失败：${e.message}`, true); }
+                }
+                return;
+            }
             if (!gotAudio) { gotAudio = true; since = Date.now(); }
-            if (codec === 'raw') play(s16ToFloat(msg.data));
+            if (streamCodec === 'raw') play(s16ToFloat(msg.data));
             else if (decoder && decoder.state === 'configured') {
                 decoder.decode(new EncodedAudioChunk({ type: 'key', timestamp: msg.pts, data: msg.data }));
             }
