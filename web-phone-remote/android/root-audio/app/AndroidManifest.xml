@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.wsphone.micaudio" android:versionCode="2" android:versionName="1.1">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.wsphone.micaudio" android:versionCode="3" android:versionName="1.2">
     <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="28" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <application android:label="手机声音" android:allowBackup="false">
+        <activity android:name=".MainActivity" android:label="手机声音" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <service android:name=".MicService" android:exported="true" />
     </application>
 </manifest>

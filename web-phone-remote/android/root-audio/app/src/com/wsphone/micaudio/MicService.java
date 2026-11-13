@@ -26,6 +26,8 @@ import com.wsphone.rootaudio.RootAudioMain;
  */
 public final class MicService extends Service {
     private static final String CHANNEL = "mic";
+    /** True while a computer is receiving sound (shown by MainActivity). */
+    static volatile boolean streaming;
     private volatile LocalServerSocket server;
     private volatile Thread worker;
 
@@ -70,7 +72,12 @@ public final class MicService extends Service {
                     return describeMic();
                 }
             };
-            RootAudioMain.stream(client.getOutputStream(), codec, true, false);
+            streaming = true;
+            try {
+                RootAudioMain.stream(client.getOutputStream(), codec, true, false);
+            } finally {
+                streaming = false;
+            }
         } catch (Throwable thrown) {
             System.err.println("mic-audio: " + thrown);
         } finally {

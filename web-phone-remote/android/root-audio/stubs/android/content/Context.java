@@ -6,5 +6,6 @@ public abstract class Context {
     public static final String APP_OPS_SERVICE = "appops";
     public static final String AUDIO_SERVICE = "audio";
     public int checkSelfPermission(String permission) { throw new RuntimeException("stub"); }
+    public void startActivity(Intent intent) { throw new RuntimeException("stub"); }
     public String getOpPackageName() { throw new RuntimeException("stub"); }
 }

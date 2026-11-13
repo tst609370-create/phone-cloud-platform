@@ -57,7 +57,7 @@ describe('no-root mic app', () => {
     it('reports a record permission MIUI silently refused', async () => {
         const shell = vi.fn(async (_s: string, cmd: string) =>
             cmd.includes('versionCode')
-                ? 'versionCode=2'
+                ? 'versionCode=3'
                 : cmd.includes('__OPS')
                   ? 'android.permission.RECORD_AUDIO: granted=false\n__OPS\nRECORD_AUDIO: ignore'
                   : '',
@@ -88,7 +88,7 @@ describe('no-root mic app', () => {
         const adb: MicAppAdb = {
             shell: vi.fn(async (_s: string, cmd: string) =>
                 cmd.includes('versionCode')
-                    ? 'versionCode=2'
+                    ? 'versionCode=3'
                     : cmd.includes('__OPS')
                       ? GRANTED
                       : 'Starting service: Intent { }',
