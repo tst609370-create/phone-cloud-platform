@@ -135,7 +135,8 @@ export function rootKindHint(kind: RootKind): string {
 
 export function noRootReason(foundSu: boolean, lastOutput: string, kind?: RootKind): string {
     if (!foundSu) {
-        return '这台没有 ROOT（找不到 su）。模拟器：在模拟器「设置 → 其他/高级」里打开 ROOT 权限并重启模拟器；真机要先刷 Magisk。然后重连即可听声音';
+        const d = lastOutput.replace(/\s+/g, ' ').trim().slice(0, 200);
+        return `这台手机其实没有 ROOT：adb 里找不到 su${d ? `（${d}）` : ''}。真机：打开 Magisk 看首页「Magisk」一栏是否显示已安装的版本号，显示「无」就是没 ROOT 成功或系统更新后失效，需要重新刷入；模拟器：在设置里打开 ROOT 权限并重启模拟器。然后重连即可听声音`;
     }
     const detail = lastOutput.replace(/\s+/g, ' ').trim().slice(0, 420);
     const k = kind ?? 'unknown';
@@ -147,12 +148,34 @@ const NEGATIVE_TTL_MS = 45_000;
 // The picture waits for this probe, so keep a hard budget on it.
 const PROBE_BUDGET_MS = 20_000;
 
+/**
+ * Run a probe and always get its output back. `adb shell` passes the remote
+ * exit code through and AdbClient throws on non-zero, which used to drop the
+ * output ("su: not found", "Permission denied") on the floor. Appending an
+ * echo makes the shell exit 0 and carries the real code in the text instead.
+ */
 async function tryShell(adb: RootAudioAdb, serial: string, command: string, timeoutMs: number): Promise<string> {
     try {
-        return await adb.shell(serial, command, timeoutMs);
+        const out = await adb.shell(serial, `${command}; echo __RC=$?`, timeoutMs);
+        const m = /__RC=(\d+)\s*$/.exec(out);
+        if (!m) return out;
+        const body = out.slice(0, m.index).trimEnd();
+        return m[1] === '0' ? body : `${body}${body ? ' ' : ''}[退出码 ${m[1]}]`;
     } catch (e) {
-        return `${(e as Error).message || 'failed'}`;
+        return adbErrorText(e);
     }
+}
+
+/** Short, path-free description of an adb failure. */
+export function adbErrorText(e: unknown): string {
+    const err = e as { kind?: string; cause?: unknown; message?: string };
+    const cause = err.cause as { stdout?: string; stderr?: string; code?: unknown; message?: string } | undefined;
+    const parts = [err.kind === 'timeout' ? 'adb 超时' : `adb ${err.kind ?? '出错'}`];
+    if (cause && typeof cause.code === 'number') parts.push(`退出码 ${cause.code}`);
+    const text = `${cause?.stdout ?? ''} ${cause?.stderr ?? ''}`.replace(/\s+/g, ' ').trim();
+    if (text) parts.push(text.slice(0, 200));
+    else if (!err.kind && err.message) parts.push(err.message.replace(/\(path=[^)]*\)/, '').slice(0, 200));
+    return parts.join('：');
 }
 
 /**
@@ -178,9 +201,7 @@ export async function probeRoot(adb: RootAudioAdb, serial: string, now = Date.no
     let suSeen = found.length > 0;
     const prep = found.length > 0 ? await prepareMagiskPrompt(adb, serial) : '';
     // su -v is answered without asking for permission (Magisk/SuperSU/KernelSU print their name).
-    const info = found.length > 0
-        ? await tryShell(adb, serial, 'su -v 2>&1 </dev/null | head -1; echo PROPS; getprop ro.debuggable; getprop ro.build.type; echo PKGS; pm list packages 2>/dev/null | grep -i -E "magisk|kernelsu|supersu|superuser|chainfire"', 8_000)
-        : '';
+    const info = await tryShell(adb, serial, 'su -v 2>&1 </dev/null | head -1; echo PROPS; getprop ro.debuggable; getprop ro.build.type; echo PKGS; pm list packages 2>/dev/null | grep -i -E "magisk|kernelsu|supersu|superuser|chainfire"', 8_000);
     const [suVersion = '', propsAndPkgs = ''] = info.split('PROPS');
     const [props = '', pkgs = ''] = propsAndPkgs.split('PKGS');
     const [debuggable = '', buildType = ''] = props.trim().split(/\s+/);
@@ -213,7 +234,7 @@ export async function probeRoot(adb: RootAudioAdb, serial: string, now = Date.no
             await tryShell(adb, serial, `${wrapRoot(prefix, MAGISK_SHELL_FOREVER)} 2>&1${viaStdin ? '' : ' </dev/null'}`, 5_000);
             return remember({ prefix });
         }
-        if (!/not found|No such file|inaccessible/i.test(out)) suSeen = true;
+        if (!/not found|No such file|inaccessible|退出码 127/i.test(out)) suSeen = true;
         tried.push(`${prefix} → ${out.replace(/\s+/g, ' ').trim().slice(0, 50) || '(空，可能超时)'}`);
         last = out;
     }
@@ -237,7 +258,7 @@ export async function probeRoot(adb: RootAudioAdb, serial: string, now = Date.no
     ]
         .filter(Boolean)
         .join('。');
-    return remember({ reason: noRootReason(suSeen, detail, kind) });
+    return remember({ reason: noRootReason(suSeen, suSeen ? detail : (tried[0] ?? ''), kind) });
 }
 
 /** Back-compat yes/no wrapper. */
