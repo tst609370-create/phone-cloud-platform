@@ -4,7 +4,7 @@
     const quality = document.getElementById('quality');
     const fps = document.getElementById('fps');
     const tileSize = document.getElementById('tile-size');
-    const UI_VERSION = '1113z6';
+    const UI_VERSION = '1113z7';
     const sizeValue = document.getElementById('size-value');
     const backdrop = document.getElementById('viewer-backdrop');
     const grid = document.getElementById('phone-grid');
@@ -373,7 +373,12 @@
                 .catch((error) => notify(error instanceof Error ? error.message : '点亮屏幕失败', 'err'))
                 .finally(() => { button.disabled = false; });
         });
-        card.append(header, lastFrame, frame, nativeInput, resume, shield, hint, phoneNav, operationStatus, fileInput);
+        // 电脑端放大后，所有按钮竖排在画面右侧（标题栏只留序号和名字，底部只留状态行）。
+        const sideTools = document.createElement('aside');
+        sideTools.className = 'side-tools';
+        sideTools.setAttribute('aria-label', '操作按钮');
+        card._toolParts = { header, syncControls, actions, phoneNav, operationStatus, sideTools };
+        card.append(header, lastFrame, frame, nativeInput, resume, shield, hint, sideTools, phoneNav, operationStatus, fileInput);
         grid.appendChild(card);
         void refreshScreenLockButton(card);
         restorePosition(card, index);
@@ -806,7 +811,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261113z6',
+                ui: '20261113z7',
             });
             return `snapshot.html?${params}`;
         }
@@ -820,7 +825,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261113z6',
+            ui: '20261113z7',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         if (card.dataset.hear === '1' && denoiseFor(card.dataset.device) !== 'normal') void sendDenoise(card, denoiseFor(card.dataset.device));
@@ -1809,9 +1814,23 @@
     const isDesktop = () => innerWidth > 700;
 
     // 收回一台（电脑上可以同时放大多台，各自收回）。
+    /** 电脑端放大：按钮搬到右侧竖排工具栏；缩回小窗或手机浏览器：放回标题栏和底部。 */
+    function placeTools(card, side) {
+        const parts = card._toolParts;
+        if (!parts || card.classList.contains('side-mode') === side) return;
+        card.classList.toggle('side-mode', side);
+        if (side) {
+            parts.sideTools.append(parts.syncControls, parts.actions, parts.phoneNav);
+        } else {
+            parts.header.append(parts.syncControls, parts.actions);
+            card.insertBefore(parts.phoneNav, parts.operationStatus);
+        }
+    }
+
     function collapseCard(card) {
         if (!card.classList.contains('expanded')) return;
         card.classList.remove('expanded', 'narrow');
+        placeTools(card, false);
         if (!cards.some((item) => item.classList.contains('expanded'))) {
             backdrop.classList.remove('visible');
             document.body.classList.remove('has-expanded');
@@ -1821,7 +1840,10 @@
 
     function collapseExpanded() {
         const was = cards.filter((card) => card.classList.contains('expanded'));
-        cards.forEach((card) => card.classList.remove('expanded', 'narrow'));
+        cards.forEach((card) => {
+            card.classList.remove('expanded', 'narrow');
+            placeTools(card, false);
+        });
         backdrop.classList.remove('visible');
         document.body.classList.remove('has-expanded');
         // 回到九宫格后重新排一下，免得放大时的位置把小窗挡住。
@@ -1831,21 +1853,21 @@
     // 九宫格小窗只看不操作；点小窗放大成操作窗口才能操作手机，避免误触。
     // 电脑上：在九宫格里原地放大成手机比例的窗口（大小跟侧栏小/中/大），可以同时放大多台并排操作；
     // 手机浏览器上：一次铺满一台。
+    const SIDE_TOOLS_W = 64;
     function sizeExpanded(card) {
         if (!card.classList.contains('expanded') || !isDesktop()) return;
+        placeTools(card, true);
         const aspect = card._lastAspect || 9 / 20;
         const gap = 12;
-        // 和原来本地版的操作窗口一样：宽度就是侧栏「窗口大小」小/中/大（300/400/520），
-        // 画面贴满卡片宽度、按手机比例算高度；屏幕放不下时按高度缩，宽度跟着缩，始终没有黑边。
-        const header = card.querySelector('header');
-        const chrome = Math.max(36, header?.offsetHeight || 36) + 36 + 22 + 2; // 标题栏 + 导航按钮 + 状态行 + 边框
+        // 画面宽度跟侧栏「窗口大小」小/中/大（300/400/520），按手机比例算高度；屏幕放不下时按高度缩。
+        // 窗口宽度 = 画面宽度 + 右侧工具栏，始终没有黑边。
+        const chrome = 36 + 22 + 2; // 标题栏 + 状态行 + 边框
         const available = Math.max(300, (grid.clientHeight || innerHeight - 52) - gap * 2);
-        const target = Math.min(Number(tileSize.value) || 400, (grid.clientWidth || innerWidth) - gap * 2) - 2;
+        const target = Math.min(Number(tileSize.value) || 400, (grid.clientWidth || innerWidth) - gap * 2 - SIDE_TOOLS_W) - 2;
         const videoHeight = Math.min(available - chrome, target / aspect);
         const videoWidth = Math.round(videoHeight * aspect);
-        const width = videoWidth + 2;
+        const width = videoWidth + SIDE_TOOLS_W + 2;
         const height = Math.round(videoWidth / aspect) + chrome;
-        card.classList.toggle('narrow', width < 290);
         card.style.setProperty('--expanded-w', `${width}px`);
         card.style.setProperty('--expanded-h', `${height}px`);
     }
