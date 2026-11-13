@@ -193,7 +193,14 @@
 .phone-card.rp-side header strong{max-width:none!important}
 .phone-card.rp-side:not(.expanded){min-width:0!important}
 .phone-card.rp-side>iframe{width:100%!important;height:100%!important}
-@media (max-width:760px){.phone-card.rp-side{grid-template-columns:minmax(0,1fr) 54px!important}}`;
+.phone-card.rp-side{border:0!important;box-shadow:none!important;outline:0!important;border-radius:8px!important;background:#000!important}
+.phone-card.rp-side>iframe,.phone-card.rp-side>.last-frame{border:0!important;margin:0!important;padding:0!important;display:block}
+.rp-tools{border-left:0!important}
+.rp-toggle{margin-left:auto;width:24px;height:24px;display:grid;place-items:center;padding:0;border:0;border-radius:6px;color:var(--tx-fg-3,#999);background:transparent;cursor:pointer;font-size:14px;line-height:1}
+.rp-toggle:hover{color:var(--tx-fg,#fff);background:var(--tx-wash-4,rgba(255,255,255,.08))}
+html.rp-hide-tools .phone-card.rp-side{grid-template-columns:minmax(0,1fr)!important}
+html.rp-hide-tools .rp-tools{display:none!important}
+html.rp-hide-tools .phone-card.rp-side>.resume-stream{right:0!important}`;
     document.head.appendChild(css);
     function apply(card) {
         if (!card || card.classList.contains('rp-side')) return;
@@ -209,9 +216,42 @@
         if (nav) tools.appendChild(nav);
         card.appendChild(tools);
         card.classList.add('rp-side');
+        if (header && !header.querySelector('.rp-toggle')) {
+            const t = document.createElement('button');
+            t.type = 'button';
+            t.className = 'rp-toggle';
+            const paint = () => { const h = document.documentElement.classList.contains('rp-hide-tools'); t.textContent = h ? '‹' : '›'; t.title = h ? '显示按钮' : '隐藏按钮（全部窗口）'; };
+            paint();
+            t.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const hide = !document.documentElement.classList.contains('rp-hide-tools');
+                document.documentElement.classList.toggle('rp-hide-tools', hide);
+                try { localStorage.setItem('rp-hide-tools', hide ? '1' : '0'); } catch { /* ignore */ }
+                document.querySelectorAll('.rp-toggle').forEach((b) => b._paint?.());
+                document.querySelectorAll('.phone-card.rp-side').forEach(fit);
+            });
+            t._paint = paint;
+            t.addEventListener('mousedown', (e) => e.stopPropagation());
+            header.appendChild(t);
+        }
     }
     // 窗口大小跟画面比例走：画面宽 = 窗口大小档（小/中/大），右侧加 62px 工具栏，高度 = 标题栏 + 画面 + 状态行，不留黑边
-    const TOOL_W = 62;
+    try { if (localStorage.getItem('rp-hide-tools') === '1') document.documentElement.classList.add('rp-hide-tools'); } catch { /* ignore */ }
+    // 画面铺满 iframe：去掉内嵌页的留白，画面与 touch 层同尺寸拉满（窗口已按画面比例，拉伸可忽略）
+    const INNER_CSS = 'html,body{margin:0!important;padding:0!important;overflow:hidden!important;background:#000!important}'
+        + '.device-view,.video{width:100vw!important;height:100vh!important;margin:0!important;padding:0!important}'
+        + '.video-layer,.touch-layer{width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important}';
+    function fillInner(card) {
+        try {
+            const doc = card.querySelector('iframe')?.contentDocument;
+            if (!doc?.head || doc.getElementById('rp-inner')) return;
+            const st = doc.createElement('style');
+            st.id = 'rp-inner';
+            st.textContent = INNER_CSS;
+            doc.head.appendChild(st);
+        } catch { /* cross-origin or navigating */ }
+    }
+    const toolW = () => (document.documentElement.classList.contains('rp-hide-tools') ? 0 : 62);
     function ratioOf(card) {
         const m = /(\d+)\s*[×x]\s*(\d+)/.exec(card.querySelector('.card-operation-log')?.dataset.stream || '');
         if (m && +m[1] && +m[2]) return +m[1] / +m[2];
@@ -226,9 +266,10 @@
     }
     function fit(card) {
         if (!card.classList.contains('rp-side') || card.classList.contains('expanded') || card.classList.contains('closed')) return;
+        fillInner(card);
         const ratio = ratioOf(card);
         if (!ratio) return;
-        const border = 2;
+        const border = 0;
         const headerH = card.querySelector(':scope > header')?.offsetHeight || 36;
         const logH = card.querySelector(':scope > .card-operation-log')?.offsetHeight || 22;
         const tile = Number(document.getElementById('tile-size')?.value) || 400;
@@ -236,10 +277,10 @@
         let picH = picW / ratio;
         const maxH = Math.max(200, innerHeight - 90 - headerH - logH - border);
         if (picH > maxH) { picH = maxH; picW = picH * ratio; }
-        const w = Math.round(picW + TOOL_W + border);
+        const w = Math.round(picW + toolW() + border);
         const h = Math.round(picH + headerH + logH + border);
-        if (Math.abs(parseFloat(card.style.width) - w) > 1) card.style.width = `${w}px`;
-        if (Math.abs(parseFloat(card.style.height) - h) > 1) card.style.height = `${h}px`;
+        if (!(Math.abs(parseFloat(card.style.width) - w) <= 1)) card.style.width = `${w}px`;
+        if (!(Math.abs(parseFloat(card.style.height) - h) <= 1)) card.style.height = `${h}px`;
     }
     const styleWatch = new MutationObserver((records) => {
         for (const r of records) fit(r.target);
