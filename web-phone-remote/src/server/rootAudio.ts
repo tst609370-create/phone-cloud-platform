@@ -19,6 +19,8 @@ export const ROOT_AUDIO_REMOTE_JAR = '/data/local/tmp/ws-root-audio.jar';
 export const ROOT_AUDIO_MAIN = 'com.wsphone.rootaudio.RootAudioMain';
 export const ROOT_AUDIO_MIN_SDK = 21;
 
+/** No root: the phone plays out loud and its microphone records it (adb shell may record on Android 9/10). */
+export const MIC_FALLBACK_FAILED = '这台没 ROOT，改用麦克风录手机外放也失败了';
 export const ROOT_AUDIO_FAILED = '已拿到 ROOT，但采集手机声音失败';
 
 export interface RootAudioAdb {
@@ -270,8 +272,11 @@ export function clearRootCache(): void {
     rootCache.clear();
 }
 
-export function rootAudioCommand(socketName: string, codec: 'aac' | 'raw', prefix: RootPrefix = 'su -c'): string {
-    return wrapRoot(prefix, `CLASSPATH=${ROOT_AUDIO_REMOTE_JAR} app_process / ${ROOT_AUDIO_MAIN} ${socketName} ${codec}`);
+export type CaptureSource = 'submix' | 'mic';
+
+export function rootAudioCommand(socketName: string, codec: 'aac' | 'raw', prefix: RootPrefix = 'su -c', source: CaptureSource = 'submix'): string {
+    const tail = source === 'mic' ? ' mic' : '';
+    return wrapRoot(prefix, `CLASSPATH=${ROOT_AUDIO_REMOTE_JAR} app_process / ${ROOT_AUDIO_MAIN} ${socketName} ${codec}${tail}`);
 }
 
 async function ensurePushed(adb: RootAudioAdb, serial: string, localJar: string): Promise<void> {
@@ -310,6 +315,7 @@ export async function startRootAudio(
     log: RootAudioLog,
     connectTimeoutMs = 10_000,
     prefix: RootPrefix = 'su -c',
+    source: CaptureSource = 'submix',
 ): Promise<RootAudioSession> {
     const socketName = `wsaudio_${scid}`;
     const remote = `localabstract:${socketName}`;
@@ -359,7 +365,7 @@ export async function startRootAudio(
             if (stopped) sock.destroy();
             resolve(sock);
         });
-        proc = adb.shellSpawn(serial, rootAudioCommand(socketName, codec, prefix));
+        proc = adb.shellSpawn(serial, rootAudioCommand(socketName, codec, prefix, source));
         const line = (data: Buffer) => {
             const text = data.toString('utf-8').trimEnd();
             if (!text) return;

@@ -36,6 +36,11 @@ public final class RootAudioMain {
     static final long FLAG_CONFIG = 1L << 62;
 
     static final int SOURCE_REMOTE_SUBMIX = 8;
+    static final int SOURCE_MIC = 1;
+    static final int CHANNEL_IN_MONO = 16;
+    /** Mic fallback on phones without stereo capture: record mono, duplicate to stereo. */
+    static boolean mono;
+    private static byte[] monoBuf = new byte[0];
     static final int SAMPLE_RATE = 48000;
     static final int CHANNEL_IN_STEREO = 12;
     static final int ENCODING_PCM_16BIT = 2;
@@ -57,6 +62,9 @@ public final class RootAudioMain {
     private static void run(String[] args) throws Exception {
         if (args.length < 1) throw new IllegalArgumentException("socket name required");
         String codec = args.length > 1 ? args[1] : "aac";
+        // "submix" (whole device output, needs root) or "mic" (microphone; works as the
+        // adb shell user without root: the phone plays out loud and the mic hears it).
+        boolean mic = args.length > 2 && "mic".equals(args[2]);
 
         LocalSocket socket = new LocalSocket();
         socket.connect(new LocalSocketAddress(args[0]));
@@ -65,7 +73,7 @@ public final class RootAudioMain {
         AudioRecord recorder;
         try {
             prepareProcess();
-            recorder = openRecorder();
+            recorder = mic ? openMic() : openRecorder(SOURCE_REMOTE_SUBMIX, CHANNEL_IN_STEREO);
         } catch (Throwable thrown) {
             status("ROOT_AUDIO_NO:" + sanitize(thrown));
             Thread.sleep(400); // let the reason reach the computer before the error code
@@ -85,7 +93,7 @@ public final class RootAudioMain {
                 encoder = null;
             }
         }
-        status("ROOT_AUDIO_OK:" + (encoder != null ? "aac" : "raw") + " uid=" + android.os.Process.myUid());
+        status("ROOT_AUDIO_OK:" + (encoder != null ? "aac" : "raw") + " source=" + (mic ? "mic" : "submix") + (mono ? "/mono" : "") + " uid=" + android.os.Process.myUid());
         out.writeInt(encoder != null ? CODEC_AAC : CODEC_RAW);
         out.flush();
 
@@ -157,19 +165,45 @@ public final class RootAudioMain {
         }
     }
 
-    private static AudioRecord openRecorder() {
-        int min = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_IN_STEREO, ENCODING_PCM_16BIT);
+    private static AudioRecord openMic() {
+        try {
+            return openRecorder(SOURCE_MIC, CHANNEL_IN_STEREO);
+        } catch (RuntimeException stereoFailed) {
+            System.err.println("root-audio: stereo mic unavailable, using mono: " + stereoFailed);
+            mono = true;
+            return openRecorder(SOURCE_MIC, CHANNEL_IN_MONO);
+        }
+    }
+
+    /** Fill {@code buf} with interleaved stereo s16; returns bytes or a negative error. */
+    static int readStereo(AudioRecord recorder, byte[] buf) {
+        if (!mono) return recorder.read(buf, 0, buf.length);
+        int want = buf.length / 2;
+        if (monoBuf.length < want) monoBuf = new byte[want];
+        int n = recorder.read(monoBuf, 0, want);
+        if (n <= 0) return n;
+        for (int i = 0, o = 0; i + 1 < n; i += 2, o += 4) {
+            buf[o] = monoBuf[i];
+            buf[o + 1] = monoBuf[i + 1];
+            buf[o + 2] = monoBuf[i];
+            buf[o + 3] = monoBuf[i + 1];
+        }
+        return (n / 2) * 4;
+    }
+
+    private static AudioRecord openRecorder(int source, int channels) {
+        int min = AudioRecord.getMinBufferSize(SAMPLE_RATE, channels, ENCODING_PCM_16BIT);
         int size = Math.max(min, 0) * 4;
         if (size < CHUNK_BYTES * 8) size = CHUNK_BYTES * 8;
-        AudioRecord recorder = new AudioRecord(SOURCE_REMOTE_SUBMIX, SAMPLE_RATE, CHANNEL_IN_STEREO, ENCODING_PCM_16BIT, size);
+        AudioRecord recorder = new AudioRecord(source, SAMPLE_RATE, channels, ENCODING_PCM_16BIT, size);
         if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
             recorder.release();
-            throw new IllegalStateException("AudioRecord(REMOTE_SUBMIX) not initialized; root may be missing");
+            throw new IllegalStateException("AudioRecord(source " + source + ") not initialized: no permission or busy");
         }
         recorder.startRecording();
         if (recorder.getRecordingState() != 3) {
             recorder.release();
-            throw new IllegalStateException("AudioRecord(REMOTE_SUBMIX) did not start");
+            throw new IllegalStateException("AudioRecord(source " + source + ") did not start (mic busy?)");
         }
         return recorder;
     }
@@ -194,7 +228,7 @@ public final class RootAudioMain {
         byte[] buf = new byte[CHUNK_BYTES];
         long frames = 0;
         while (true) {
-            int n = recorder.read(buf, 0, buf.length);
+            int n = readStereo(recorder, buf);
             if (n < 0) throw new IllegalStateException("AudioRecord.read " + n);
             if (n == 0) continue;
             writePacket(out, frames * 1000000L / SAMPLE_RATE, buf, 0, n);
@@ -209,7 +243,7 @@ public final class RootAudioMain {
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         long frames = 0;
         while (true) {
-            int n = recorder.read(buf, 0, buf.length);
+            int n = readStereo(recorder, buf);
             if (n < 0) throw new IllegalStateException("AudioRecord.read " + n);
             int off = 0;
             while (off < n) {
