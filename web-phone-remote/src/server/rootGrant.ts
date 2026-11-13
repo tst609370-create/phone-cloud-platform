@@ -44,11 +44,22 @@ export function findGrantButton(xml: string): Point | undefined {
 
 const DUMP = '/data/local/tmp/ws-su-ui.xml';
 
+export interface GrantReport {
+    tapped: boolean;
+    /** What the screen showed, for the "no sound" hint. */
+    note: string;
+}
+
+/** Package of the window on top in a uiautomator dump. */
+export function topPackage(xml: string): string {
+    return /<node\b[^>]*\bpackage="([^"]+)"/.exec(xml)?.[1] ?? '';
+}
+
 /**
  * Keep looking for the prompt until `done` resolves or `maxMs` passes; tap
- * grant once found. Returns true if it tapped.
+ * grant once found.
  */
-export async function autoGrantWhile(adb: GrantShell, serial: string, done: Promise<unknown>, maxMs = 12_000): Promise<boolean> {
+export async function autoGrantWhile(adb: GrantShell, serial: string, done: Promise<unknown>, maxMs = 12_000): Promise<GrantReport> {
     let finished = false;
     void done.finally(() => {
         finished = true;
@@ -57,6 +68,8 @@ export async function autoGrantWhile(adb: GrantShell, serial: string, done: Prom
     // A dark screen hides the dialog from uiautomator.
     await adb.shell(serial, 'input keyevent KEYCODE_WAKEUP', 3_000).catch(() => undefined);
     await new Promise((r) => setTimeout(r, 600));
+    let dumps = 0;
+    let lastTop = '';
     while (!finished && Date.now() < until) {
         let xml = '';
         try {
@@ -64,15 +77,51 @@ export async function autoGrantWhile(adb: GrantShell, serial: string, done: Prom
         } catch {
             xml = '';
         }
-        if (finished) return false;
+        if (finished) return { tapped: false, note: dumps ? `su 已返回，屏幕在 ${lastTop || '?'}` : 'su 很快返回，没弹授权框' };
+        dumps++;
+        if (xml.includes('<hierarchy')) lastTop = topPackage(xml) || lastTop;
+        else if (!lastTop) lastTop = `截屏失败：${xml.replace(/\s+/g, ' ').trim().slice(0, 40)}`;
         const at = findGrantButton(xml);
         if (at) {
-            await adb.shell(serial, `input tap ${at.x} ${at.y}`, 3_000).catch(() => undefined);
-            return true;
+            const res = await adb.shell(serial, `input tap ${at.x} ${at.y}`, 3_000).catch((e: Error) => e.message);
+            return { tapped: true, note: `看到授权框（${topPackage(xml)}），已点允许 (${at.x},${at.y})${res && res.trim() ? `：${res.trim().slice(0, 60)}` : ''}` };
         }
         await new Promise((r) => setTimeout(r, 400));
     }
-    return false;
+    if (finished) return { tapped: false, note: dumps ? `su 已返回，屏幕在 ${lastTop || '?'}` : 'su 很快返回，没弹授权框' };
+    return { tapped: false, note: `等了 ${Math.round(maxMs / 1000)} 秒没看到授权框，屏幕一直是 ${lastTop || '?'}` };
+}
+
+/**
+ * MIUI stops apps from opening windows while in the background unless
+ * "后台弹出界面" (MIUI app-op 10021) is allowed, so Magisk's su prompt never
+ * shows and the request is silently denied. Allow it (shell may set app-ops).
+ */
+export async function prepareMagiskPrompt(adb: GrantShell, serial: string): Promise<string> {
+    let out = '';
+    try {
+        out = await adb.shell(
+            serial,
+            'getprop ro.miui.ui.version.name; echo PKGS; pm list packages 2>/dev/null | grep -i -E "magisk|kernelsu|supersu|superuser"',
+            8_000,
+        );
+    } catch {
+        return '';
+    }
+    const [miuiPart = '', pkgPart = ''] = out.split('PKGS');
+    const miui = miuiPart.trim();
+    const pkgs = [...pkgPart.matchAll(/package:(\S+)/g)].map((m) => m[1]!);
+    if (pkgs.length === 0) return '没找到 Magisk 应用（可能隐藏成了随机包名）';
+    const notes = [`root 管理器 ${pkgs.join(',')}`];
+    if (miui) {
+        for (const pkg of pkgs) {
+            await adb
+                .shell(serial, `appops set ${pkg} 10021 allow; appops set ${pkg} SYSTEM_ALERT_WINDOW allow; appops set ${pkg} 10020 allow`, 6_000)
+                .catch(() => undefined);
+        }
+        notes.push(`MIUI ${miui} 已给它开「后台弹出界面」`);
+    }
+    return notes.join('，');
 }
 
 /** SQL that makes Magisk allow the shell uid (2000) forever, logging/notify on. */

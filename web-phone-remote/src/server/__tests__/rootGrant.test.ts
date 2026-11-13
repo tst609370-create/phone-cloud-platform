@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { autoGrantWhile, findGrantButton } from '../rootGrant';
+import { autoGrantWhile, findGrantButton, prepareMagiskPrompt } from '../rootGrant';
 
 const MAGISK = `<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation="0">
 <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.topjohnwu.magisk" enabled="true" bounds="[60,700][1020,1400]">
@@ -26,13 +26,23 @@ describe('Magisk prompt auto-grant', () => {
         const shell = vi.fn(async (_s: string, cmd: string) => (cmd.startsWith('uiautomator') ? MAGISK : ''));
         const tapped = await autoGrantWhile({ shell }, 'X', done, 5_000);
         release();
-        expect(tapped).toBe(true);
+        expect(tapped.tapped).toBe(true);
+        expect(tapped.note).toContain('780,1340');
         expect(shell).toHaveBeenCalledWith('X', 'input tap 780 1340', 3_000);
     });
 
     it('stops as soon as su answered', async () => {
         const shell = vi.fn(async (_s: string, _c: string) => '');
-        expect(await autoGrantWhile({ shell }, 'X', Promise.resolve(), 5_000)).toBe(false);
+        expect((await autoGrantWhile({ shell }, 'X', Promise.resolve(), 5_000)).tapped).toBe(false);
         expect(shell.mock.calls.some((c) => String(c[1]).startsWith('input tap'))).toBe(false);
+    });
+
+    it('lets Magisk pop its prompt from the background on MIUI', async () => {
+        const shell = vi.fn(async (_s: string, cmd: string) =>
+            cmd.startsWith('getprop') ? 'V12\nPKGS\npackage:com.topjohnwu.magisk\n' : '',
+        );
+        const note = await prepareMagiskPrompt({ shell }, 'M');
+        expect(note).toContain('后台弹出界面');
+        expect(shell).toHaveBeenCalledWith('M', expect.stringContaining('appops set com.topjohnwu.magisk 10021 allow'), 6_000);
     });
 });

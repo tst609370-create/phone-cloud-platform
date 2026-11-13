@@ -277,6 +277,11 @@ export class AdbClient {
         await this.exec(['-s', serial, 'forward', '--remove', local], { timeoutMs: DEFAULT_TIMEOUT_MS.forwardOps });
     }
 
+    /** Restart adbd as root (debuggable builds only); returns adb's message. */
+    async root(serial: string): Promise<string> {
+        return this.exec(['-s', serial, 'root'], { timeoutMs: 15_000 });
+    }
+
     async reverse(serial: string, remote: string, local: string): Promise<void> {
         await this.exec(['-s', serial, 'reverse', remote, local], { timeoutMs: DEFAULT_TIMEOUT_MS.forwardOps });
     }

@@ -5,7 +5,7 @@ import os from 'os';
 import path from 'path';
 import { PassThrough } from 'stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearRootCache, hasRoot, isRootIdOutput, probeRoot, type RootAudioAdb, rootAudioCommand, startRootAudio, wrapRoot } from '../rootAudio';
+import { clearRootCache, hasRoot, isRootIdOutput, probeRoot, rootKindOf, type RootAudioAdb, rootAudioCommand, startRootAudio, wrapRoot } from '../rootAudio';
 
 function fakeProc() {
     const proc = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough; killed: boolean; kill: () => void };
@@ -82,6 +82,42 @@ describe('root audio helper', () => {
             'echo "CLASSPATH=/data/local/tmp/ws-root-audio.jar app_process / com.wsphone.rootaudio.RootAudioMain n aac" | /system/xbin/bstk/su',
         );
     });
+
+    it('names the root solution from su -v', () => {
+        expect(rootKindOf('26.4:MAGISK:R', '')).toBe('magisk');
+        expect(rootKindOf('2.82:SUPERSU', '')).toBe('supersu');
+        expect(rootKindOf('', 'package:me.weishu.kernelsu')).toBe('kernelsu');
+        expect(rootKindOf('16', '')).toBe('system');
+        expect(rootKindOf('su: invalid option', '')).toBe('unknown');
+    });
+
+    it('falls back to adb root on debuggable builds and says what it found', async () => {
+        let rooted = false;
+        const shell = vi.fn(async (_s: string, cmd: string) => {
+            if (cmd === 'id') return rooted ? 'uid=0(root)' : 'uid=2000(shell)';
+            if (cmd.startsWith('id;')) return 'uid=2000(shell)\nSU=/system/xbin/su\n';
+            if (cmd.startsWith('su -v')) return '16\nPROPS\n1\nuser\nPKGS\n';
+            return 'Permission denied';
+        });
+        const root = vi.fn(async () => {
+            rooted = true;
+            return 'restarting adbd as root';
+        });
+        const probe = await probeRoot({ shell, root } as unknown as RootAudioAdb, 'MI', 1);
+        expect(root).toHaveBeenCalledWith('MI');
+        expect(probe.prefix).toBe('');
+    }, 30_000);
+
+    it('tells MIUI built-in root users where to grant Shell', async () => {
+        const shell = vi.fn(async (_s: string, cmd: string) => {
+            if (cmd.startsWith('id;')) return 'uid=2000(shell)\nSU=/system/xbin/su\n';
+            if (cmd.startsWith('su -v')) return '16\nPROPS\n0\nuser\nPKGS\n';
+            return 'Permission denied';
+        });
+        const probe = await probeRoot({ shell } as unknown as RootAudioAdb, 'MI2', 1);
+        expect(probe.reason).toContain('系统自带');
+        expect(probe.reason).toContain('ROOT 权限管理');
+    }, 30_000);
 
     it('remembers a root yes, retries a no after a while', async () => {
         const shell = vi
