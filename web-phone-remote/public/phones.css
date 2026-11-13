@@ -299,19 +299,39 @@ svg { flex: 0 0 auto; }
     resize: none; border-radius: var(--tx-radius-lg); box-shadow: var(--tx-shadow-overlay);
     grid-template-rows: auto minmax(0, 1fr) 36px 22px;
 }
-/* 放大后就是原来本地版的操作窗口：一行标题栏（序号·状态点·主/跟·麦克风·听声音·功能·+），
-   画面贴满宽度，底部五个按钮 + 一行状态。回九宫格只占一个小图标，名字看侧栏。 */
-.phone-card.expanded > header { flex-wrap: wrap; min-height: 36px; padding: 0 4px 0 6px; gap: 4px; row-gap: 2px; }
-.phone-card.expanded header strong,
-.phone-card.expanded .card-actions [data-action="fullscreen"],
-.phone-card.expanded .card-actions [data-action="reconnect"],
-.phone-card.expanded .card-actions [data-action="close"] { display: none; }
-.phone-card.expanded .sync-controls { margin-left: 0; }
-.phone-card.expanded .card-actions { margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
-.phone-card.expanded .card-actions button { padding: 0 4px; font-size: 12px; color: var(--tx-fg-2); }
-.phone-card.expanded .phone-nav button { font-size: 12px; }
-.phone-card.expanded.narrow .card-actions button { padding: 0 3px; font-size: 11px; }
-.phone-card.expanded.narrow .phone-nav button { font-size: 11px; }
+/* 电脑端放大：画面在左，右侧一条竖排工具栏放全部按钮；标题栏只留序号和名字（拖动用），底部只留状态行。 */
+.side-tools { display: none; }
+.phone-card.expanded.side-mode {
+    grid-template-columns: minmax(0, 1fr) 64px; grid-template-rows: 36px minmax(0, 1fr) 22px;
+}
+.phone-card.side-mode > header { grid-column: 1 / -1; }
+.phone-card.side-mode > iframe, .phone-card.side-mode > .last-frame, .phone-card.side-mode > .preview-shield,
+.phone-card.side-mode > .stream-hint { grid-column: 1; grid-row: 2; }
+.phone-card.side-mode > .card-operation-log { grid-column: 1 / -1; grid-row: 3; }
+.phone-card.side-mode > .resume-stream { inset: 36px 64px 22px 0; width: auto; }
+.phone-card.side-mode .side-tools {
+    grid-column: 2; grid-row: 2; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px;
+    padding: 6px 5px; border-left: 1px solid var(--tx-line); background: var(--tx-surface); scrollbar-width: none;
+}
+.phone-card.side-mode .side-tools::-webkit-scrollbar { display: none; }
+.phone-card.side-mode .side-tools .sync-controls { margin: 0; justify-content: center; gap: 3px; }
+.phone-card.side-mode .side-tools .card-actions,
+.phone-card.side-mode .side-tools .phone-nav {
+    margin: 0; display: flex; flex-direction: column; gap: 3px; width: 100%; height: auto; min-height: 0; padding: 6px 0 0;
+    border: 0; border-top: 1px solid var(--tx-line); background: transparent; overflow: visible;
+}
+.phone-card.side-mode .side-tools button {
+    width: 100%; min-width: 0; height: auto; min-height: 30px; padding: 3px 2px; display: grid; place-items: center;
+    border: 1px solid transparent; border-radius: var(--tx-radius-sm); color: var(--tx-fg-2); background: var(--tx-wash-2);
+    font-size: 11px; line-height: 1.25; white-space: normal; word-break: break-all; text-align: center;
+}
+.phone-card.side-mode .side-tools button:hover { color: var(--tx-fg); border-color: var(--tx-line-strong); background: var(--tx-wash-4); }
+.phone-card.side-mode .side-tools button.active, .phone-card.side-mode .side-tools button[aria-pressed="true"] { color: var(--tx-bg); background: var(--tx-fg); }
+.phone-card.side-mode .side-tools button.active.warn { color: var(--tx-bg); background: var(--tx-warn); }
+.phone-card.side-mode .side-tools [data-action="fullscreen"],
+.phone-card.side-mode .side-tools [data-action="close"] { display: none; }
+.phone-card.side-mode header strong { max-width: none; flex: 0 1 auto; }
+.phone-card.expanded .back-to-grid ~ .connection-state { margin-right: auto; }
 /* 黑屏状态提示 */
 .stream-hint {
     grid-row: 2; grid-column: 1; z-index: 6; align-self: center; justify-self: center; max-width: calc(100% - 24px);
