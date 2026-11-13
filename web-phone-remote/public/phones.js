@@ -4,7 +4,7 @@
     const quality = document.getElementById('quality');
     const fps = document.getElementById('fps');
     const tileSize = document.getElementById('tile-size');
-    const UI_VERSION = '1113c';
+    const UI_VERSION = '1113n';
     const sizeValue = document.getElementById('size-value');
     const backdrop = document.getElementById('viewer-backdrop');
     const grid = document.getElementById('phone-grid');
@@ -574,15 +574,60 @@
         logOperation(card, `画面${state === 'black' ? '全黑' : '没出来'}，画质降到 ${lower}`);
     }
 
+    // 服务器每秒报一次网络情况（经视频队列测的往返延迟、实际送达码率、丢帧）。
+    // 显示在手机下方；短时间内两次跟不上就按实测带宽降码率重连，保证跟手。
+    const NET_MIN_BITRATE = 500000;
+    function onNetStats(card, s) {
+        if (!s || card.dataset.streaming !== '1' || !card._connectedProfile) return;
+        const now = Date.now();
+        const have = card._connectedProfile;
+        if (typeof s.episodes === 'number') {
+            if (card._lastEpisodes === undefined || s.episodes < card._lastEpisodes) card._lastEpisodes = 0;
+            if (s.episodes > card._lastEpisodes) {
+                card._episodeTimes = [...(card._episodeTimes || []).filter((t) => now - t < 20000), now];
+                card._lastEpisodes = s.episodes;
+            }
+        }
+        const rtt = s.rttMs >= 0 ? s.rttMs : -1;
+        const recent = (card._episodeTimes || []).filter((t) => now - t < 10000).length;
+        const level = recent || rtt > 600 ? 'bad' : rtt > 250 || s.decodeQueue > 3 ? 'warn' : 'good';
+        const row = card.querySelector('.card-operation-log');
+        if (row) {
+            const mbps = (v) => (v / 1000000).toFixed(v % 1000000 ? 1 : 0);
+            const info = `延迟${rtt >= 0 ? `${rtt}ms` : '…'} · ${s.fps || 0}帧 · ${(s.goodputKbps / 1000).toFixed(1)}/${mbps(have.bitrate)}M`
+                + (s.dropped ? ` · 丢${s.dropped}` : '');
+            row.dataset.stream = info;
+            row.dataset.net = level;
+            row.title = `往返延迟（含排队）${rtt >= 0 ? `${rtt} ms` : '测量中'}；收到 ${s.fps || 0} 帧/秒；实际送达 ${(s.goodputKbps / 1000).toFixed(2)} Mbps，设定 ${mbps(have.bitrate)} Mbps；`
+                + `网络跟不上 ${s.episodes || 0} 次，跳过 ${s.dropped || 0} 帧；在途 ${Math.round((s.inflight || 0) / 1024)} KB；解码排队 ${s.decodeQueue || 0}；画面 ${card._streamInfo || ''}`;
+        }
+        // 降码率：20 秒内跟不上 2 次，且距上次调整超过 20 秒。
+        if ((card._episodeTimes || []).length >= 2 && now - (card._netAdjustedAt || 0) > 20000 && have.bitrate > NET_MIN_BITRATE) {
+            const capacity = s.capacityKbps > 0 ? s.capacityKbps * 1000 * 0.7 : Infinity;
+            const target = Math.max(NET_MIN_BITRATE, Math.round(Math.min(have.bitrate * 0.6, capacity) / 100000) * 100000);
+            if (target < have.bitrate) {
+                card._netBitrate = target;
+                card._netAdjustedAt = now;
+                card._episodeTimes = [];
+                logOperation(card, `网络跟不上${s.capacityKbps ? `（实测约 ${(s.capacityKbps / 1000).toFixed(1)}M）` : ''}，码率降到 ${(target / 1000000).toFixed(1)}M 保证跟手`);
+                connect(card, true);
+            }
+        }
+    }
+
     function videoProfile(card) {
         // scrcpy maxSize limits the LONGEST side. Option values are long-side
         // pixels (1080/1600/2400 ≈ 480p/720p/1080p on a 20:9 phone).
-        const requestedSize = quality.value === 'auto' ? autoMaxSize(card) : Number(quality.value);
+        const netBitrate = card._netBitrate || Infinity;
+        // 网络慢、码率被降到 1.5M 以下时，「自动」不再用大分辨率（低码率大画面又糊又费解码）。
+        const requestedSize = quality.value === 'auto'
+            ? (netBitrate < 1500000 ? Math.min(1080, autoMaxSize(card)) : autoMaxSize(card))
+            : Number(quality.value);
         const requestedFps = Number(fps.value);
         const active = card.dataset.device === activeSerial;
-        const activeBitrate = requestedSize > 1600 ? 8000000 : requestedSize > 1080 ? 4000000 : 2000000;
+        const activeBitrate = Math.min(netBitrate, requestedSize > 1600 ? 8000000 : requestedSize > 1080 ? 4000000 : 2000000);
         return {
-            bitrate: adaptiveRemote && !active ? 1000000 : activeBitrate,
+            bitrate: adaptiveRemote && !active ? Math.min(1000000, activeBitrate) : activeBitrate,
             maxFps: adaptiveRemote && !active ? Math.min(15, requestedFps) : requestedFps,
             maxSize: requestedSize,
         };
@@ -593,7 +638,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261112y',
+                ui: '20261113n',
             });
             return `snapshot.html?${params}`;
         }
@@ -607,7 +652,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261112y',
+            ui: '20261113n',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         if (card.dataset.hear === '1' && audioSourceFor(card.dataset.device) === 'playback') {
@@ -1101,6 +1146,7 @@
                 if (!doc.defaultView._phoneHealthHooked) {
                     doc.defaultView._phoneHealthHooked = true;
                     doc.defaultView.addEventListener('phone-video-health', (event) => onVideoHealth(card, event.detail?.state));
+                    doc.defaultView.addEventListener('phone-net-stats', (event) => onNetStats(card, event.detail));
                 }
                 card._statusObserver.observe(status, { attributes: true, childList: true, characterData: true, subtree: true });
                 card._documentObserver = new MutationObserverClass(() => applyFrameState(card));
@@ -1406,6 +1452,7 @@
         card._videoAspect = 0;
         card._streamInfo = '';
         delete card.querySelector('.card-operation-log')?.dataset.stream;
+        delete card.querySelector('.card-operation-log')?.dataset.net;
         // Keep the fitted size while reconnecting so the card doesn't turn into
         // a wide black box; it is refitted once the new stream reports its size.
         if (!card._lastAspect) {
@@ -1681,8 +1728,10 @@
         needsInitialLayout = true;
         scheduleTile();
     });
-    quality.addEventListener('change', () => updateStreamingMode(true));
-    fps.addEventListener('change', () => updateStreamingMode(true));
+    // 手动换画质/帧率 = 重新按设定来，清掉网络自适应降下来的码率。
+    const resetNetBitrate = () => cards.forEach((card) => { card._netBitrate = 0; card._episodeTimes = []; });
+    quality.addEventListener('change', () => { resetNetBitrate(); updateStreamingMode(true); });
+    fps.addEventListener('change', () => { resetNetBitrate(); updateStreamingMode(true); });
     backdrop.addEventListener('click', collapseExpanded);
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape' && cards.some((card) => card.classList.contains('expanded'))) {

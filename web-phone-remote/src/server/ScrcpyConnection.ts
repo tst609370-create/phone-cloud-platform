@@ -3,22 +3,29 @@ import net from 'net';
 import path from 'path';
 import type WS from 'ws';
 import { ACTION } from '../common/Action';
-import { ChannelId } from '../common/ChannelId';
-import { DEVICE_SERVER_PATH, SERVER_PACKAGE } from '../common/Constants';
 import { playbackAudioBlockReason } from '../common/AudioDefaults';
+import { ChannelId, type StreamNetStats } from '../common/ChannelId';
+import { DEVICE_SERVER_PATH, SERVER_PACKAGE } from '../common/Constants';
 import { AdbClient } from './AdbClient';
 import { Config } from './Config';
 import { ensureScrcpyServerPushed } from './ensureScrcpyServerPushed';
-import { ROOT_AUDIO_FAILED, ROOT_AUDIO_MIN_SDK, type RootAudioSession, probeRoot, resolveRootAudioJar, startRootAudio } from './rootAudio';
-import { pipeScrcpySockets } from './scrcpyMedia';
 import { ControlCenter } from './goog-device/services/ControlCenter';
 import { Logger } from './Logger';
 import { Mw, type RequestParameters } from './mw/Mw';
+import {
+    probeRoot,
+    ROOT_AUDIO_FAILED,
+    ROOT_AUDIO_MIN_SDK,
+    type RootAudioSession,
+    resolveRootAudioJar,
+    startRootAudio,
+} from './rootAudio';
 import { type ScrcpyOptions, serializeOptions } from './ScrcpyOptions';
 import { acceptScrcpy41Control } from './scrcpy41';
+import { pipeScrcpySockets } from './scrcpyMedia';
 import { scrcpyOptionsFromQuery } from './scrcpyOptionsFromQuery';
 import { getInstalledScrcpyServerVersion } from './scrcpyServerVersion';
-import { RESET_VIDEO_MESSAGE, VideoBackpressure } from './videoBackpressure';
+import { ackedThresholds, RESET_VIDEO_MESSAGE, StreamNetMeter, VideoBackpressure } from './videoBackpressure';
 import { capKey, clampMaxSize, defaultCapForModel } from './videoSizeCap';
 
 const log = Logger.for('ScrcpyConnection');
@@ -36,7 +43,6 @@ function installedVersion(): string {
     return getInstalledScrcpyServerVersion(Config.getInstance().dependenciesPath);
 }
 
-
 export class ScrcpyConnection extends Mw {
     /** Flags on the browser websocket. The demuxer still reads config at bit 63. */
     private static readonly PTS_FLAG_CONFIG = 0x8000000000000000n;
@@ -53,6 +59,9 @@ export class ScrcpyConnection extends Mw {
     private serverProcess?: import('child_process').ChildProcess;
     private released = false;
     private readonly backpressure = new VideoBackpressure();
+    private readonly net = new StreamNetMeter();
+    private statsTimer: NodeJS.Timeout | undefined;
+    private videoBitRate = 0;
 
     public static override processRequest(ws: WS, params: RequestParameters): ScrcpyConnection | undefined {
         const { action, url } = params;
@@ -92,7 +101,9 @@ export class ScrcpyConnection extends Mw {
         const cap = this.videoSizeCap();
         const clamped = clampMaxSize(options.maxSize, cap);
         if (clamped !== options.maxSize) {
-            log.info(`max_size ${options.maxSize || 0} → ${clamped} for ${this.serial} (this phone goes black above ${cap})`);
+            log.info(
+                `max_size ${options.maxSize || 0} → ${clamped} for ${this.serial} (this phone goes black above ${cap})`,
+            );
             if (clamped !== undefined) options.maxSize = clamped;
         }
         return options;
@@ -179,8 +190,19 @@ export class ScrcpyConnection extends Mw {
         await ensureScrcpyServerPushed(this.adbClient, this.serial, serverFile());
         if (rootAudioJar) {
             const codec = options.audioCodec === 'raw' ? 'raw' : 'aac';
-            this.rootAudio = await startRootAudio(this.adbClient, this.serial, String(options.scid), codec, rootAudioJar, log, 10_000, rootPrefix);
-            log.info(`root audio capture requested for ${this.serial} (sdk=${sdkInt}, codec=${codec}, via="${rootPrefix || 'adb shell'}")`);
+            this.rootAudio = await startRootAudio(
+                this.adbClient,
+                this.serial,
+                String(options.scid),
+                codec,
+                rootAudioJar,
+                log,
+                10_000,
+                rootPrefix,
+            );
+            log.info(
+                `root audio capture requested for ${this.serial} (sdk=${sdkInt}, codec=${codec}, via="${rootPrefix || 'adb shell'}")`,
+            );
         }
 
         // 2. Set up tunnel + launch scrcpy-server + collect 3 sockets.
@@ -190,6 +212,12 @@ export class ScrcpyConnection extends Mw {
         this.videoSocket = sockets[0]!;
         this.audioSocket = sockets[1]!;
         this.controlSocket = sockets[2]!;
+        // Touch events are tiny writes; with Nagle on (Node's default) a move
+        // can wait for the previous write's ACK — Windows delays ACKs up to
+        // 200 ms — which makes dragging feel sticky.
+        for (const s of sockets) s?.setNoDelay?.(true);
+        this.videoBitRate = options.videoBitRate ?? 0;
+        this.startStats();
         if (this.rootAudio) {
             const rootSocket = await this.rootAudio.socket;
             if (rootSocket) {
@@ -222,13 +250,17 @@ export class ScrcpyConnection extends Mw {
                     header.writeUInt32BE(frame.data.length, 8);
                     const kind = frame.type === 'config' ? 'config' : frame.type === 'keyframe' ? 'keyframe' : 'delta';
                     const wasDropping = this.backpressure.isDropping;
-                    const decision = this.backpressure.video(kind, this.ws.bufferedAmount, Date.now());
+                    const decision = this.backpressure.video(kind, this.backlog(), Date.now());
                     if (decision.requestKeyframe) this.requestKeyframe();
                     if (!wasDropping && this.backpressure.isDropping) {
-                        log.info(`network behind for ${this.serial} (${this.ws.bufferedAmount} bytes queued); skipping frames until it catches up`);
+                        log.info(
+                            `network behind for ${this.serial} (${this.backlog()} bytes queued); skipping frames until it catches up`,
+                        );
                     }
                     if (!decision.send) return;
-                    this.sendChannel(ChannelId.VIDEO, Buffer.concat([header, frame.data]));
+                    if (this.sendChannel(ChannelId.VIDEO, Buffer.concat([header, frame.data]))) {
+                        this.net.onSent(1 + header.length + frame.data.length);
+                    }
                 },
                 onAudioFrame: (frame) => {
                     let pts = frame.pts;
@@ -236,7 +268,7 @@ export class ScrcpyConnection extends Mw {
                     const header = Buffer.alloc(12);
                     header.writeBigUInt64BE(pts, 0);
                     header.writeUInt32BE(frame.data.length, 8);
-                    if (frame.type !== 'config' && !this.backpressure.audio(this.ws.bufferedAmount)) return;
+                    if (frame.type !== 'config' && !this.backpressure.audio(this.backlog())) return;
                     this.sendChannel(ChannelId.AUDIO, Buffer.concat([header, frame.data]));
                 },
                 onControl: (data) => this.sendChannel(ChannelId.DEVICE_MSG, data),
@@ -471,17 +503,54 @@ export class ScrcpyConnection extends Mw {
         });
     }
 
-
     private requestKeyframe(): void {
         if (this.controlSocket && !this.controlSocket.destroyed) this.controlSocket.write(RESET_VIDEO_MESSAGE);
     }
 
-    private sendChannel(channel: ChannelId, payload: Buffer): void {
-        if (this.ws.readyState !== this.ws.OPEN) return;
+    private sendChannel(channel: ChannelId, payload: Buffer): boolean {
+        if (this.ws.readyState !== this.ws.OPEN) return false;
         const msg = Buffer.allocUnsafe(1 + payload.length);
         msg[0] = channel;
         payload.copy(msg, 1);
         this.ws.send(msg);
+        return true;
+    }
+
+    /** Video still on its way to the browser: end to end once it acknowledges frames. */
+    private backlog(): number {
+        return this.net.ackSeen ? this.net.inflight : this.ws.bufferedAmount;
+    }
+
+    private onAck(payload: Buffer): void {
+        if (payload.length < 16) return;
+        const firstAck = !this.net.ackSeen;
+        this.net.onAck(payload.readDoubleBE(0), payload.readDoubleBE(8), Date.now());
+        if (firstAck) {
+            const t = ackedThresholds(this.videoBitRate);
+            this.backpressure.setThresholds(t.highWater, t.lowWater);
+        }
+        if (this.backpressure.drained(this.net.inflight, Date.now())) this.requestKeyframe();
+    }
+
+    private startStats(): void {
+        if (this.statsTimer) return;
+        this.statsTimer = setInterval(() => {
+            const now = Date.now();
+            this.net.tick(now, this.backpressure.isDropping);
+            // Old cached pages don't understand STATS/ACK; they ignore unknown channels.
+            const stats: StreamNetStats = {
+                t: now,
+                rttMs: this.net.rttMs,
+                inflight: this.net.ackSeen ? this.net.inflight : this.ws.bufferedAmount,
+                goodputKbps: this.net.goodputKbps,
+                bitrate: this.videoBitRate,
+                dropped: this.backpressure.droppedFrames,
+                episodes: this.backpressure.episodes,
+                capacityKbps: this.net.capacityKbps,
+            };
+            this.sendChannel(ChannelId.STATS, Buffer.from(JSON.stringify(stats)));
+        }, 1000);
+        this.statsTimer.unref?.();
     }
 
     protected onSocketMessage(event: WS.MessageEvent): void {
@@ -491,6 +560,10 @@ export class ScrcpyConnection extends Mw {
             if (data.length < 2) return;
             const channel = data[0];
             const payload = data.subarray(1);
+            if (channel === ChannelId.ACK) {
+                this.onAck(payload);
+                return;
+            }
             if (channel === ChannelId.CONTROL && this.controlSocket && !this.controlSocket.destroyed) {
                 if (!acceptScrcpy41Control(payload)) {
                     log.info(`ignored control type ${payload[0]} because scrcpy 4.1 would close the control channel`);
@@ -505,6 +578,8 @@ export class ScrcpyConnection extends Mw {
         if (this.released) return;
         this.released = true;
         log.info(`Releasing session for ${this.serial}`);
+        if (this.statsTimer) clearInterval(this.statsTimer);
+        this.statsTimer = undefined;
 
         this.videoSocket?.destroy();
         this.audioSocket?.destroy();

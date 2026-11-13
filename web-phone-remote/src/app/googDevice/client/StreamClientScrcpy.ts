@@ -1,4 +1,5 @@
 import { ACTION } from '../../../common/Action';
+import type { StreamNetStats } from '../../../common/ChannelId';
 import { SERVER_PORT } from '../../../common/Constants';
 import { ControlCenterCommand } from '../../../common/ControlCenterCommand';
 import { applyStreamParams } from '../../../common/StreamUrlParams';
@@ -301,7 +302,33 @@ export class StreamClientScrcpy
         }
     };
 
+    private netFrames = 0;
+    private netFramesAt = 0;
+
+    /**
+     * Server network report (about once a second) → `phone-net-stats` event on
+     * this window, which the console page shows under the phone (latency,
+     * frame rate, delivered bitrate) and uses to lower the bitrate.
+     */
+    private onNetStats = (stats: StreamNetStats): void => {
+        const now = performance.now();
+        const fps = this.netFramesAt ? Math.round((this.netFrames * 1000) / Math.max(1, now - this.netFramesAt)) : 0;
+        this.netFrames = 0;
+        this.netFramesAt = now;
+        const decoder = (this.player as unknown as { decoder?: { decodeQueueSize?: number } } | undefined)?.decoder;
+        try {
+            window.dispatchEvent(
+                new CustomEvent('phone-net-stats', {
+                    detail: { ...stats, fps, decodeQueue: decoder?.decodeQueueSize ?? 0 },
+                }),
+            );
+        } catch {
+            /* cosmetic */
+        }
+    };
+
     public onVideoFrame = (data: Uint8Array, pts: bigint, isConfig: boolean, isKeyframe: boolean): void => {
+        if (!isConfig) this.netFrames++;
         if (!this.player) return;
         const STATE = BasePlayer.STATE;
         if (this.player.getState() === STATE['PAUSED']) {
@@ -555,6 +582,7 @@ export class StreamClientScrcpy
         this.demuxer.onAudioFrame(this.onAudioFrame);
         this.demuxer.onDeviceMessage(this.OnDeviceMessage);
         this.demuxer.onMetadata(this.onMetadata);
+        this.demuxer.onStats(this.onNetStats);
         this.demuxer.onDisconnect(this.onDisconnected);
 
         // Always enable keyboard capture
@@ -636,6 +664,7 @@ export class StreamClientScrcpy
         this.demuxer.onAudioFrame(this.onAudioFrame);
         this.demuxer.onDeviceMessage(this.OnDeviceMessage);
         this.demuxer.onMetadata(this.onMetadata);
+        this.demuxer.onStats(this.onNetStats);
         this.demuxer.onDisconnect(this.onDisconnected);
     }
 

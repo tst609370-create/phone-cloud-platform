@@ -71,7 +71,8 @@ node --test installer/setup-auth.test.mjs installer/bootstrap/*.test.mjs   # 安
 - 视频尺寸对齐 → `src/server/ScrcpyOptions.ts` 默认 `min_size_alignment=16`（scrcpy 4.x 默认按编码器报的 2px 对齐，一加 ColorOS 出 486 宽黑帧）
 - http://公网IP（非安全上下文）没有 WebCodecs → `src/app/player/mseDecoder.ts` + `fmp4.ts` 用 MSE 回退（仅 H.264）；画面卡住要关键帧 → `WebCodecsPlayer.armStallTimer` + `onNeedKeyframe`（RESET_VIDEO）
 - 画面黑屏/解码失败自愈 → `web-phone-remote/src/app/player/WebCodecsPlayer.ts`（`recoverDecoder`、`armOutputWatchdog`：出错或 3 秒无输出改软件解码，记在 localStorage `webcodecs-prefer-software`）
-- 网速跟不上时的丢帧/追帧 → `src/server/videoBackpressure.ts`（阈值），接入点 `ScrcpyConnection.ts` 的 `onVideoFrame`；WebSocket 心跳 → `services/WebSocketServer.ts` 的 `startHeartbeat`
+- 网速跟不上时的丢帧/追帧 → `src/server/videoBackpressure.ts`（`ackedThresholds` 按码率定阈值，`StreamNetMeter` 统计在途/往返/送达码率），接入点 `ScrcpyConnection.ts` 的 `onVideoFrame`/`onAck`/`startStats`；浏览器每帧回 ACK（`ChannelId.ACK`，`ScrcpyDemuxer.sendAck`），服务器每秒发 `ChannelId.STATS`；WebSocket 心跳 → `services/WebSocketServer.ts` 的 `startHeartbeat`
+- 手机窗口下方的「延迟/帧/码率」显示和按实测带宽自动降码率 → `public/phones.js` 的 `onNetStats`（事件 `phone-net-stats` 由 `StreamClientScrcpy.onNetStats` 发出），颜色在 `phones.css` 的 `[data-net]`
 - frpc 配置与守护脚本 → `installer/windows/logic.go`（`renderFrpcToml`、`frpcRunScript`）；已装机器由 `tools/update-local-windows.ps1` 补丁
 - 安装包、中转服务器地址 → `installer/windows/logic.go`（`relayHost`）
 - 桌面快捷方式 → `logic.go`（`shortcutFiles`、`appWindowShortcuts`、`findAppBrowser`），写入在 `install_windows.go`（`writeAppWindowShortcuts`）

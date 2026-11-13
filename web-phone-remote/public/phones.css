@@ -185,6 +185,10 @@ svg { flex: 0 0 auto; }
 .card-operation-log::before { content: "›"; margin-right: 6px; color: var(--tx-ok); }
 .card-operation-log[data-stream] { padding-right: 150px; }
 .card-operation-log[data-stream]::after { content: attr(data-stream); position: absolute; top: 3px; right: 9px; color: var(--tx-fg-4); }
+.card-operation-log[data-net] { padding-right: 230px; }
+.card-operation-log[data-net="good"]::after { color: var(--tx-ok); }
+.card-operation-log[data-net="warn"]::after { color: var(--tx-warn); }
+.card-operation-log[data-net="bad"]::after { color: var(--tx-err); }
 .last-frame { display: block; opacity: 0; object-fit: contain; pointer-events: none; transition: opacity .2s ease; }
 .phone-card.reconnecting iframe { opacity: 0; }
 .phone-card.reconnecting .last-frame { opacity: 1; }

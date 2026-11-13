@@ -195,7 +195,8 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
             ctx.drawImage(frame, 0, 0, 96, 192);
             const data = ctx.getImageData(0, 0, 96, 192).data;
             let max = 0;
-            for (let i = 0; i < data.length && max <= 16; i += 4) max = Math.max(max, data[i]!, data[i + 1]!, data[i + 2]!);
+            for (let i = 0; i < data.length && max <= 16; i += 4)
+                max = Math.max(max, data[i]!, data[i + 1]!, data[i + 2]!);
             if (max > 16) {
                 // Real picture seen: stop probing (only the start of a stream matters).
                 this.reportHealth('ok');
@@ -229,7 +230,9 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
             } catch {
                 /* control channel not ready yet */
             }
-            this.drawNotice(this.stallCount >= 2 ? '手机没有出画面：可能息屏或停在锁屏，点「全部亮屏」' : '等待手机画面…');
+            this.drawNotice(
+                this.stallCount >= 2 ? '手机没有出画面：可能息屏或停在锁屏，点「全部亮屏」' : '等待手机画面…',
+            );
             if (this.stallCount >= 2) this.reportHealth('none');
             this.armStallTimer();
         }, 2500);
@@ -334,7 +337,16 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
         // decoding every queued delta frame makes clicks look seconds late. Once
         // the queue grows, discard deltas and restart at the next keyframe so the
         // canvas always catches up to the phone's current screen.
-        if (this.decoder.decodeQueueSize > 4) this.droppingUntilKeyframe = true;
+        if (this.decoder.decodeQueueSize > 4 && !this.droppingUntilKeyframe) {
+            this.droppingUntilKeyframe = true;
+            // scrcpy only sends a keyframe every ~10 s by itself: ask for one
+            // now, otherwise the picture freezes until then.
+            try {
+                this.onNeedKeyframe?.();
+            } catch {
+                /* control channel not ready */
+            }
+        }
         if (this.droppingUntilKeyframe) {
             if (!isKeyframe || !this.decoderConfig) return;
             this.configureDecoder();
@@ -517,7 +529,13 @@ export class WebCodecsPlayer extends BaseCanvasBasedPlayer {
 
     /** No picture within a few seconds of a keyframe → hardware decoder is stuck; retry in software. */
     private armOutputWatchdog(): void {
-        if (this.gotOutput || this.outputWatchdog !== undefined || !WebCodecsPlayer.hasWebCodecs() || WebCodecsPlayer.preferSoftware()) return;
+        if (
+            this.gotOutput ||
+            this.outputWatchdog !== undefined ||
+            !WebCodecsPlayer.hasWebCodecs() ||
+            WebCodecsPlayer.preferSoftware()
+        )
+            return;
         this.outputWatchdog = setTimeout(() => {
             this.outputWatchdog = undefined;
             if (!this.gotOutput) this.recoverDecoder('硬件解码无画面');
