@@ -32,6 +32,7 @@
 | `src/server/ScrcpyOptions.ts`, `scrcpyServerVersion.ts`, `ensureScrcpyServerPushed.ts` | scrcpy-server 启动参数与版本 |
 | `src/app/` | 前端（webpack 打包）：`mic/` 麦克风按钮、`audio/` 播放声（AudioPlayer；audioHealth.ts 判断无声原因，embed 底部 #audio-note 显示）、`player/` 解码、`googDevice/` 控制工具栏 |
 | `public/` | 静态页：`admin.html` 租用后台、`index.html`/`phones.js`/`phones.css` 手机墙、`snapshot.*` 快照模式；`tianxi.css`/`tianxi.js` 是 Tianxi UI 的静态移植（令牌 + Select/Tooltip/Toast/确认框），所有页面共用 |
+| `android/root-audio/` + `src/server/rootAudio.ts` | 安卓 8–10 已 ROOT 手机的播放声：`su` 下跑 `RootAudioMain` 录 REMOTE_SUBMIX，按 scrcpy 音频流格式（codec id + 包）编 AAC/raw 经 `adb reverse localabstract:wsaudio_<scid>` 送回，替换 scrcpy 的音频 socket。`build.sh` 用 stubs/ 编译 + Maven Central 的 dalvik-dx 转 dex，产物 `prebuilt/root-audio.jar`（webpack 拷进 dist） |
 | `android/virtual-mic/` | 手机侧虚拟麦克风：LSPosed 模块、Magisk 包装、shell 注入 jar |
 | `installer/windows/` | Go 写的单文件 Windows 安装器（UAC、开机任务、向注册服务换配置） |
 | `installer/bootstrap/` | 服务器侧邀请/注册服务（`enroll`、`assignPort`、`server.mjs`，配 frps 插件与 Caddy） |
@@ -63,6 +64,7 @@ node --test installer/setup-auth.test.mjs installer/bootstrap/*.test.mjs   # 安
 - 添加模拟器/云手机（ADB 网络地址）→ 服务端 `src/server/remoteDevices.ts`（地址存 app_settings `remoteDevices`，`startReconnectLoop` 每 20 秒把掉线的重新 adb connect，本机模拟器端口扫描 `LOCAL_EMULATOR_PORTS`）、接口 `src/server/api/RemoteDevicesApi.ts`（`/api/remote-devices` GET/POST/DELETE、`/scan`，仅管理员）；前端 `public/index.html` 的 `#add-device` 按钮 + `#remote-devices` 弹窗，逻辑在 `phones.js` 的 `loadRemoteDevices`
 - 谁能看/控哪台手机 → `src/server/auth/deviceAccess.ts`、`AuthGate.ts`
 - 麦克风 → 服务端 `src/server/mic/`、前端 `src/app/mic/`、手机侧 `android/virtual-mic/`
+- 安卓 11 以下没声音 / ROOT 采集 → `src/server/rootAudio.ts`（`hasRoot` 用 `su -c id`，接入点 `ScrcpyConnection.start`），手机端 `android/root-audio/`（改完跑 `sh android/root-audio/build.sh` 重出 jar）
 - scrcpy 版本/参数 → `src/server/ScrcpyOptions.ts`、`scrcpyServerVersion.ts`
 - 「自动」画质黑屏自动降档 → `public/phones.js` 的 `autoLimit`/`autoCap`/`onVideoHealth`（先 1080，确认出画 `phone-auto-ok:<serial>` 后才升一档，黑屏封顶 `phone-auto-cap:<serial>`；侧栏显示前端版本 `UI_VERSION`），播放器 `WebCodecsPlayer.checkBlack`/`reportHealth` 发 `phone-video-health` 事件
 - 手机分辨率上限（全员生效）→ `src/server/videoSizeCap.ts`（LE21xx 默认 1080；浏览器报黑屏 POST `/api/settings/video-cap` 存 app_settings `videoCap:<serial>`），`ScrcpyConnection.buildOptions` 里夹紧 max_size

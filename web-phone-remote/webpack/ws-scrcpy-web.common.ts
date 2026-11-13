@@ -220,9 +220,14 @@ export const frontend = () => {
 class CopyVirtualMicJarPlugin {
     apply(compiler: webpack.Compiler) {
         compiler.hooks.afterEmit.tap('CopyVirtualMicJarPlugin', () => {
-            const src = path.resolve(PROJECT_ROOT, 'android/virtual-mic/prebuilt/virtual-mic.jar');
-            if (!existsSync(src)) return;
-            copyFileSync(src, path.resolve(SERVER_DIST_PATH, 'virtual-mic.jar'));
+            // Phone-side helper jars, pushed by the server at runtime.
+            for (const [rel, name] of [
+                ['android/virtual-mic/prebuilt/virtual-mic.jar', 'virtual-mic.jar'],
+                ['android/root-audio/prebuilt/root-audio.jar', 'root-audio.jar'],
+            ] as const) {
+                const src = path.resolve(PROJECT_ROOT, rel);
+                if (existsSync(src)) copyFileSync(src, path.resolve(SERVER_DIST_PATH, name));
+            }
         });
     }
 }
