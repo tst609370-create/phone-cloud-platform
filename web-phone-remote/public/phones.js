@@ -4,7 +4,7 @@
     const quality = document.getElementById('quality');
     const fps = document.getElementById('fps');
     const tileSize = document.getElementById('tile-size');
-    const UI_VERSION = '1113z4';
+    const UI_VERSION = '1113z5';
     const sizeValue = document.getElementById('size-value');
     const backdrop = document.getElementById('viewer-backdrop');
     const grid = document.getElementById('phone-grid');
@@ -291,8 +291,9 @@
         const backToGrid = document.createElement('button');
         backToGrid.type = 'button';
         backToGrid.className = 'back-to-grid';
-        backToGrid.title = '缩回小窗（Esc 全部缩回）';
-        backToGrid.innerHTML = '‹<span>&nbsp;九宫格</span>';
+        backToGrid.title = '回到九宫格小窗（Esc 全部缩回）';
+        backToGrid.setAttribute('aria-label', '回到九宫格');
+        backToGrid.innerHTML = svgIcon('<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>');
         backToGrid.addEventListener('click', () => collapseCard(card));
         header.append(backToGrid, number, title, state, rentalBadge, syncControls, actions);
 
@@ -352,7 +353,26 @@
         card.addEventListener('transitionend', (event) => {
             if (event.target === card && event.propertyName === 'width') sizeExpanded(card);
         });
-        card.append(header, lastFrame, frame, nativeInput, resume, shield, phoneNav, operationStatus, fileInput);
+        // 黑屏时在画面中间说清楚原因，而不是一片黑：息屏 → 点亮屏幕；没画面 → 重新连接。
+        const hint = document.createElement('div');
+        hint.className = 'stream-hint';
+        hint.hidden = true;
+        hint.innerHTML = '<p></p><div><button type="button" data-hint="wake">点亮屏幕</button><button type="button" data-hint="reconnect">重新连接</button></div>';
+        hint.addEventListener('click', (event) => {
+            const button = event.target.closest('button');
+            if (!button) return;
+            if (button.dataset.hint === 'reconnect') {
+                logOperation(card, '没画面，重新连接');
+                activate(card, true, true);
+                return;
+            }
+            button.disabled = true;
+            setDeviceScreenPower(card, true)
+                .then(() => { card._awake = true; logOperation(card, '已点亮屏幕'); })
+                .catch((error) => notify(error instanceof Error ? error.message : '点亮屏幕失败', 'err'))
+                .finally(() => { button.disabled = false; });
+        });
+        card.append(header, lastFrame, frame, nativeInput, resume, shield, hint, phoneNav, operationStatus, fileInput);
         grid.appendChild(card);
         void refreshScreenLockButton(card);
         restorePosition(card, index);
@@ -625,6 +645,8 @@
     }
 
     function onVideoHealth(card, state) {
+        card._videoBlack = state === 'black' || state === 'none';
+        paintStreamHint(card);
         const have = card._connectedProfile;
         if (!have || card.dataset.streaming !== '1') return;
         if (state === 'ok') {
@@ -670,6 +692,39 @@
     // 服务器每秒报一次网络情况（经视频队列测的往返延迟、实际送达码率、丢帧）。
     // 显示在手机下方；短时间内两次跟不上就按实测带宽降码率重连，保证跟手。
     const NET_MIN_BITRATE = 500000;
+    // 连续 3 秒收不到画面，或播放器报黑屏：问一下手机屏幕亮没亮，在画面中间给出明确状态。
+    function updateStreamHint(card, s) {
+        card._zeroFps = s && s.fps > 0 ? 0 : (card._zeroFps || 0) + 1;
+        const noPicture = card._zeroFps >= 3 || card._videoBlack;
+        const now = Date.now();
+        if (noPicture && now - (card._awakeAt || 0) > 5000) {
+            card._awakeAt = now;
+            fetch(`/api/devices/screen-state?udid=${encodeURIComponent(card.dataset.device)}`, { cache: 'no-store' })
+                .then((response) => (response.ok ? response.json() : null))
+                .then((state) => {
+                    if (state && typeof state.awake === 'boolean') card._awake = state.awake;
+                    paintStreamHint(card);
+                })
+                .catch(() => { /* keep the generic hint */ });
+        }
+        if (!noPicture) card._awake = undefined;
+        paintStreamHint(card);
+    }
+
+    function paintStreamHint(card) {
+        const hint = card.querySelector('.stream-hint');
+        if (!hint) return;
+        const noPicture = card.dataset.streaming === '1' && ((card._zeroFps || 0) >= 3 || card._videoBlack);
+        hint.hidden = !noPicture;
+        if (!noPicture) return;
+        const asleep = card._awake === false;
+        hint.querySelector('p').textContent = asleep
+            ? '手机已息屏，点亮后才有画面'
+            : '暂时没有画面：手机可能锁屏/息屏，或网络没把画面送过来';
+        hint.querySelector('[data-hint="wake"]').classList.toggle('primary', asleep);
+        hint.querySelector('[data-hint="reconnect"]').classList.toggle('primary', !asleep);
+    }
+
     function onNetStats(card, s) {
         if (!s || card.dataset.streaming !== '1' || !card._connectedProfile) return;
         const now = Date.now();
@@ -681,6 +736,7 @@
                 card._lastEpisodes = s.episodes;
             }
         }
+        updateStreamHint(card, s);
         const rtt = s.rttMs >= 0 ? s.rttMs : -1;
         const recent = (card._episodeTimes || []).filter((t) => now - t < 10000).length;
         const level = recent || rtt > 600 ? 'bad' : rtt > 250 || s.decodeQueue > 3 ? 'warn' : 'good';
@@ -747,7 +803,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261113z',
+                ui: '20261113z5',
             });
             return `snapshot.html?${params}`;
         }
@@ -761,7 +817,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261113z',
+            ui: '20261113z5',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         if (card.dataset.hear === '1' && audioSourceFor(card.dataset.device) === 'playback') {
@@ -1585,6 +1641,11 @@
 
     function connect(card, force = false) {
         if (card.dataset.streaming === '1' && !force) return;
+        card._zeroFps = 0;
+        card._videoBlack = false;
+        card._awake = undefined;
+        const hint = card.querySelector('.stream-hint');
+        if (hint) hint.hidden = true;
         // Back-to-back reconnects start two scrcpy sessions on the phone while
         // the first is still coming up, and the second can hang on
         // "connecting...". Coalesce them into one, a little later.
@@ -1738,19 +1799,17 @@
         if (!card.classList.contains('expanded') || !isDesktop()) return;
         const aspect = card._lastAspect || 9 / 20;
         const gap = 12;
-        // 标题栏窄的时候会折成两行，按实际高度算，保证画面区域正好是手机比例、左右没有黑边。
+        // 和原来本地版的操作窗口一样：宽度就是侧栏「窗口大小」小/中/大（300/400/520），
+        // 画面贴满卡片宽度、按手机比例算高度；屏幕放不下时按高度缩，宽度跟着缩，始终没有黑边。
         const header = card.querySelector('header');
         const chrome = Math.max(36, header?.offsetHeight || 36) + 36 + 22 + 2; // 标题栏 + 导航按钮 + 状态行 + 边框
         const available = Math.max(300, (grid.clientHeight || innerHeight - 52) - gap * 2);
-        // 侧栏「窗口大小」小/中/大 决定放大窗口的高度：小 72%、中 86%、大 占满一屏高。
-        const tier = { 300: 0.72, 400: 0.86, 520: 1 }[tileSize.value] || 0.86;
-        // 再小也保证画面至少约 230px 宽，太窄点不准。
-        const videoHeight = Math.min(available - chrome, Math.max(240, 230 / aspect, (available - chrome) * tier));
-        const videoWidth = Math.round(Math.min(videoHeight * aspect, (grid.clientWidth || innerWidth) - gap * 2 - 2));
-        // 卡片宽度严格等于画面宽度，不再给最小宽度（之前的 420 最小值就是两边黑边的来源）。
+        const target = Math.min(Number(tileSize.value) || 400, (grid.clientWidth || innerWidth) - gap * 2) - 2;
+        const videoHeight = Math.min(available - chrome, target / aspect);
+        const videoWidth = Math.round(videoHeight * aspect);
         const width = videoWidth + 2;
         const height = Math.round(videoWidth / aspect) + chrome;
-        card.classList.toggle('narrow', width < 360);
+        card.classList.toggle('narrow', width < 290);
         card.style.setProperty('--expanded-w', `${width}px`);
         card.style.setProperty('--expanded-h', `${height}px`);
     }
@@ -1843,7 +1902,7 @@
     function enableDragging(card) {
         const handle = card.querySelector('header');
         handle.addEventListener('pointerdown', (event) => {
-            if (event.target.closest('button, input, label') || card.classList.contains('expanded')) return;
+            if (event.target.closest('button, input, label')) return;
             event.preventDefault();
             card.style.zIndex = String(++topLayer);
             const startLeft = parseFloat(card.style.left) || 0;
