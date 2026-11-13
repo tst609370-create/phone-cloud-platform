@@ -12,6 +12,7 @@
 | `mac-phoneproxy/` | macOS 版手机代理管理（`manager.rb` 逻辑、`ui.rb` 界面、AppleScript 启动/授权/升级） | Ruby |
 | `tools/xiaomi-router-proxy.mjs` | 小米路由器代理辅助脚本 | Node |
 | `tools/update-local-windows.ps1` | 把 Windows 本机已装的手机远控（%LOCALAPPDATA%\PhoneRemote）更新到 main：下载源码 → 构建 → 备份并替换 app\dist → 重启任务 PhoneRemote-Node → 桌面/开始菜单控制台快捷方式换成 Chrome/Edge `--app` 独立窗口（优先 Chrome） | PowerShell |
+| `tools/find-wechat-backup.ps1` | 在 app\dist.bak-* 备份里找含微信相关代码（本机加过、仓库里没有）的旧版本，打包到桌面 zip 并默认换回运行；`$env:NO_RESTORE='1'` 只查不换 | PowerShell |
 | `tools/setup-https-ip.sh` | 中转服务器公网 IP 挂 HTTPS（Caddy + Let's Encrypt IP 短期证书自动续期），frp 端口 P → https 端口 P+10000，需 80 可达 | bash |
 | `tools/setup-chatwoot.sh` | 广州服务器一键部署 Chatwoot 在线客服（Docker：rails+sidekiq+pgvector+redis，/opt/chatwoot，http :3000；有 caddy-ip 时 https :8443 写 /etc/caddy/conf.d/chatwoot.caddy）；重跑即升级 | bash |
 | `tools/serve-update.sh` | 连不上 GitHub 的电脑用：在中转服务器上缓存代码包+更新脚本、开 8099 下载；电脑设 `$env:PR_SRC` 后跑更新（Node/npm 走 npmmirror） | bash |
