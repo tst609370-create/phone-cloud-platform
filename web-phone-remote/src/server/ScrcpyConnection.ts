@@ -9,7 +9,7 @@ import { playbackAudioBlockReason } from '../common/AudioDefaults';
 import { AdbClient } from './AdbClient';
 import { Config } from './Config';
 import { ensureScrcpyServerPushed } from './ensureScrcpyServerPushed';
-import { ROOT_AUDIO_FAILED, ROOT_AUDIO_HINT, ROOT_AUDIO_MIN_SDK, type RootAudioSession, hasRoot, resolveRootAudioJar, startRootAudio } from './rootAudio';
+import { ROOT_AUDIO_FAILED, ROOT_AUDIO_MIN_SDK, type RootAudioSession, probeRoot, resolveRootAudioJar, startRootAudio } from './rootAudio';
 import { pipeScrcpySockets } from './scrcpyMedia';
 import { ControlCenter } from './goog-device/services/ControlCenter';
 import { Logger } from './Logger';
@@ -144,13 +144,16 @@ export class ScrcpyConnection extends Mw {
         // Android 8-10 with root: scrcpy still runs without audio, and a helper
         // under su records the device output instead (see rootAudio.ts).
         let rootAudioJar: string | undefined;
+        let rootPrefix = '';
         if (audioBlock && sdkInt >= ROOT_AUDIO_MIN_SDK) {
             const jar = resolveRootAudioJar();
-            if (jar && (await hasRoot(this.adbClient, this.serial))) {
+            const probe = jar ? await probeRoot(this.adbClient, this.serial, Date.now(), log) : undefined;
+            if (jar && probe?.prefix !== undefined) {
                 rootAudioJar = jar;
+                rootPrefix = probe.prefix;
                 audioBlock = undefined;
-            } else if (jar) {
-                audioBlock = `${audioBlock}。${ROOT_AUDIO_HINT}`;
+            } else if (probe?.reason) {
+                audioBlock = `Android API ${sdkInt} 低于 11，要 ROOT 才能听手机声音：${probe.reason}`;
             }
         }
         if (audioBlock || rootAudioJar) {
@@ -176,8 +179,8 @@ export class ScrcpyConnection extends Mw {
         await ensureScrcpyServerPushed(this.adbClient, this.serial, serverFile());
         if (rootAudioJar) {
             const codec = options.audioCodec === 'raw' ? 'raw' : 'aac';
-            this.rootAudio = await startRootAudio(this.adbClient, this.serial, String(options.scid), codec, rootAudioJar, log);
-            log.info(`root audio capture requested for ${this.serial} (sdk=${sdkInt}, codec=${codec})`);
+            this.rootAudio = await startRootAudio(this.adbClient, this.serial, String(options.scid), codec, rootAudioJar, log, 10_000, rootPrefix);
+            log.info(`root audio capture requested for ${this.serial} (sdk=${sdkInt}, codec=${codec}, via="${rootPrefix || 'adb shell'}")`);
         }
 
         // 2. Set up tunnel + launch scrcpy-server + collect 3 sockets.
@@ -193,7 +196,8 @@ export class ScrcpyConnection extends Mw {
                 this.audioSocket.destroy();
                 this.audioSocket = rootSocket;
             } else {
-                audioBlock = ROOT_AUDIO_FAILED;
+                const err = this.rootAudio.lastError();
+                audioBlock = err ? `${ROOT_AUDIO_FAILED}。手机端报错：${err}` : ROOT_AUDIO_FAILED;
             }
         }
 
@@ -239,7 +243,12 @@ export class ScrcpyConnection extends Mw {
                 onVideoEnd: () => this.release(),
             },
             undefined,
-            this.rootAudio ? ROOT_AUDIO_FAILED : undefined,
+            this.rootAudio
+                ? () => {
+                      const err = this.rootAudio?.lastError();
+                      return err ? `${ROOT_AUDIO_FAILED}。手机端报错：${err}` : ROOT_AUDIO_FAILED;
+                  }
+                : undefined,
         );
     }
 

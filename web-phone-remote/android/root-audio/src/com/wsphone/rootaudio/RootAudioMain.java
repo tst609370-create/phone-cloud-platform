@@ -68,6 +68,7 @@ public final class RootAudioMain {
             recorder = openRecorder();
         } catch (Throwable thrown) {
             status("ROOT_AUDIO_NO:" + sanitize(thrown));
+            Thread.sleep(400); // let the reason reach the computer before the error code
             out.writeInt(AUDIO_ERROR);
             out.flush();
             Thread.sleep(500);

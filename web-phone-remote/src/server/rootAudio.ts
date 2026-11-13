@@ -18,8 +18,7 @@ export const ROOT_AUDIO_REMOTE_JAR = '/data/local/tmp/ws-root-audio.jar';
 export const ROOT_AUDIO_MAIN = 'com.wsphone.rootaudio.RootAudioMain';
 export const ROOT_AUDIO_MIN_SDK = 21;
 
-export const ROOT_AUDIO_HINT = '手机已 ROOT 的话：在 Magisk/KernelSU 的超级用户里允许「Shell」（com.android.shell），再重连即可听声音';
-export const ROOT_AUDIO_FAILED = 'ROOT 采集手机声音失败（看服务日志 root-audio 行）；可在 Magisk 里确认「Shell」已授权后重连';
+export const ROOT_AUDIO_FAILED = '已拿到 ROOT，但采集手机声音失败';
 
 export interface RootAudioAdb {
     shell(serial: string, command: string, timeoutMs?: number): Promise<string>;
@@ -43,39 +42,100 @@ export function resolveRootAudioJar(exists: (file: string) => boolean = fs.exist
     return undefined;
 }
 
-/** `su -c id` printed a root uid. */
+/** `id` printed a root uid. */
 export function isRootIdOutput(out: string): boolean {
     return /uid=0\(/.test(out) || /^uid=0\b/m.test(out);
 }
 
-const rootCache = new Map<string, { root: boolean; at: number }>();
+/**
+ * How to run a command as root on this phone: '' when `adb shell` already is
+ * root (many emulators: LDPlayer, Nox, MuMu with root on), otherwise a su
+ * prefix that takes the command as one quoted argument.
+ */
+export type RootPrefix = string;
+
+export interface RootProbe {
+    prefix?: RootPrefix;
+    /** Why there is no root, for the card under the picture. */
+    reason?: string;
+}
+
+const SU_PATHS = ['/system/xbin/su', '/system/bin/su', '/sbin/su', '/su/bin/su', '/debug_ramdisk/su', '/system/sbin/su', '/vendor/bin/su'];
+
+/** su spellings to try, best first. Different su builds take different syntax. */
+export function suCandidates(found: string[]): RootPrefix[] {
+    const out = ['su -c', 'su 0 sh -c', 'su root sh -c'];
+    for (const p of found) out.push(`${p} -c`, `${p} 0 sh -c`);
+    return [...new Set(out)];
+}
+
+export function wrapRoot(prefix: RootPrefix, command: string): string {
+    return prefix ? `${prefix} "${command}"` : command;
+}
+
+export function noRootReason(foundSu: boolean, lastOutput: string): string {
+    if (!foundSu) {
+        return '这台没有 ROOT（找不到 su）。模拟器：在模拟器「设置 → 其他/高级」里打开 ROOT 权限并重启模拟器；真机要先刷 Magisk。然后重连即可听声音';
+    }
+    const detail = lastOutput.replace(/\s+/g, ' ').trim().slice(0, 120);
+    return `有 su 但没给到 Shell 权限${detail ? `（${detail}）` : ''}。在 Magisk/KernelSU 超级用户里允许「Shell」，模拟器在弹出的授权框里点「允许/永久」，再重连即可听声音`;
+}
+
+const rootCache = new Map<string, { probe: RootProbe; at: number }>();
 const NEGATIVE_TTL_MS = 30_000;
 
-/**
- * Whether `adb shell su` gives root on this phone. A yes is remembered for the
- * process lifetime; a no only briefly, so granting Shell in Magisk and
- * reconnecting picks it up without restarting the service.
- */
-export async function hasRoot(adb: RootAudioAdb, serial: string, now = Date.now()): Promise<boolean> {
-    const cached = rootCache.get(serial);
-    if (cached && (cached.root || now - cached.at < NEGATIVE_TTL_MS)) return cached.root;
-    let root = false;
+async function tryShell(adb: RootAudioAdb, serial: string, command: string, timeoutMs: number): Promise<string> {
     try {
-        // Magisk shows its grant prompt for ~10 s the first time; wait for it.
-        root = isRootIdOutput(await adb.shell(serial, 'su -c id 2>&1 </dev/null', 15_000));
-    } catch {
-        root = false;
+        return await adb.shell(serial, command, timeoutMs);
+    } catch (e) {
+        return `${(e as Error).message || 'failed'}`;
     }
-    rootCache.set(serial, { root, at: now });
-    return root;
+}
+
+/**
+ * Find a way to run as root. A yes is remembered for the process lifetime; a
+ * no only briefly, so turning root on and reconnecting picks it up.
+ */
+export async function probeRoot(adb: RootAudioAdb, serial: string, now = Date.now(), log?: RootAudioLog): Promise<RootProbe> {
+    const cached = rootCache.get(serial);
+    if (cached && (cached.probe.prefix !== undefined || now - cached.at < NEGATIVE_TTL_MS)) return cached.probe;
+
+    const remember = (probe: RootProbe) => {
+        rootCache.set(serial, { probe, at: now });
+        log?.info(`root probe for ${serial}: ${probe.prefix !== undefined ? `ok via "${probe.prefix || 'adb shell'}"` : probe.reason}`);
+        return probe;
+    };
+
+    const scan = await tryShell(adb, serial, `id; for f in ${SU_PATHS.join(' ')}; do [ -e $f ] && echo SU=$f; done; command -v su | sed 's/^/SU=/'`, 8_000);
+    if (isRootIdOutput(scan.split('\n')[0] ?? '')) return remember({ prefix: '' });
+    const found = [...new Set([...scan.matchAll(/^SU=(\S+)/gm)].map((m) => m[1]!))];
+    // `command -v` may be missing on old toolbox shells: still try plain su.
+    let last = '';
+    const tried: string[] = [];
+    let suSeen = found.length > 0;
+    for (const prefix of suCandidates(found)) {
+        // Magisk shows its grant prompt for ~10 s the first time; wait for it once.
+        const out = await tryShell(adb, serial, `${wrapRoot(prefix, 'id')} 2>&1 </dev/null`, prefix === 'su -c' ? 15_000 : 6_000);
+        if (isRootIdOutput(out)) return remember({ prefix });
+        if (!/not found|No such file|inaccessible/i.test(out)) suSeen = true;
+        tried.push(prefix);
+        last = out;
+    }
+    log?.info(`root probe for ${serial} tried: ${tried.join(' | ')}; scan: ${scan.replace(/\s+/g, ' ').slice(0, 200)}`);
+    return remember({ reason: noRootReason(suSeen, `试了 ${tried.length} 种 su 写法，最后返回：${last}`) });
+}
+
+/** Back-compat yes/no wrapper. */
+export async function hasRoot(adb: RootAudioAdb, serial: string, now = Date.now()): Promise<boolean> {
+    return (await probeRoot(adb, serial, now)).prefix !== undefined;
 }
 
 export function clearRootCache(): void {
     rootCache.clear();
 }
 
-export function rootAudioCommand(socketName: string, codec: 'aac' | 'raw'): string {
-    return `su -c "CLASSPATH=${ROOT_AUDIO_REMOTE_JAR} app_process / ${ROOT_AUDIO_MAIN} ${socketName} ${codec}"`;
+export function rootAudioCommand(socketName: string, codec: 'aac' | 'raw', prefix: RootPrefix = 'su -c'): string {
+    return wrapRoot(prefix, `CLASSPATH=${ROOT_AUDIO_REMOTE_JAR} app_process / ${ROOT_AUDIO_MAIN} ${socketName} ${codec}`);
 }
 
 async function ensurePushed(adb: RootAudioAdb, serial: string, localJar: string): Promise<void> {
@@ -92,6 +152,8 @@ async function ensurePushed(adb: RootAudioAdb, serial: string, localJar: string)
 export interface RootAudioSession {
     /** Resolves with the helper's socket, or undefined if it never connected. */
     socket: Promise<net.Socket | undefined>;
+    /** The helper's own failure line (ROOT_AUDIO_NO:...), or the last thing it printed. */
+    lastError(): string;
     stop(): void;
 }
 
@@ -111,6 +173,7 @@ export async function startRootAudio(
     localJar: string,
     log: RootAudioLog,
     connectTimeoutMs = 10_000,
+    prefix: RootPrefix = 'su -c',
 ): Promise<RootAudioSession> {
     const socketName = `wsaudio_${scid}`;
     const remote = `localabstract:${socketName}`;
@@ -119,6 +182,8 @@ export async function startRootAudio(
     let accepted: net.Socket | undefined;
     let reversed = false;
     let stopped = false;
+    let lastError = '';
+    let gotNo = false;
 
     const stop = () => {
         if (stopped) return;
@@ -141,7 +206,8 @@ export async function startRootAudio(
     } catch (e) {
         log.info(`root-audio setup failed for ${serial}: ${(e as Error).message}`);
         stop();
-        return { socket: Promise.resolve(undefined), stop };
+        const err = `准备失败：${(e as Error).message}`;
+        return { socket: Promise.resolve(undefined), lastError: () => err, stop };
     }
 
     const socket = new Promise<net.Socket | undefined>((resolve) => {
@@ -157,10 +223,18 @@ export async function startRootAudio(
             if (stopped) sock.destroy();
             resolve(sock);
         });
-        proc = adb.shellSpawn(serial, rootAudioCommand(socketName, codec));
+        proc = adb.shellSpawn(serial, rootAudioCommand(socketName, codec, prefix));
         const line = (data: Buffer) => {
             const text = data.toString('utf-8').trimEnd();
-            if (text) log.info(`[root-audio] ${serial}: ${text}`);
+            if (!text) return;
+            log.info(`[root-audio] ${serial}: ${text}`);
+            const no = /ROOT_AUDIO_NO:(.*)/.exec(text);
+            if (no) {
+                lastError = no[1]!.trim();
+                gotNo = true;
+            } else if (!gotNo && !/ROOT_AUDIO_OK/.test(text)) {
+                lastError = text.slice(-160);
+            }
         };
         proc.stdout?.on('data', line);
         proc.stderr?.on('data', line);
@@ -172,5 +246,5 @@ export async function startRootAudio(
             }
         });
     });
-    return { socket, stop };
+    return { socket, lastError: () => lastError, stop };
 }
