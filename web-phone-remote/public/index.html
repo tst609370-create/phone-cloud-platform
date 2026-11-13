@@ -6,7 +6,7 @@
     <title>手机远程控制</title>
     <link rel="icon" type="image/svg+xml" href="login-assets/tianxi-mark.svg"><link rel="icon" type="image/png" href="login-assets/favicon.png">
     <link rel="stylesheet" href="tianxi.css?v=20261112c">
-    <link rel="stylesheet" href="phones.css?v=20261112r">
+    <link rel="stylesheet" href="phones.css?v=20261113h">
 </head>
 <body class="tx-scroll">
     <div class="app">
@@ -21,6 +21,7 @@
                 <button id="expand-first" type="button" title="首台放大"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg><b class="sidebar-label">首台放大</b></button>
                 <button id="refresh-page" type="button" title="刷新页面" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.36-6.36L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.36 6.36L3 16"/><path d="M3 21v-5h5"/></svg><b class="sidebar-label">刷新页面</b></button>
                 <button id="install-app" type="button" title="打开软件库"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><b class="sidebar-label">软件库</b></button>
+                <button id="wechat-data" type="button" title="微信数据维护"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg><b class="sidebar-label">微信数据</b></button>
                 <button id="sync-toggle" type="button" title="同步操作" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg><b class="sidebar-label">同步关闭</b></button>
                 <button id="screen-off-all" type="button" title="全部熄屏"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg><b class="sidebar-label">全部熄屏</b></button>
                 <button id="screen-on-all" type="button" title="全部亮屏"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg><b class="sidebar-label">全部亮屏</b></button>
@@ -60,9 +61,40 @@
         <div id="app-library-list" class="app-library-list tx-scroll"><p>正在读取软件列表…</p></div>
         <footer><button id="app-local-install" class="tx-btn tx-btn-secondary" type="button">选择本地 APK 安装</button></footer>
     </dialog>
+    <input id="wechat-file" type="file" accept=".xhb" hidden>
+    <dialog id="wechat-dialog" class="app-library" aria-labelledby="wechat-title">
+        <header>
+            <div><span class="tx-eyebrow">WECHAT DATA</span><strong id="wechat-title">微信数据维护</strong><small>恢复到 <b id="wechat-target">当前云机</b> · 会清空目标机微信数据</small></div>
+            <button id="wechat-close" type="button" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </header>
+        <div id="wechat-lock" class="wechat-lock" hidden>
+            <div class="wechat-lock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+            <p id="wechat-lock-msg">微信数据功能需要授权后才能使用。请输入授权软件生成的授权码。</p>
+            <label class="wechat-field">授权码<input id="wechat-license-code" type="text" autocomplete="off" spellcheck="false" placeholder="粘贴授权码"></label>
+            <div id="wechat-license-status" class="wechat-status"></div>
+            <button id="wechat-activate" class="tx-btn tx-btn-primary" type="button">激活</button>
+        </div>
+        <div id="wechat-content" hidden>
+            <div class="wechat-body tx-scroll">
+                <div id="wechat-license-line" class="wechat-license-line"></div>
+                <div id="wechat-device" class="wechat-device">正在读取设备信息…</div>
+                <label class="wechat-field">备份密码<input id="wechat-password" type="password" autocomplete="new-password" placeholder="备份/恢复密码，至少10位"></label>
+                <label class="wechat-field">微信登录密码（可选）<input id="wechat-wx-password" type="password" autocomplete="new-password" placeholder="用于生成 微信ID----密码----A16"></label>
+                <div id="wechat-status" class="wechat-status"></div>
+                <div id="wechat-list" class="app-library-list"><p>正在读取备份列表…</p></div>
+            </div>
+            <footer>
+                <div class="wechat-actions">
+                    <button id="wechat-backup" class="tx-btn tx-btn-primary" type="button">备份本机到后台</button><button id="wechat-upload" class="tx-btn tx-btn-secondary" type="button">上传 .xhb</button>
+                    <button id="wechat-refresh" class="tx-btn tx-btn-secondary" type="button">刷新</button>
+                    <button id="wechat-restore" class="tx-btn tx-btn-danger" type="button">开始恢复</button>
+                </div>
+            </footer>
+        </div>
+    </dialog>
     <script src="tianxi.js?v=20261112a"></script>
     <script src="browserMicPolicy.js?v=20261112a"></script>
     <script src="phoneAudio.js?v=20261113a"></script>
-    <script src="phones.js?v=20261113c"></script>
+    <script src="phones.js?v=20261113h"></script>
 </body>
 </html>

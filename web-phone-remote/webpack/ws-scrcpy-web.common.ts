@@ -224,6 +224,8 @@ class CopyVirtualMicJarPlugin {
             for (const [rel, name] of [
                 ['android/virtual-mic/prebuilt/virtual-mic.jar', 'virtual-mic.jar'],
                 ['android/root-audio/prebuilt/root-audio.jar', 'root-audio.jar'],
+                // 「微信数据」备份/恢复的预编译实现，运行时由 src/server/wechat/WechatApi.ts 动态 require。
+                ['vendor/wechat-api.cjs', 'wechat-api.cjs'],
             ] as const) {
                 const src = path.resolve(PROJECT_ROOT, rel);
                 if (existsSync(src)) copyFileSync(src, path.resolve(SERVER_DIST_PATH, name));
