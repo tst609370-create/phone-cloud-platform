@@ -40,7 +40,6 @@ public final class RootAudioMain {
     static final int CHANNEL_IN_MONO = 16;
     /** Mic fallback on phones without stereo capture: record mono, duplicate to stereo. */
     static boolean mono;
-    private static byte[] monoBuf = new byte[0];
     static final int SAMPLE_RATE = 48000;
     static final int CHANNEL_IN_STEREO = 12;
     static final int ENCODING_PCM_16BIT = 2;
@@ -113,7 +112,7 @@ public final class RootAudioMain {
                 encoder = null;
             }
         }
-        status("ROOT_AUDIO_OK:" + (encoder != null ? "aac" : "raw") + " source=" + (mic ? "mic" : "submix") + (mono ? "/mono" : "") + " uid=" + android.os.Process.myUid());
+        status("ROOT_AUDIO_OK:" + (encoder != null ? "aac" : "raw") + " source=" + (mic ? "mic" : "submix") + (mic ? "/" + capRate + "Hz/" + capChannels + "ch" : "") + " uid=" + android.os.Process.myUid());
         out.writeInt(encoder != null ? CODEC_AAC : CODEC_RAW);
         out.flush();
 
@@ -188,38 +187,107 @@ public final class RootAudioMain {
         }
     }
 
+    /** Rate/channels the mic actually opened with; readStereo converts to 48 kHz stereo. */
+    static int capRate = SAMPLE_RATE;
+    static int capChannels = 2;
+    private static double resPos;
+    private static int lastL, lastR;
+    private static byte[] inBuf = new byte[0];
+    /** Set by the app: permission / busy state, appended to a mic failure. */
+    public static volatile java.util.concurrent.Callable<String> diag;
+
+    static final int[] MIC_SOURCES = {SOURCE_MIC, 6 /* VOICE_RECOGNITION */, 5 /* CAMCORDER */, 0 /* DEFAULT */, 7 /* VOICE_COMMUNICATION */};
+    static final int[] MIC_RATES = {48000, 44100, 16000};
+
+    /** Try every source / rate / channel combination a few times (the mic may be briefly busy). */
     private static AudioRecord openMic() {
         mono = false;
-        try {
-            return openRecorder(SOURCE_MIC, CHANNEL_IN_STEREO);
-        } catch (RuntimeException stereoFailed) {
-            System.err.println("root-audio: stereo mic unavailable, using mono: " + stereoFailed);
-            mono = true;
-            return openRecorder(SOURCE_MIC, CHANNEL_IN_MONO);
+        String first = null;
+        for (int round = 0; round < 3; round++) {
+            for (int source : MIC_SOURCES) {
+                for (int rate : MIC_RATES) {
+                    for (int channels : new int[] {CHANNEL_IN_STEREO, CHANNEL_IN_MONO}) {
+                        try {
+                            AudioRecord r = openRecorder(source, channels, rate);
+                            capRate = rate;
+                            capChannels = channels == CHANNEL_IN_STEREO ? 2 : 1;
+                            mono = capChannels == 1;
+                            resPos = 0;
+                            lastL = lastR = 0;
+                            System.err.println("root-audio: mic open source=" + source + " rate=" + rate + " ch=" + capChannels);
+                            return r;
+                        } catch (RuntimeException failed) {
+                            if (first == null) first = failed.getMessage();
+                        }
+                    }
+                }
+            }
+            sleep(700);
         }
+        String extra = "";
+        java.util.concurrent.Callable<String> d = diag;
+        if (d != null) {
+            try {
+                extra = "；" + d.call();
+            } catch (Throwable ignored) {
+                // ignore
+            }
+        }
+        throw new IllegalStateException("麦克风打不开（试了 5 种音源 × 48k/44.1k/16k × 立体声/单声道）：" + first + extra);
     }
 
-    /** Fill {@code buf} with interleaved stereo s16; returns bytes or a negative error. */
+    /** Fill {@code buf} with interleaved 48 kHz stereo s16; returns bytes or a negative error. */
     static int readStereo(AudioRecord recorder, byte[] buf) {
-        if (!mono) return recorder.read(buf, 0, buf.length);
-        int want = buf.length / 2;
-        if (monoBuf.length < want) monoBuf = new byte[want];
-        int n = recorder.read(monoBuf, 0, want);
+        if (capRate == SAMPLE_RATE && capChannels == 2) return recorder.read(buf, 0, buf.length);
+        double step = (double) capRate / SAMPLE_RATE;
+        int outFrames = buf.length / 4;
+        int inFrames = Math.max(1, (int) Math.floor((outFrames - 1) * step));
+        int frameBytes = 2 * capChannels;
+        int want = inFrames * frameBytes;
+        if (inBuf.length < want) inBuf = new byte[want];
+        int n = recorder.read(inBuf, 0, want);
         if (n <= 0) return n;
-        for (int i = 0, o = 0; i + 1 < n; i += 2, o += 4) {
-            buf[o] = monoBuf[i];
-            buf[o + 1] = monoBuf[i + 1];
-            buf[o + 2] = monoBuf[i];
-            buf[o + 3] = monoBuf[i + 1];
+        int got = n / frameBytes;
+        if (got == 0) return 0;
+        int o = 0;
+        while (o + 4 <= buf.length && resPos <= got - 1) {
+            int i0 = (int) Math.floor(resPos);
+            double f = resPos - i0;
+            int i1 = Math.min(i0 + 1, got - 1);
+            int l0 = i0 < 0 ? lastL : sample(i0, 0, frameBytes);
+            int r0 = i0 < 0 ? lastR : sample(i0, capChannels - 1, frameBytes);
+            int l = (int) Math.round(l0 + (sample(i1, 0, frameBytes) - l0) * f);
+            int r = (int) Math.round(r0 + (sample(i1, capChannels - 1, frameBytes) - r0) * f);
+            buf[o] = (byte) l;
+            buf[o + 1] = (byte) (l >> 8);
+            buf[o + 2] = (byte) r;
+            buf[o + 3] = (byte) (r >> 8);
+            o += 4;
+            resPos += step;
         }
-        return (n / 2) * 4;
+        lastL = sample(got - 1, 0, frameBytes);
+        lastR = sample(got - 1, capChannels - 1, frameBytes);
+        resPos -= got;
+        return o;
+    }
+
+    private static int sample(int frame, int channel, int frameBytes) {
+        int i = frame * frameBytes + channel * 2;
+        return (short) ((inBuf[i] & 0xff) | (inBuf[i + 1] << 8));
     }
 
     private static AudioRecord openRecorder(int source, int channels) {
-        int min = AudioRecord.getMinBufferSize(SAMPLE_RATE, channels, ENCODING_PCM_16BIT);
-        int size = Math.max(min, 0) * 4;
+        capRate = SAMPLE_RATE;
+        capChannels = 2;
+        return openRecorder(source, channels, SAMPLE_RATE);
+    }
+
+    private static AudioRecord openRecorder(int source, int channels, int rate) {
+        int min = AudioRecord.getMinBufferSize(rate, channels, ENCODING_PCM_16BIT);
+        if (min <= 0) throw new IllegalStateException("AudioRecord(source " + source + ", " + rate + "Hz) not supported: getMinBufferSize " + min);
+        int size = min * 4;
         if (size < CHUNK_BYTES * 8) size = CHUNK_BYTES * 8;
-        AudioRecord recorder = new AudioRecord(source, SAMPLE_RATE, channels, ENCODING_PCM_16BIT, size);
+        AudioRecord recorder = new AudioRecord(source, rate, channels, ENCODING_PCM_16BIT, size);
         if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
             recorder.release();
             throw new IllegalStateException("AudioRecord(source " + source + ") not initialized: no permission or busy");

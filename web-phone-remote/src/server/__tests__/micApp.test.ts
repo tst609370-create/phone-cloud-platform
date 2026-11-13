@@ -3,7 +3,16 @@ import net from 'net';
 import os from 'os';
 import path from 'path';
 import { describe, expect, it, vi } from 'vitest';
-import { ensureMicApp, installedVersion, type MicAppAdb, parseErrorReason, startMicApp } from '../micApp';
+import {
+    ensureMicApp,
+    installedVersion,
+    type MicAppAdb,
+    micPermissionState,
+    parseErrorReason,
+    startMicApp,
+} from '../micApp';
+
+const GRANTED = 'android.permission.RECORD_AUDIO: granted=true\n__OPS\nRECORD_AUDIO: allow; time=+1s';
 
 function apk(): string {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'mic-apk-'));
@@ -21,7 +30,9 @@ describe('no-root mic app', () => {
     });
 
     it('installs when missing and grants record + MIUI switches', async () => {
-        const shell = vi.fn(async (_s: string, cmd: string) => (cmd.startsWith('getprop ro.miui') ? 'V12' : ''));
+        const shell = vi.fn(async (_s: string, cmd: string) =>
+            cmd.startsWith('getprop ro.miui') ? 'V12' : cmd.includes('__OPS') ? GRANTED : '',
+        );
         const install = vi.fn(async () => 'Performing Streamed Install\nSuccess');
         const adb = { shell, install } as unknown as MicAppAdb;
         expect(await ensureMicApp(adb, 'M', apk())).toBe('');
@@ -34,11 +45,27 @@ describe('no-root mic app', () => {
     it('explains MIUI USB-install blocks', async () => {
         const shell = vi.fn(async () => '');
         const install = vi.fn(async () => {
-            throw Object.assign(new Error('adb exit (path=C:\\adb.exe)'), { cause: { stdout: 'Failure [INSTALL_FAILED_USER_RESTRICTED: Install canceled by user]' } });
+            throw Object.assign(new Error('adb exit (path=C:\\adb.exe)'), {
+                cause: { stdout: 'Failure [INSTALL_FAILED_USER_RESTRICTED: Install canceled by user]' },
+            });
         });
         const why = await ensureMicApp({ shell, install } as unknown as MicAppAdb, 'M', apk());
         expect(why).toContain('USB 安装');
         expect(why).not.toContain('path=');
+    });
+
+    it('reports a record permission MIUI silently refused', async () => {
+        const shell = vi.fn(async (_s: string, cmd: string) =>
+            cmd.includes('versionCode')
+                ? 'versionCode=2'
+                : cmd.includes('__OPS')
+                  ? 'android.permission.RECORD_AUDIO: granted=false\n__OPS\nRECORD_AUDIO: ignore'
+                  : '',
+        );
+        const why = await ensureMicApp({ shell, install: vi.fn() } as unknown as MicAppAdb, 'M', apk());
+        expect(why).toContain('没授予');
+        expect(why).toContain('ignore');
+        expect(micPermissionState(GRANTED)).toEqual({ granted: true, op: 'allow' });
     });
 
     it('parses the error reason the app sends', () => {
@@ -59,7 +86,13 @@ describe('no-root mic app', () => {
         phonePort = (phone.address() as net.AddressInfo).port;
         const relays: net.Server[] = [];
         const adb: MicAppAdb = {
-            shell: vi.fn(async (_s: string, cmd: string) => (cmd.includes('versionCode') ? 'versionCode=1' : 'Starting service: Intent { }')),
+            shell: vi.fn(async (_s: string, cmd: string) =>
+                cmd.includes('versionCode')
+                    ? 'versionCode=2'
+                    : cmd.includes('__OPS')
+                      ? GRANTED
+                      : 'Starting service: Intent { }',
+            ),
             install: vi.fn(),
             forward: vi.fn(async (_s: string, local: string) => {
                 // Relay local port → fake phone, like adb forward does.
@@ -76,7 +109,13 @@ describe('no-root mic app', () => {
         };
         const session = await startMicApp(adb, 'M', 'abc', 'aac', apk(), quiet, 5_000);
         expect(adb.install).not.toHaveBeenCalled();
-        expect(adb.shell).toHaveBeenCalledWith('M', expect.stringContaining('am start-foreground-service -n com.wsphone.micaudio/.MicService --es socket wsmic_abc --es codec aac'), 10_000);
+        expect(adb.shell).toHaveBeenCalledWith(
+            'M',
+            expect.stringContaining(
+                'am start-foreground-service -n com.wsphone.micaudio/.MicService --es socket wsmic_abc --es codec aac',
+            ),
+            10_000,
+        );
         const sock = await session.socket;
         expect(sock).toBeDefined();
         const got = await new Promise<Buffer>((resolve) => {

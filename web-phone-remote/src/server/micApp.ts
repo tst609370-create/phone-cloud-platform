@@ -14,7 +14,7 @@ import type { RootAudioLog, RootAudioSession } from './rootAudio';
  */
 
 export const MIC_APP_PKG = 'com.wsphone.micaudio';
-export const MIC_APP_VERSION = 1;
+export const MIC_APP_VERSION = 2;
 const SERVICE = `${MIC_APP_PKG}/.MicService`;
 
 export interface MicAppAdb {
@@ -94,8 +94,28 @@ export async function ensureMicApp(adb: MicAppAdb, serial: string, apk: string):
     ];
     // MIUI's own switches: 后台弹出界面 (10021), 自启动 (10008).
     if (miui) grants.push(`appops set ${MIC_APP_PKG} 10021 allow`, `appops set ${MIC_APP_PKG} 10008 allow`);
+    grants.push(`cmd appops set ${MIC_APP_PKG} RUN_IN_BACKGROUND allow`);
     await sh(adb, serial, grants.join('; '), 15_000);
+    // MIUI can drop a pm grant silently: check what the phone really says.
+    const state = micPermissionState(
+        await sh(
+            adb,
+            serial,
+            `dumpsys package ${MIC_APP_PKG} | grep RECORD_AUDIO; echo __OPS; appops get ${MIC_APP_PKG} RECORD_AUDIO`,
+        ),
+    );
+    if (!state.granted || state.op === 'deny' || state.op === 'ignore') {
+        return `「手机声音」App 没拿到录音权限（录音权限：${state.granted ? '已授予' : '没授予'}，录音开关：${state.op || '未知'}）。小米手机请确认开发者选项里「USB 调试（安全设置）」已打开，再点重连；还不行就在手机「设置 → 应用设置 → 手机声音 → 权限」里打开录音`;
+    }
     return '';
+}
+
+/** Parse `dumpsys package … | grep RECORD_AUDIO; echo __OPS; appops get … RECORD_AUDIO`. */
+export function micPermissionState(out: string): { granted: boolean; op: string } {
+    const [pkg = '', ops = ''] = out.split('__OPS');
+    const granted = /RECORD_AUDIO: granted=true/.test(pkg);
+    const m = /RECORD_AUDIO: (allow|ignore|deny|default|foreground)/.exec(ops);
+    return { granted, op: m ? m[1]! : '' };
 }
 
 /** Read the first 4 bytes (codec id) within `ms`, keeping anything after it on the socket. */

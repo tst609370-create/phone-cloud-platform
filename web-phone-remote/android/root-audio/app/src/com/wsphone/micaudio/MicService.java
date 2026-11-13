@@ -1,5 +1,6 @@
 package com.wsphone.micaudio;
 
+import android.app.AppOpsManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -7,6 +8,7 @@ import android.app.Service;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.drawable.Icon;
+import android.media.AudioManager;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.os.IBinder;
@@ -62,6 +64,12 @@ public final class MicService extends Service {
         try {
             server = new LocalServerSocket(name);
             client = server.accept();
+            RootAudioMain.diag = new java.util.concurrent.Callable<String>() {
+                @Override
+                public String call() {
+                    return describeMic();
+                }
+            };
             RootAudioMain.stream(client.getOutputStream(), codec, true, false);
         } catch (Throwable thrown) {
             System.err.println("mic-audio: " + thrown);
@@ -74,6 +82,31 @@ public final class MicService extends Service {
             closeServer();
             if (Thread.currentThread() == worker) stopNow();
         }
+    }
+
+    /** "录音权限 有/没有，录音开关 允许/拦截，正在录音的程序 N 个" for the failure message. */
+    String describeMic() {
+        StringBuilder b = new StringBuilder();
+        try {
+            b.append("录音权限").append(checkSelfPermission("android.permission.RECORD_AUDIO") == 0 ? "已授予" : "没授予");
+        } catch (Throwable t) {
+            b.append("录音权限未知");
+        }
+        try {
+            AppOpsManager ops = (AppOpsManager) getSystemService(APP_OPS_SERVICE);
+            int mode = ops.checkOpNoThrow("android:record_audio", android.os.Process.myUid(), getPackageName());
+            b.append("，录音开关").append(mode == AppOpsManager.MODE_ALLOWED ? "允许" : "被拦截(" + mode + ")");
+        } catch (Throwable t) {
+            b.append("，录音开关未知");
+        }
+        try {
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            int busy = am.getActiveRecordingConfigurations().size();
+            b.append(busy > 0 ? "，麦克风被其他程序占用(" + busy + " 个在录音)" : "，没有其他程序在录音");
+        } catch (Throwable t) {
+            b.append("，占用情况未知");
+        }
+        return b.toString();
     }
 
     private void closeServer() {

@@ -4,7 +4,7 @@
     const quality = document.getElementById('quality');
     const fps = document.getElementById('fps');
     const tileSize = document.getElementById('tile-size');
-    const UI_VERSION = '1113z2';
+    const UI_VERSION = '1113z3';
     const sizeValue = document.getElementById('size-value');
     const backdrop = document.getElementById('viewer-backdrop');
     const grid = document.getElementById('phone-grid');
@@ -39,7 +39,7 @@
     }
 
     // Tianxi UI：提示用 Toast（tianxi.js），图标用 lucide 线稿
-    const notify = (text, tone = 'info') => (window.TX ? window.TX.toast(text, tone) : console.warn(text));
+    const notify = (text, tone = 'info', duration) => (window.TX ? window.TX.toast(text, tone, duration) : console.warn(text));
     const svgIcon = (path) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
     const CARD_ICONS = {
         upload: svgIcon('<path d="M12 5v14M5 12h14"/>'),
@@ -95,7 +95,7 @@
                 body: JSON.stringify({ name: apk.name, devices: [card.dataset.device] }),
             });
             const result = await response.json().catch(() => ({}));
-            if (!response.ok || !result.results?.[0]?.ok) throw new Error(result.error || '安装失败');
+            if (!response.ok || !result.results?.[0]?.ok) throw new Error(result.results?.[0]?.error || result.error || '安装失败');
             button.textContent = '已安装';
             setState(card, 'connected', '安装完成');
             logOperation(card, `已安装 ${apk.name}`);
@@ -105,6 +105,48 @@
             setState(card, 'error', '安装失败');
             logOperation(card, error instanceof Error ? error.message : '安装失败');
         }
+    }
+
+    /** Install one library APK on every phone in the list; say per phone what happened. */
+    async function installLibraryAppAll(apk, button) {
+        const devices = visibleDevices.map((device) => device.serial).slice(0, 50);
+        if (!devices.length) return;
+        button.disabled = true;
+        button.textContent = `安装中…（${devices.length} 台）`;
+        const sound = /^PhoneSound/i.test(apk.name);
+        try {
+            const response = await fetch(sound ? '/api/apks/install-sound' : '/api/apks/install', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(sound ? { devices } : { name: apk.name, devices }),
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok && !result.results) throw new Error(result.error || '安装失败');
+            const results = result.results || [];
+            const okCount = results.filter((item) => item.ok).length;
+            for (const item of results) {
+                const card = cards.find((c) => c.dataset.device === item.serial);
+                if (card) logOperation(card, item.ok ? `已安装 ${apk.name}` : `${apk.name} 安装失败：${item.error || '未知原因'}`);
+            }
+            const failed = results.filter((item) => !item.ok);
+            button.textContent = failed.length ? `成功 ${okCount} 台，失败 ${failed.length} 台` : `全部 ${okCount} 台已安装`;
+            notify(
+                failed.length
+                    ? `${apk.name}：${okCount} 台成功，${failed.length} 台失败。${failed.map((item) => `${deviceLabel(item.serial)}：${item.error || '未知原因'}`).join('；')}`
+                    : `${apk.name} 已装到 ${okCount} 台手机${sound ? '，点「听声音」或重连即可' : ''}`,
+                failed.length ? 'err' : 'ok',
+                failed.length ? 12000 : 4000,
+            );
+        } catch (error) {
+            button.textContent = '安装到全部手机';
+            notify(error instanceof Error ? error.message : '安装失败', 'err');
+        } finally {
+            button.disabled = false;
+        }
+    }
+
+    function deviceLabel(serial) {
+        return cards.find((c) => c.dataset.device === serial)?.dataset.name || serial;
     }
 
     async function loadAppLibrary() {
@@ -143,7 +185,16 @@
                 install.textContent = '安装';
                 install.disabled = !card;
                 install.addEventListener('click', () => void installLibraryApp(card, apk, install));
-                item.append(info, install);
+                const installAll = document.createElement('button');
+                installAll.type = 'button';
+                installAll.className = 'install-all';
+                installAll.textContent = '安装到全部手机';
+                installAll.disabled = !visibleDevices.length;
+                installAll.addEventListener('click', () => void installLibraryAppAll(apk, installAll));
+                const buttons = document.createElement('span');
+                buttons.className = 'app-library-buttons';
+                buttons.append(install, installAll);
+                item.append(info, buttons);
                 list.appendChild(item);
             }
         } catch (error) {
