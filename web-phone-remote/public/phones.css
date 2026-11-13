@@ -294,7 +294,23 @@ svg { flex: 0 0 auto; }
     width: var(--expanded-w, 420px) !important; height: var(--expanded-h, calc(100vh - 80px)) !important;
     border-color: rgb(91 156 255 / .55); min-width: 0; min-height: 0; max-width: none; max-height: none;
     resize: none; border-radius: var(--tx-radius-lg); box-shadow: var(--tx-shadow-overlay);
+    grid-template-rows: auto minmax(0, 1fr) 36px 22px;
 }
+/* 放大窗口宽度=画面宽度：标题栏放不下就换行，不撑宽窗口 */
+.phone-card.expanded > header { flex-wrap: wrap; min-height: 36px; padding: 5px 6px; row-gap: 4px; }
+.phone-card.expanded .card-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 2px; }
+.phone-card.expanded.narrow .back-to-grid { padding: 0 8px; font-size: 14px; }
+.phone-card.expanded.narrow .back-to-grid span { display: none; }
+.phone-card.expanded.narrow header strong { max-width: 64px; }
+.phone-card.expanded.narrow .card-actions { flex-basis: 100%; margin-left: 0; gap: 0; }
+.phone-card.expanded.narrow .card-actions button { min-width: 20px; padding: 0 3px; font-size: 10.5px; }
+.phone-card.expanded.narrow .card-actions [data-action="fullscreen"], .phone-card.expanded.narrow .rental-badge { display: none; }
+.phone-card.expanded.narrow .phone-nav { gap: 2px; padding: 4px 3px; }
+.phone-card.expanded.narrow .phone-nav button { font-size: 10.5px; padding: 0; letter-spacing: -.02em; }
+/* 窄窗口状态行只留网络统计（延迟/帧/码率），操作记录看小窗或悬停 */
+.phone-card.expanded.narrow .card-operation-log { padding: 3px 6px; font-size: 0; }
+.phone-card.expanded.narrow .card-operation-log::before { display: none; }
+.phone-card.expanded.narrow .card-operation-log::after { left: 6px; right: 6px; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- 侧栏收起 ---------- */
 .sidebar-collapsed .sidebar { padding: 12px 8px; }
