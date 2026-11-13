@@ -72,7 +72,8 @@ public final class MainActivity extends Activity {
     private void refresh() {
         boolean granted = checkSelfPermission(MIC) == 0;
         status.setText("录音权限：" + (granted ? "已允许" : "未允许（点下面「去授权」）")
-                + "\n声音传输：" + (MicService.streaming ? "正在传给电脑" : "没有在传（电脑上点「听声音」开始）"));
+                + "\n声音传输：" + (!MicService.streaming ? "没有在传（电脑上点「听声音」开始）"
+                        : com.wsphone.rootaudio.RootAudioMain.pausedForCall ? "通话中已暂停，挂断后自动继续" : "正在传给电脑"));
     }
 
     private void openSettings() {

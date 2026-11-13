@@ -36,17 +36,22 @@ public final class MicService extends Service {
     /** Extras denoise=1/0 and gate=<dBFS> (negative; 0 = no gate). */
     private static void applyConfig(Intent intent) {
         String on = intent.getStringExtra("denoise");
-        String gate = intent.getStringExtra("gate");
         boolean denoise = on == null ? RootAudioMain.denoise : !"0".equals(on);
-        int db = RootAudioMain.gateDb;
-        if (gate != null) {
-            try {
-                db = Integer.parseInt(gate);
-            } catch (NumberFormatException ignored) {
-                // keep
-            }
+        RootAudioMain.setDenoise(
+                denoise,
+                intExtra(intent, "gate", RootAudioMain.gateDb),
+                intExtra(intent, "hp", RootAudioMain.highPassHz),
+                intExtra(intent, "lp", RootAudioMain.lowPassHz));
+    }
+
+    private static int intExtra(Intent intent, String name, int fallback) {
+        String v = intent.getStringExtra(name);
+        if (v == null) return fallback;
+        try {
+            return Integer.parseInt(v);
+        } catch (NumberFormatException e) {
+            return fallback;
         }
-        RootAudioMain.setDenoise(denoise, db);
     }
 
     @Override
@@ -100,6 +105,21 @@ public final class MicService extends Service {
             server = new LocalServerSocket(name);
             client = server.accept();
             clientSock = client;
+            final AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+            RootAudioMain.callMode = new java.util.concurrent.Callable<Integer>() {
+                @Override
+                public Integer call() {
+                    return audio.getMode();
+                }
+            };
+            RootAudioMain.onPauseChange = new Runnable() {
+                @Override
+                public void run() {
+                    showNotification(RootAudioMain.pausedForCall
+                            ? "正在通话，已暂停传声音并让出麦克风"
+                            : "正在把手机声音传到电脑");
+                }
+            };
             RootAudioMain.diag = new java.util.concurrent.Callable<String>() {
                 @Override
                 public String call() {
@@ -173,13 +193,17 @@ public final class MicService extends Service {
 
     /** Android 8+ needs a visible notification for a service that records. */
     private void goForeground() {
+        showNotification("正在把手机声音传到电脑");
+    }
+
+    private void showNotification(String title) {
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel(CHANNEL, "手机声音", 2));
         Bitmap dot = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888);
         dot.eraseColor(0xFFFFFFFF);
         Notification n = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(Icon.createWithBitmap(dot))
-                .setContentTitle("正在把手机声音传到电脑")
+                .setContentTitle(title)
                 .setContentText("远程控制台开着「听声音」")
                 .setOngoing(true)
                 .build();

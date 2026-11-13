@@ -88,6 +88,8 @@ public final class RootAudioMain {
         DataOutputStream out = new DataOutputStream(new BufferedOutputStream(raw, 1 << 16));
         AudioRecord recorder;
         micMode = mic;
+        pausedForCall = false;
+        inCall = false;
         try {
             if (fakeContext) prepareProcess();
             recorder = mic ? openMic() : openRecorder(SOURCE_REMOTE_SUBMIX, CHANNEL_IN_STEREO);
@@ -199,11 +201,30 @@ public final class RootAudioMain {
     public static volatile boolean denoise = true;
     static boolean micMode;
     public static volatile int gateDb = -50;
+    /** Speech-band filter while denoise is on: high-pass removes hum, low-pass removes hiss. */
+    public static volatile int highPassHz = 100;
+    public static volatile int lowPassHz = 8000;
+    private static final Biquad[] hp = {new Biquad(), new Biquad()};
+    private static final Biquad[] lp = {new Biquad(), new Biquad()};
+    private static int hpAt = -1, lpAt = -1;
+    /** Phone call mode probe (AudioManager.getMode) set by the app; 2/3 = in a (WeChat) call. */
+    public static volatile java.util.concurrent.Callable<Integer> callMode;
+    /** True while paused for a call; listener is told on every change. */
+    public static volatile boolean pausedForCall;
+    public static volatile Runnable onPauseChange;
+    private static long lastModeCheck;
+    private static boolean inCall;
     private static volatile android.media.audiofx.NoiseSuppressor suppressor;
     private static double gateGain = 1;
     private static int gateHold;
 
     /** Turn noise reduction on/off while streaming. */
+    public static void setDenoise(boolean on, int db, int highHz, int lowHz) {
+        highPassHz = highHz;
+        lowPassHz = lowHz;
+        setDenoise(on, db);
+    }
+
     public static void setDenoise(boolean on, int db) {
         denoise = on;
         gateDb = db;
@@ -251,6 +272,7 @@ public final class RootAudioMain {
     static void gate(byte[] buf, int n) {
         boolean on = denoise && gateDb < 0;
         if (n < 4) return;
+        if (denoise) filter(buf, n);
         double target;
         if (!on) {
             target = 1;
@@ -284,6 +306,111 @@ public final class RootAudioMain {
                 int g = (int) Math.round(v * gateGain);
                 buf[i + c] = (byte) g;
                 buf[i + c + 1] = (byte) (g >> 8);
+            }
+        }
+    }
+
+    /** RBJ biquad, one per channel. */
+    static final class Biquad {
+        double b0 = 1, b1, b2, a1, a2, x1, x2, y1, y2;
+
+        void set(boolean highPass, double hz) {
+            double w = 2 * Math.PI * hz / SAMPLE_RATE;
+            double alpha = Math.sin(w) / (2 * 0.7071);
+            double cos = Math.cos(w);
+            double a0 = 1 + alpha;
+            if (highPass) {
+                b0 = (1 + cos) / 2 / a0;
+                b1 = -(1 + cos) / a0;
+            } else {
+                b0 = (1 - cos) / 2 / a0;
+                b1 = (1 - cos) / a0;
+            }
+            b2 = b0;
+            a1 = -2 * cos / a0;
+            a2 = (1 - alpha) / a0;
+        }
+
+        double run(double x) {
+            double y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+            x2 = x1;
+            x1 = x;
+            y2 = y1;
+            y1 = y;
+            return y;
+        }
+    }
+
+    static void filter(byte[] buf, int n) {
+        int h = highPassHz, l = lowPassHz;
+        if (h != hpAt) {
+            for (Biquad f : hp) f.set(true, Math.max(20, h));
+            hpAt = h;
+        }
+        if (l != lpAt) {
+            for (Biquad f : lp) f.set(false, Math.min(20000, Math.max(1000, l)));
+            lpAt = l;
+        }
+        for (int i = 0; i + 3 < n; i += 4) {
+            for (int c = 0; c < 2; c++) {
+                int o = i + c * 2;
+                double v = (short) ((buf[o] & 0xff) | (buf[o + 1] << 8));
+                if (h > 0) v = hp[c].run(v);
+                if (l > 0 && l < 20000) v = lp[c].run(v);
+                int g = (int) Math.max(-32768, Math.min(32767, Math.round(v)));
+                buf[o] = (byte) g;
+                buf[o + 1] = (byte) (g >> 8);
+            }
+        }
+    }
+
+    /**
+     * Read one block, but during a phone/WeChat call stop recording so the call app gets
+     * the microphone; send silence meanwhile and start again when the call ends.
+     */
+    static int readMic(AudioRecord recorder, byte[] buf) {
+        if (micMode) {
+            long now = System.currentTimeMillis();
+            java.util.concurrent.Callable<Integer> probe = callMode;
+            if (probe != null && now - lastModeCheck > 500) {
+                lastModeCheck = now;
+                try {
+                    int mode = probe.call();
+                    inCall = mode == 2 || mode == 3;
+                } catch (Throwable ignored) {
+                    inCall = false;
+                }
+            }
+            if (inCall) {
+                if (!pausedForCall) {
+                    try {
+                        recorder.stop();
+                    } catch (Throwable ignored) {
+                        // ignore
+                    }
+                    setPaused(true);
+                }
+                sleep((long) (buf.length / 4) * 1000 / SAMPLE_RATE);
+                java.util.Arrays.fill(buf, (byte) 0);
+                return buf.length;
+            }
+            if (pausedForCall) {
+                recorder.startRecording();
+                setPaused(false);
+            }
+        }
+        return readStereo(recorder, buf);
+    }
+
+    private static void setPaused(boolean paused) {
+        pausedForCall = paused;
+        System.err.println("root-audio: " + (paused ? "call started, mic released" : "call ended, recording again"));
+        Runnable r = onPauseChange;
+        if (r != null) {
+            try {
+                r.run();
+            } catch (Throwable ignored) {
+                // ignore
             }
         }
     }
@@ -418,9 +545,9 @@ public final class RootAudioMain {
         byte[] buf = new byte[CHUNK_BYTES];
         long frames = 0;
         while (true) {
-            int n = readStereo(recorder, buf);
+            int n = readMic(recorder, buf);
             if (n < 0) throw new IllegalStateException("AudioRecord.read " + n);
-            if (micMode) gate(buf, n);
+            if (micMode && !pausedForCall) gate(buf, n);
             if (n == 0) continue;
             writePacket(out, frames * 1000000L / SAMPLE_RATE, buf, 0, n);
             out.flush();
@@ -434,9 +561,9 @@ public final class RootAudioMain {
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         long frames = 0;
         while (true) {
-            int n = readStereo(recorder, buf);
+            int n = readMic(recorder, buf);
             if (n < 0) throw new IllegalStateException("AudioRecord.read " + n);
-            if (micMode) gate(buf, n);
+            if (micMode && !pausedForCall) gate(buf, n);
             int off = 0;
             while (off < n) {
                 int index = encoder.dequeueInputBuffer(20000);
