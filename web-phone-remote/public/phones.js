@@ -1611,6 +1611,438 @@
         }
         void uploadFiles(card, [file]);
     });
+    // ---- 微信数据维护（.xhb 备份 → 云机恢复） ----
+    const wechatDialog = document.getElementById('wechat-dialog');
+    const wechatFile = document.getElementById('wechat-file');
+    const wechatList = document.getElementById('wechat-list');
+    let wechatSelected = null;
+    let wechatArmed = false;
+    let wechatBusy = false;
+
+    function wechatTarget() {
+        return activeCard();
+    }
+
+    function setWechatStatus(message, isError = false) {
+        const status = document.getElementById('wechat-status');
+        status.textContent = message;
+        status.classList.toggle('error', isError);
+    }
+
+    function updateWechatRestoreButton() {
+        const button = document.getElementById('wechat-restore');
+        button.disabled = wechatBusy || !wechatSelected;
+        button.textContent = wechatArmed ? '确认恢复（将清空微信数据）' : '开始恢复';
+    }
+
+    async function loadWechatDevice(card) {
+        const box = document.getElementById('wechat-device');
+        if (!card) {
+            box.textContent = '当前没有可用的云机';
+            return;
+        }
+        box.textContent = '正在读取设备信息…';
+        try {
+            const response = await fetch(`/api/wechat/device?serial=${encodeURIComponent(card.dataset.device)}`, { cache: 'no-store' });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+            const rootText = data.root
+                ? (data.rootMode === 'adb' ? 'root（adb）' : data.rootMode === 'bst' ? 'root（BlueStacks）' : 'root（su）')
+                : `无 root：${data.rootDetail || 'su 不可用'}（请在该云机控制台开启 ROOT 后刷新）`;
+            box.textContent = data.installed
+                ? `${data.model || card.dataset.name} · 微信 ${data.versionName || '未知版本'}（${data.versionCode || '?'}） · ${rootText}`
+                : `${data.model || card.dataset.name} · 未安装微信`;
+        } catch (error) {
+            box.textContent = error instanceof Error ? error.message : '设备信息读取失败';
+        }
+    }
+
+    async function loadWechatBackups() {
+        wechatList.replaceChildren();
+        const loading = document.createElement('p');
+        loading.textContent = '正在读取备份列表…';
+        wechatList.appendChild(loading);
+        try {
+            const response = await fetch('/api/wechat/backups', { cache: 'no-store' });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || `备份列表读取失败 (HTTP ${response.status})`);
+            wechatList.replaceChildren();
+            if (!data.backups?.length) {
+                const empty = document.createElement('p');
+                empty.textContent = '暂无备份，点“上传 .xhb”添加。';
+                wechatList.appendChild(empty);
+                return;
+            }
+            for (const backup of data.backups) {
+                const item = document.createElement('article');
+                item.className = 'app-library-item wechat-backup';
+                item.dataset.name = backup.name;
+                const profile = backup.profile || {};
+                const avatar = document.createElement('img');
+                avatar.className = 'wechat-avatar';
+                avatar.alt = '';
+                avatar.loading = 'lazy';
+                if (backup.avatar) {
+                    avatar.src = `/api/wechat/avatar?name=${encodeURIComponent(backup.name)}&t=${Math.round(backup.modifiedAt)}`;
+                    avatar.addEventListener('error', () => avatar.classList.add('empty'));
+                } else {
+                    avatar.classList.add('empty');
+                }
+                const info = document.createElement('div');
+                info.className = 'wechat-account';
+                const name = document.createElement('strong');
+                name.textContent = profile.nickname || profile.wxid || backup.name;
+                name.title = backup.name;
+                const meta = document.createElement('small');
+                const parts = [];
+                if (profile.nickname && (profile.wxid || profile.wechatAccount)) parts.push(profile.wxid || profile.wechatAccount);
+                else if (!profile.nickname && profile.wxid) parts.push(profile.wxid);
+                if (profile.a16Masked) parts.push(`A16 ${profile.a16Masked}`);
+                if (profile.wechatVersion) parts.push(`微信 ${profile.wechatVersion}`);
+                if (profile.sourceModel) parts.push(profile.sourceModel);
+                parts.push(formatFileSize(backup.size), new Date(backup.modifiedAt).toLocaleString('zh-CN', { hour12: false }));
+                meta.textContent = parts.filter(Boolean).join(' · ');
+                info.append(name, meta);
+                const buttons = document.createElement('div');
+                buttons.className = 'wechat-item-buttons';
+                const a16Button = document.createElement('button');
+                a16Button.type = 'button';
+                a16Button.textContent = 'A16';
+                a16Button.addEventListener('click', async (event) => {
+                    event.stopPropagation();
+                    try {
+                        const response = await fetch(`/api/wechat/detail?name=${encodeURIComponent(backup.name)}`, { cache: 'no-store' });
+                        let data = await response.json().catch(() => ({}));
+                        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+                        if (data.a16 && !data.wechatPassword) {
+                            const pwd = window.prompt('这份记录还没有微信密码。输入后将生成标准记录：微信ID----密码----A16', '');
+                            if (pwd) {
+                                const saved = await fetch('/api/wechat/password', {
+                                    method: 'POST',
+                                    headers: { 'content-type': 'application/json' },
+                                    body: JSON.stringify({ name: backup.name, wechatPassword: pwd }),
+                                });
+                                if (!saved.ok) {
+                                    const failure = await saved.json().catch(() => ({}));
+                                    throw new Error(failure.error || `HTTP ${saved.status}`);
+                                }
+                                data = await saved.json();
+                                await loadWechatBackups();
+                            }
+                        }
+                        let line = item.querySelector('.wechat-a16');
+                        if (!line) {
+                            line = document.createElement('div');
+                            line.className = 'wechat-a16';
+                            info.appendChild(line);
+                        }
+                        const raw = data.raw || (data.a16 ? `${data.wxid || ''}----${data.wechatPassword || ''}----${data.a16}` : '');
+                        line.textContent = raw
+                            ? `标准记录：${raw}`
+                            : '这份备份没有 A16 记录（重新备份时填写微信登录密码即可生成标准记录）';
+                        if (raw && navigator.clipboard?.writeText) {
+                            await navigator.clipboard.writeText(raw).catch(() => undefined);
+                        }
+                        setWechatStatus(raw ? `已显示并复制：${raw}` : '这份备份没有 A16 记录');
+                    } catch (error) {
+                        setWechatStatus(error instanceof Error ? error.message : '读取 A16 失败', true);
+                    }
+                });
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.textContent = '删除';
+                remove.addEventListener('click', async (event) => {
+                    event.stopPropagation();
+                    if (remove.dataset.armed !== '1') {
+                        remove.dataset.armed = '1';
+                        remove.textContent = '确认删除';
+                        setTimeout(() => {
+                            remove.dataset.armed = '0';
+                            remove.textContent = '删除';
+                        }, 3000);
+                        return;
+                    }
+                    remove.disabled = true;
+                    try {
+                        const result = await fetch(`/api/wechat/backups?name=${encodeURIComponent(backup.name)}`, { method: 'DELETE' });
+                        if (!result.ok) {
+                            const body = await result.json().catch(() => ({}));
+                            throw new Error(body.error || `HTTP ${result.status}`);
+                        }
+                        if (wechatSelected === backup.name) {
+                            wechatSelected = null;
+                            wechatArmed = false;
+                            updateWechatRestoreButton();
+                        }
+                        await loadWechatBackups();
+                        setWechatStatus(`已删除 ${backup.name}`);
+                    } catch (error) {
+                        remove.disabled = false;
+                        remove.textContent = '删除';
+                        setWechatStatus(error instanceof Error ? error.message : '删除失败', true);
+                    }
+                });
+                item.addEventListener('click', () => {
+                    wechatSelected = backup.name;
+                    wechatArmed = false;
+                    updateWechatRestoreButton();
+                    for (const other of wechatList.querySelectorAll('.wechat-backup')) {
+                        other.classList.toggle('selected', other === item);
+                    }
+                    setWechatStatus(`已选择 ${backup.name}`);
+                });
+                buttons.append(a16Button, remove);
+                item.append(avatar, info, buttons);
+                wechatList.appendChild(item);
+            }
+        } catch (error) {
+            wechatList.replaceChildren();
+            const failure = document.createElement('p');
+            failure.textContent = error instanceof Error ? error.message : '备份列表读取失败';
+            wechatList.appendChild(failure);
+        }
+    }
+
+    // ---- 授权时间锁 ----
+    const wechatLock = document.getElementById('wechat-lock');
+    const wechatContent = document.getElementById('wechat-content');
+    const wechatLicenseLine = document.getElementById('wechat-license-line');
+    function setWechatLicenseStatus(message, isError = false) {
+        const el = document.getElementById('wechat-license-status');
+        if (!el) return;
+        el.textContent = message || '';
+        el.classList.toggle('error', Boolean(isError));
+    }
+    function showWechatLicensed(state) {
+        wechatLock.hidden = true;
+        wechatContent.hidden = false;
+        if (wechatLicenseLine) {
+            const when = state.expiresMs ? new Date(state.expiresMs).toLocaleString('zh-CN', { hour12: false }) : '';
+            wechatLicenseLine.textContent = `授权有效，剩余 ${state.daysLeft} 天（到期 ${when}）`;
+            wechatLicenseLine.classList.toggle('expiring', state.daysLeft <= 7);
+        }
+    }
+    function showWechatLock(state) {
+        wechatContent.hidden = true;
+        wechatLock.hidden = false;
+        const msg = document.getElementById('wechat-lock-msg');
+        if (msg) {
+            msg.textContent =
+                state && state.reason === 'expired'
+                    ? '授权已过期，功能已锁定。请输入新的授权码。'
+                    : '微信数据功能需要授权后才能使用。请输入授权软件生成的授权码。';
+        }
+    }
+    async function fetchWechatLicense() {
+        try {
+            const response = await fetch('/api/wechat/license', { cache: 'no-store' });
+            return await response.json();
+        } catch {
+            return { licensed: false, reason: 'none' };
+        }
+    }
+
+    async function openWechatDialog() {
+        const card = wechatTarget();
+        document.getElementById('wechat-target').textContent = card?.dataset.name || '无可用云机';
+        document.getElementById('wechat-password').value = '';
+        wechatSelected = null;
+        wechatArmed = false;
+        setWechatStatus('');
+        setWechatLicenseStatus('');
+        updateWechatRestoreButton();
+        if (!wechatDialog.open) wechatDialog.showModal();
+        const state = await fetchWechatLicense();
+        if (!state.licensed) {
+            showWechatLock(state);
+            return;
+        }
+        showWechatLicensed(state);
+        await Promise.all([loadWechatDevice(card), loadWechatBackups()]);
+    }
+
+    document.getElementById('wechat-data').addEventListener('click', () => void openWechatDialog());
+    document.getElementById('wechat-activate').addEventListener('click', async () => {
+        const input = document.getElementById('wechat-license-code');
+        const code = (input.value || '').trim();
+        if (!code) {
+            setWechatLicenseStatus('请粘贴授权码', true);
+            return;
+        }
+        setWechatLicenseStatus('正在验证…');
+        try {
+            const response = await fetch('/api/wechat/license', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ code }),
+            });
+            const state = await response.json();
+            if (response.ok && state.licensed) {
+                setWechatLicenseStatus('');
+                input.value = '';
+                showWechatLicensed(state);
+                const card = wechatTarget();
+                await Promise.all([loadWechatDevice(card), loadWechatBackups()]);
+            } else {
+                const reasonText = {
+                    expired: '授权码已过期',
+                    'bad-sign': '授权码无效（签名不匹配）',
+                    'bad-format': '授权码格式不对',
+                    'wrong-scope': '这不是微信数据功能的授权码',
+                };
+                setWechatLicenseStatus(reasonText[state.reason] || '授权码无效', true);
+            }
+        } catch (error) {
+            setWechatLicenseStatus(error instanceof Error ? error.message : '验证失败', true);
+        }
+    });
+    document.getElementById('wechat-close').addEventListener('click', () => {
+        if (!wechatBusy) wechatDialog.close();
+    });
+    document.getElementById('wechat-refresh').addEventListener('click', () => {
+        if (wechatBusy) return;
+        void loadWechatDevice(wechatTarget());
+        void loadWechatBackups();
+    });
+    wechatDialog.addEventListener('click', (event) => {
+        if (event.target === wechatDialog && !wechatBusy) wechatDialog.close();
+    });
+    document.getElementById('wechat-upload').addEventListener('click', () => wechatFile.click());
+    wechatFile.addEventListener('change', () => {
+        const file = wechatFile.files?.[0];
+        wechatFile.value = '';
+        if (!file) return;
+        if (!/\.xhb$/i.test(file.name)) {
+            setWechatStatus('请选择 .xhb 备份文件', true);
+            return;
+        }
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `/api/wechat/backups?name=${encodeURIComponent(file.name)}`);
+        xhr.upload.addEventListener('progress', (event) => {
+            if (event.lengthComputable) setWechatStatus(`正在上传 ${Math.round((event.loaded * 100) / event.total)}%`);
+        });
+        xhr.addEventListener('load', () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                setWechatStatus('上传完成');
+                void loadWechatBackups();
+            } else {
+                let detail = `HTTP ${xhr.status}`;
+                try {
+                    detail = JSON.parse(xhr.responseText).error || detail;
+                } catch { /* keep status text */ }
+                setWechatStatus(`上传失败：${detail}`, true);
+            }
+        });
+        xhr.addEventListener('error', () => setWechatStatus('上传失败：网络错误', true));
+        setWechatStatus('正在上传…');
+        xhr.send(file);
+    });
+    document.getElementById('wechat-backup').addEventListener('click', async () => {
+        const card = wechatTarget();
+        const password = document.getElementById('wechat-password').value;
+        if (!card) {
+            setWechatStatus('当前没有可用的云机', true);
+            return;
+        }
+        if (password.length < 10) {
+            setWechatStatus('备份密码至少10位（用这个密码加密新备份）', true);
+            return;
+        }
+        wechatBusy = true;
+        updateWechatRestoreButton();
+        for (const button of wechatDialog.querySelectorAll('button')) button.disabled = true;
+        setWechatStatus('正在暂停微信、打包并加密上传…约 1–2 分钟');
+        logOperation(card, '正在备份微信数据到后台');
+        try {
+            const response = await fetch('/api/wechat/backup', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    serial: card.dataset.device,
+                    password,
+                    wechatPassword: document.getElementById('wechat-wx-password').value,
+                }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
+            setWechatStatus(`备份完成：${data.name}（${formatFileSize(data.size)}）`);
+            logOperation(card, '微信数据已备份到后台');
+            await loadWechatBackups();
+        } catch (error) {
+            setWechatStatus(`备份失败：${error instanceof Error ? error.message : '未知错误'}`, true);
+            logOperation(card, '微信备份失败');
+        } finally {
+            wechatBusy = false;
+            for (const button of wechatDialog.querySelectorAll('button')) button.disabled = false;
+            updateWechatRestoreButton();
+        }
+    });
+
+    document.getElementById('wechat-restore').addEventListener('click', async () => {
+        const card = wechatTarget();
+        const password = document.getElementById('wechat-password').value;
+        if (!card) {
+            setWechatStatus('当前没有可用的云机', true);
+            return;
+        }
+        if (!wechatSelected) {
+            setWechatStatus('请先选择一个备份', true);
+            return;
+        }
+        if (password.length < 10) {
+            setWechatStatus('备份密码至少10位', true);
+            return;
+        }
+        if (!wechatArmed) {
+            wechatArmed = true;
+            updateWechatRestoreButton();
+            setWechatStatus('再点一次确认：恢复会先清空目标机微信数据（机器人数据不受影响）', true);
+            return;
+        }
+        wechatArmed = false;
+        wechatBusy = true;
+        updateWechatRestoreButton();
+        for (const button of wechatDialog.querySelectorAll('button')) button.disabled = true;
+        setWechatStatus('正在解密、校验、推送并恢复…微信会暂停，约 1–3 分钟');
+        logOperation(card, `正在恢复微信备份 ${wechatSelected}`);
+        try {
+            const response = await fetch('/api/wechat/restore', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ serial: card.dataset.device, name: wechatSelected, password }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.ok) throw new Error(data.error || data.output || `HTTP ${response.status}`);
+            const who = data.profile?.nickname ? `账号：${data.profile.nickname} · ` : '';
+            const restoredName = wechatSelected;
+            setWechatStatus(`恢复完成。${who}请到设备上打开微信核对聊天记录。`);
+            logOperation(card, '微信数据已恢复');
+            setState(card, 'connected', '恢复完成');
+            const checkState = async () => {
+                try {
+                    const stateRes = await fetch(`/api/wechat/state?serial=${encodeURIComponent(card.dataset.device)}&name=${encodeURIComponent(restoredName)}`, { cache: 'no-store' });
+                    const state = await stateRes.json().catch(() => ({}));
+                    if (!stateRes.ok) return;
+                    if (state.matched) {
+                        setWechatStatus(`恢复完成。${who}登录态仍有效（A16 ${state.recordA16Masked}）。`);
+                    } else {
+                        setWechatStatus(`数据已还原，但微信已改写 A16（${state.recordA16Masked || '无记录'} → ${state.deviceA16Masked || '读取失败'}）：新设备验证中。请在设备上完成一次短信/扫码验证，之后该实例即成为可信设备。`, true);
+                        logOperation(card, '微信要求新设备验证');
+                    }
+                } catch { /* 忽略检查失败 */ }
+            };
+            setTimeout(() => void checkState(), 6000);
+            setTimeout(() => void checkState(), 20000);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : '恢复失败';
+            setWechatStatus(`恢复失败：${message}`, true);
+            logOperation(card, '微信恢复失败');
+        } finally {
+            wechatBusy = false;
+            for (const button of wechatDialog.querySelectorAll('button')) button.disabled = false;
+            updateWechatRestoreButton();
+        }
+    });
     document.getElementById('reconnect-all').addEventListener('click', async () => {
         await refreshDevices();
         updateStreamingMode(true);

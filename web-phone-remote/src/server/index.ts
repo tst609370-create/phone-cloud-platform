@@ -17,6 +17,7 @@ import { SettingsApi } from './api/SettingsApi';
 import { UpdatesApi } from './api/UpdatesApi';
 import { UsersApi } from './api/UsersApi';
 import { WhoamiApi } from './api/WhoamiApi';
+import { WechatApi } from './wechat/WechatApi';
 import { AuthGate } from './auth/AuthGate';
 import { setAuthEnabled } from './auth/authState';
 import { Config } from './Config';
@@ -174,6 +175,9 @@ if (__ssArgs) {
 
     const whoamiApi = new WhoamiApi();
     HttpServer.addApiHandler(whoamiApi);
+
+    // 「微信数据」备份/恢复 + 离线时间锁（授权码到期自动上锁）。预编译实现在 vendor/wechat-api.cjs。
+    HttpServer.addApiHandler(new WechatApi(() => Config.getInstance().db));
 
     // Wire the scanner singleton
     const scanAdb = new AdbClient(config.adbPath);
