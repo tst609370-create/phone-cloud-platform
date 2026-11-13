@@ -30,7 +30,7 @@ const AUDIO_WAIT_REASON = '手机播放声还没有开始，画面继续';
  */
 export async function pipeScrcpySockets(
     video: net.Socket,
-    audio: net.Socket,
+    audio: net.Socket | Promise<net.Socket | undefined>,
     control: net.Socket,
     requestedAudio: boolean,
     audioBlock: string | undefined,
@@ -62,7 +62,12 @@ export async function pipeScrcpySockets(
     }, audioHeaderTimeoutMs);
 
     try {
-        const audioRead = await readExact(audio, 4);
+        // A promised socket (root/mic helper started beside the video) resolving to
+        // nothing means the helper failed: report it like an AUDIO_ERROR from the phone.
+        const audioSocket = await audio;
+        const audioRead = audioSocket
+            ? await readExact(audioSocket, 4)
+            : { data: Buffer.from([0, 0, 0, AUDIO_ERROR]), rest: Buffer.alloc(0) };
         clearTimeout(timer);
         if (settled) return;
         settled = true;
@@ -72,14 +77,16 @@ export async function pipeScrcpySockets(
             if (requestedAudio) audioReason = audioBlock ?? '手机没有送出可播放的声音';
         } else if (codecId === AUDIO_ERROR) {
             audioCodec = 'error';
-            audioReason = (typeof audioErrorReason === 'function' ? audioErrorReason() : audioErrorReason) ?? '手机音频采集失败：请把手机亮屏解锁后点「听声音」重试；一加/ColorOS 若仍失败，多半是系统禁止录制播放声';
+            audioReason =
+                (typeof audioErrorReason === 'function' ? audioErrorReason() : audioErrorReason) ??
+                '手机音频采集失败：请把手机亮屏解锁后点「听声音」重试；一加/ColorOS 若仍失败，多半是系统禁止录制播放声';
         } else {
             audioCodec = codecName(codecId);
             audioReason = undefined;
         }
         publish();
         if (audioCodec === 'disabled' || audioCodec === 'error' || audioCodec.startsWith('unknown')) return;
-        const audioReader = new FrameReader(audio, audioRead.rest);
+        const audioReader = new FrameReader(audioSocket!, audioRead.rest);
         audioReader.onFrame((frame) => hooks.onAudioFrame(frame));
     } catch {
         clearTimeout(timer);
@@ -91,7 +98,9 @@ export async function pipeScrcpySockets(
     }
 }
 
-function readVideoHeader(socket: net.Socket): Promise<{ meta: Omit<ScrcpySessionMeta, 'audioCodec' | 'audioReason'>; rest: Buffer }> {
+function readVideoHeader(
+    socket: net.Socket,
+): Promise<{ meta: Omit<ScrcpySessionMeta, 'audioCodec' | 'audioReason'>; rest: Buffer }> {
     return readExact(socket, 80).then(({ data: videoMeta, rest }) => {
         const deviceNameBytes = videoMeta.subarray(0, 64);
         const nullIdx = deviceNameBytes.indexOf(0);

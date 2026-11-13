@@ -7,14 +7,26 @@ import { canAccessDevice } from '../auth/deviceAccess';
 import { requireAdmin } from '../auth/requireAdmin';
 import { Config } from '../Config';
 import { Logger } from '../Logger';
-import { MIC_APP_PKG, MIC_APP_VERSION, resolveMicApk } from '../micApp';
+import { ensureMicApp, MIC_APP_PKG, MIC_APP_VERSION, resolveMicApk } from '../micApp';
 import { assertSerial } from '../security/deviceInput';
 import { safeUploadName, saveUploadRequest } from './DeviceFileApi';
 import { RealtimeEventsApi } from './RealtimeEventsApi';
 import { readJsonBody, sendInternalError } from './utils';
 
 const log = Logger.for('ApkLibraryApi');
-type ApkAdb = Pick<AdbClient, 'devices' | 'install'>;
+type ApkAdb = Pick<AdbClient, 'devices' | 'install'> & Partial<Pick<AdbClient, 'shell' | 'forward' | 'removeForward'>>;
+
+function installError(reason: unknown): string {
+    const e = reason as { message?: string; cause?: { stdout?: string; stderr?: string } };
+    const text = `${e?.cause?.stdout ?? ''} ${e?.cause?.stderr ?? ''}`.trim() || String(e?.message ?? reason ?? '');
+    const short =
+        text
+            .replace(/\(path=[^)]*\)/, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 160) || '安装失败';
+    return /USER_RESTRICTED/i.test(text) ? `${short}。小米手机要在「开发者选项」打开「USB 安装」` : short;
+}
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
     res.writeHead(status, { 'content-type': 'application/json' });
@@ -56,9 +68,42 @@ export class ApkLibraryApi {
         }
     }
 
+    private parseSerials(res: ServerResponse, value: unknown): string[] | undefined {
+        const requested = Array.isArray(value) ? value : [];
+        try {
+            const serials = [...new Set(requested.map((serial) => assertSerial(serial)))];
+            if (serials.length > 0 && serials.length <= 50) return serials;
+        } catch {
+            /* fall through */
+        }
+        sendJson(res, 400, { error: '请选择 1 至 50 台手机' });
+        return undefined;
+    }
+
+    private allowed(req: IncomingMessage, res: ServerResponse, serials: string[]): boolean {
+        const db = Config.getInstance().db;
+        const userId = resolveUserId(req);
+        if (serials.some((serial) => !canAccessDevice(db, userId, serial))) {
+            sendJson(res, 403, { error: '设备未分配' });
+            return false;
+        }
+        return true;
+    }
+
+    private async connectedSerials(): Promise<Set<string>> {
+        return new Set(
+            (await this.adb.devices()).filter((device) => device.state === 'device').map((device) => device.serial),
+        );
+    }
+
     async handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
         const url = new URL(req.url ?? '/', 'http://localhost');
-        if (url.pathname !== '/api/apks' && url.pathname !== '/api/apks/install') return false;
+        if (
+            url.pathname !== '/api/apks' &&
+            url.pathname !== '/api/apks/install' &&
+            url.pathname !== '/api/apks/install-sound'
+        )
+            return false;
         const adminOnly = req.method === 'DELETE' || (req.method === 'POST' && url.pathname === '/api/apks');
         if (adminOnly && !requireAdmin(req, res)) return true;
 
@@ -131,6 +176,34 @@ export class ApkLibraryApi {
                 return true;
             }
 
+            if (req.method === 'POST' && url.pathname === '/api/apks/install-sound') {
+                // 「手机声音」App: install + grant the permissions, one phone or many.
+                const body = await readJsonBody(req);
+                const serials = this.parseSerials(res, body['devices']);
+                if (!serials) return true;
+                if (!this.bundledMicApk) {
+                    sendJson(res, 404, { error: '这个版本没有带「手机声音」App' });
+                    return true;
+                }
+                if (!this.allowed(req, res, serials)) return true;
+                const connected = await this.connectedSerials();
+                const apk = this.bundledMicApk;
+                const results = await Promise.all(
+                    serials.map(async (serial) => {
+                        if (!connected.has(serial)) return { serial, ok: false, error: '手机未连接' };
+                        try {
+                            const problem = await ensureMicApp(this.adb as never, serial, apk);
+                            return problem ? { serial, ok: false, error: problem } : { serial, ok: true };
+                        } catch (error) {
+                            return { serial, ok: false, error: installError(error) };
+                        }
+                    }),
+                );
+                log.info(`install sound app: ${JSON.stringify(results)}`);
+                sendJson(res, 200, { results });
+                return true;
+            }
+
             if (req.method === 'POST' && url.pathname === '/api/apks/install') {
                 const body = await readJsonBody(req);
                 let name: string;
@@ -165,21 +238,24 @@ export class ApkLibraryApi {
                     sendJson(res, 404, { error: 'APK 不存在' });
                     return true;
                 }
-                const connected = new Set(
-                    (await this.adb.devices())
-                        .filter((device) => device.state === 'device')
-                        .map((device) => device.serial),
-                );
-                const offline = serials.filter((serial) => !connected.has(serial));
-                if (offline.length) {
-                    sendJson(res, 409, { error: '部分手机未连接', devices: offline });
+                const connected = await this.connectedSerials();
+                const online = serials.filter((serial) => connected.has(serial));
+                if (online.length === 0) {
+                    sendJson(res, 409, { error: '手机未连接', devices: serials });
                     return true;
                 }
-                const settled = await Promise.allSettled(serials.map((serial) => this.adb.install(serial, localFile)));
-                const results = settled.map((result, index) => ({
-                    serial: serials[index],
-                    ok: result.status === 'fulfilled',
-                }));
+                const settled = await Promise.allSettled(
+                    serials.map((serial) =>
+                        connected.has(serial)
+                            ? this.adb.install(serial, localFile)
+                            : Promise.reject(new Error('手机未连接')),
+                    ),
+                );
+                const results = settled.map((result, index) =>
+                    result.status === 'fulfilled'
+                        ? { serial: serials[index], ok: true }
+                        : { serial: serials[index], ok: false, error: installError(result.reason) },
+                );
                 sendJson(res, 200, { results });
                 return true;
             }

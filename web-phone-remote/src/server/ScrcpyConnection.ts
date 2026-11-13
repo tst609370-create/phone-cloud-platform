@@ -14,8 +14,8 @@ import { Logger } from './Logger';
 import { resolveMicApk, startMicApp } from './micApp';
 import { Mw, type RequestParameters } from './mw/Mw';
 import {
-    probeRoot,
     MIC_FALLBACK_FAILED,
+    probeRoot,
     ROOT_AUDIO_FAILED,
     ROOT_AUDIO_MIN_SDK,
     type RootAudioSession,
@@ -196,24 +196,35 @@ export class ScrcpyConnection extends Mw {
         //    Android's dexopt cache warm and drops ~15s off cold-start on older
         //    devices.
         await ensureScrcpyServerPushed(this.adbClient, this.serial, serverFile());
+        // Root/mic audio starts beside the video, never in front of it: installing the
+        // sound app or waiting for its socket must not keep the picture on "connecting".
+        let rootAudioStart: Promise<RootAudioSession> | undefined;
         if (rootAudioJar) {
             const codec = options.audioCodec === 'raw' ? 'raw' : 'aac';
             // Without root the adb shell user cannot record on Android 8-10; an installed
             // app with RECORD_AUDIO can (installed and granted over adb, see micApp.ts).
             const micApk = rootSource === 'mic' ? resolveMicApk() : undefined;
-            this.rootAudio = micApk
-                ? await startMicApp(this.adbClient, this.serial, String(options.scid), codec, micApk, log)
-                : await startRootAudio(
-                      this.adbClient,
-                      this.serial,
-                      String(options.scid),
-                      codec,
-                      rootAudioJar,
-                      log,
-                      10_000,
-                      rootPrefix,
-                      rootSource,
-                  );
+            const jarFile = rootAudioJar;
+            rootAudioStart = (
+                micApk
+                    ? startMicApp(this.adbClient, this.serial, String(options.scid), codec, micApk, log)
+                    : startRootAudio(
+                          this.adbClient,
+                          this.serial,
+                          String(options.scid),
+                          codec,
+                          jarFile,
+                          log,
+                          10_000,
+                          rootPrefix,
+                          rootSource,
+                      )
+            ).then((session) => {
+                this.rootAudio = session;
+                if (this.released) session.stop();
+                return session;
+            });
+            rootAudioStart.catch(() => undefined);
             log.info(
                 `root audio capture requested for ${this.serial} (sdk=${sdkInt}, codec=${codec}, source=${rootSource}, via="${rootPrefix || 'adb shell'}")`,
             );
@@ -232,20 +243,23 @@ export class ScrcpyConnection extends Mw {
         for (const s of sockets) s?.setNoDelay?.(true);
         this.videoBitRate = options.videoBitRate ?? 0;
         this.startStats();
-        if (this.rootAudio) {
-            const rootSocket = await this.rootAudio.socket;
-            if (rootSocket) {
-                this.audioSocket.destroy();
-                this.audioSocket = rootSocket;
-            } else {
-                audioBlock = this.rootAudioFailure(rootSource, noRootReason);
-            }
-        }
+        const audioInput: net.Socket | Promise<net.Socket | undefined> = rootAudioStart
+            ? rootAudioStart
+                  .then((session) => session.socket)
+                  .then((rootSocket) => {
+                      if (!rootSocket) return undefined;
+                      this.audioSocket?.destroy();
+                      this.audioSocket = rootSocket;
+                      if (this.released) rootSocket.destroy();
+                      return rootSocket;
+                  })
+                  .catch(() => undefined)
+            : this.audioSocket;
 
         log.info(`Reading video before audio for ${this.serial}`);
         await pipeScrcpySockets(
             this.videoSocket,
-            this.audioSocket,
+            audioInput,
             this.controlSocket,
             requestedAudio,
             audioBlock,
@@ -287,8 +301,8 @@ export class ScrcpyConnection extends Mw {
                 onControl: (data) => this.sendChannel(ChannelId.DEVICE_MSG, data),
                 onVideoEnd: () => this.release(),
             },
-            undefined,
-            this.rootAudio ? () => this.rootAudioFailure(rootSource, noRootReason) : undefined,
+            rootAudioStart ? 60_000 : undefined,
+            rootAudioStart ? () => this.rootAudioFailure(rootSource, noRootReason) : undefined,
         );
     }
 

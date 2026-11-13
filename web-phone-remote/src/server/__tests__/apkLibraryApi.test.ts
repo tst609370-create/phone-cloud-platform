@@ -72,6 +72,63 @@ describe('ApkLibraryApi', () => {
         expect(installed).toEqual(['PHONE_A', 'PHONE_B']);
     });
 
+    it('installs the bundled sound app with its permissions and reports each phone', async () => {
+        const root = setup();
+        const apk = path.join(root, '..', 'mic.apk');
+        fs.mkdirSync(root, { recursive: true });
+        fs.writeFileSync(apk, 'apk');
+        const shells: string[] = [];
+        const adb = {
+            devices: async () => [{ serial: 'MI', state: 'device' }],
+            install: async () => 'Success',
+            shell: async (_s: string, cmd: string) => {
+                shells.push(cmd);
+                return cmd.includes('__OPS')
+                    ? 'android.permission.RECORD_AUDIO: granted=true\n__OPS\nRECORD_AUDIO: allow'
+                    : '';
+            },
+        };
+        const api = new ApkLibraryApi(adb as never, root, apk);
+        const call = makeReqRes('POST', '/api/apks/install-sound', { devices: ['MI', 'GONE'] });
+        await api.handle(call.req, call.res);
+        expect(call.getStatus()).toBe(200);
+        expect(call.getJson()).toEqual({
+            results: [
+                { serial: 'MI', ok: true },
+                { serial: 'GONE', ok: false, error: '手机未连接' },
+            ],
+        });
+        expect(
+            shells.some((cmd) => cmd.includes('pm grant com.wsphone.micaudio android.permission.RECORD_AUDIO')),
+        ).toBe(true);
+    });
+
+    it('says why an install failed and keeps going on the other phones', async () => {
+        const root = setup();
+        fs.mkdirSync(root, { recursive: true });
+        fs.writeFileSync(path.join(root, 'a.apk'), 'apk');
+        const adb = {
+            devices: async () => [
+                { serial: 'A', state: 'device' },
+                { serial: 'B', state: 'device' },
+            ],
+            install: async (serial: string) => {
+                if (serial === 'B')
+                    throw Object.assign(new Error('adb exit (path=x)'), {
+                        cause: { stdout: 'Failure [INSTALL_FAILED_USER_RESTRICTED: Install canceled by user]' },
+                    });
+                return 'Success';
+            },
+        };
+        const api = new ApkLibraryApi(adb as never, root, '');
+        const call = makeReqRes('POST', '/api/apks/install', { name: 'a.apk', devices: ['A', 'B', 'C'] });
+        await api.handle(call.req, call.res);
+        const json = call.getJson() as { results: { serial: string; ok: boolean; error?: string }[] };
+        expect(json.results[0]).toEqual({ serial: 'A', ok: true });
+        expect(json.results[1]?.error).toContain('USB 安装');
+        expect(json.results[2]).toEqual({ serial: 'C', ok: false, error: '手机未连接' });
+    });
+
     it('lets a rental user list APKs and install only on assigned phones', async () => {
         const root = setup();
         fs.mkdirSync(root, { recursive: true });
@@ -80,16 +137,20 @@ describe('ApkLibraryApi', () => {
         const tenant = db.users.create({ username: 'ab123456', role: 'user', passwordHash: 'x' });
         db.devices.setAssignments(tenant.id, ['PHONE_A']);
         const installed: string[] = [];
-        const api = new ApkLibraryApi({
-            devices: async () => [
-                { serial: 'PHONE_A', state: 'device' },
-                { serial: 'PHONE_B', state: 'device' },
-            ],
-            install: async (serial: string) => {
-                installed.push(serial);
-                return 'Success';
-            },
-        } as never, root, '');
+        const api = new ApkLibraryApi(
+            {
+                devices: async () => [
+                    { serial: 'PHONE_A', state: 'device' },
+                    { serial: 'PHONE_B', state: 'device' },
+                ],
+                install: async (serial: string) => {
+                    installed.push(serial);
+                    return 'Success';
+                },
+            } as never,
+            root,
+            '',
+        );
 
         const list = makeReqRes('GET', '/api/apks');
         (list.req as typeof list.req & { user: { id: number } }).user = { id: tenant.id };

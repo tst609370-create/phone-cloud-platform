@@ -64,7 +64,7 @@ node --test installer/setup-auth.test.mjs installer/bootstrap/*.test.mjs   # 安
 - 租用识别码、有效期、外网域名 → `src/server/api/RentalsApi.ts`、`public/admin.html`、`src/server/auth/rentalExpiry.ts`
 - 谁能看/控哪台手机 → `src/server/auth/deviceAccess.ts`、`AuthGate.ts`
 - 麦克风 → 服务端 `src/server/mic/`、前端 `src/app/mic/`、手机侧 `android/virtual-mic/`
-- 安卓 8–10 没 ROOT 的声音 → 录音小 App `android/root-audio/app/`（`build-app.sh` 无 SDK 打包：stubs + dalvik-dx + pyaxml 编清单 + jarsigner，产物 `prebuilt/mic-audio.apk`），服务端 `src/server/micApp.ts`（adb 安装、pm grant、am start-foreground-service、adb forward localabstract:wsmic_<scid>）
+- 安卓 8–10 没 ROOT 的声音 → 录音小 App `android/root-audio/app/`（`build-app.sh` 无 SDK 打包：stubs + dalvik-dx + pyaxml 编清单 + jarsigner，产物 `prebuilt/mic-audio.apk`），服务端 `src/server/micApp.ts`（adb 安装、pm grant、am start-foreground-service、adb forward localabstract:wsmic_<scid>；与画面并行启动，不挡连接）。一键装：`POST /api/apks/install-sound`（ApkLibraryApi，装+授权+核对权限），前端入口为软件库「安装到全部手机」和 embed 没声音条的「安装手机声音 App」
 - 安卓 11 以下没声音 / ROOT 采集 → `src/server/rootAudio.ts`（`hasRoot` 用 `su -c id`，接入点 `ScrcpyConnection.start`），手机端 `android/root-audio/`（改完跑 `sh android/root-audio/build.sh` 重出 jar）
 - scrcpy 版本/参数 → `src/server/ScrcpyOptions.ts`、`scrcpyServerVersion.ts`
 - 「自动」画质黑屏自动降档 → `public/phones.js` 的 `autoLimit`/`autoCap`/`onVideoHealth`（先 1080，确认出画 `phone-auto-ok:<serial>` 后才升一档，黑屏封顶 `phone-auto-cap:<serial>`；侧栏显示前端版本 `UI_VERSION`），播放器 `WebCodecsPlayer.checkBlack`/`reportHealth` 发 `phone-video-health` 事件

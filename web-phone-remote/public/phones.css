@@ -272,6 +272,9 @@ svg { flex: 0 0 auto; }
 }
 .app-library-item button:hover { background: rgb(247 248 248 / .9); }
 .app-library-item button:disabled { cursor: wait; opacity: .5; }
+.app-library-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.app-library-item button.install-all { color: var(--tx-fg); background: var(--tx-surface-3); box-shadow: none; border: 1px solid var(--tx-line-strong); }
+.app-library-item button.install-all:hover { background: var(--tx-surface); }
 .app-library > footer { padding: 12px; border-top: 1px solid var(--tx-line); }
 .app-library > footer button { width: 100%; height: 36px; }
 
