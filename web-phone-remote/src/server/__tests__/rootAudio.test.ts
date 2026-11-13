@@ -5,7 +5,7 @@ import os from 'os';
 import path from 'path';
 import { PassThrough } from 'stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearRootCache, hasRoot, isRootIdOutput, probeRoot, rootKindOf, type RootAudioAdb, rootAudioCommand, startRootAudio, wrapRoot } from '../rootAudio';
+import { adbErrorText, clearRootCache, hasRoot, isRootIdOutput, probeRoot, rootKindOf, type RootAudioAdb, rootAudioCommand, startRootAudio, wrapRoot } from '../rootAudio';
 
 function fakeProc() {
     const proc = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough; killed: boolean; kill: () => void };
@@ -94,7 +94,7 @@ describe('root audio helper', () => {
     it('falls back to adb root on debuggable builds and says what it found', async () => {
         let rooted = false;
         const shell = vi.fn(async (_s: string, cmd: string) => {
-            if (cmd === 'id') return rooted ? 'uid=0(root)' : 'uid=2000(shell)';
+            if (cmd === 'id; echo __RC=$?') return rooted ? 'uid=0(root)' : 'uid=2000(shell)';
             if (cmd.startsWith('id;')) return 'uid=2000(shell)\nSU=/system/xbin/su\n';
             if (cmd.startsWith('su -v')) return '16\nPROPS\n1\nuser\nPKGS\n';
             return 'Permission denied';
@@ -118,6 +118,29 @@ describe('root audio helper', () => {
         expect(probe.reason).toContain('系统自带');
         expect(probe.reason).toContain('ROOT 权限管理');
     }, 30_000);
+
+    it('keeps su output when the phone command exits non-zero (real adb shell behaviour)', async () => {
+        // Real AdbClient throws on a non-zero exit; the probe must append its own exit-code echo.
+        const shell = vi.fn(async (_s: string, cmd: string) => {
+            if (!cmd.endsWith('; echo __RC=$?')) throw Object.assign(new Error('adb exit (path=C:\\adb.exe)'), { kind: 'exit' });
+            if (cmd.startsWith('id;')) return 'uid=2000(shell) gid=2000(shell)\n__RC=1\n';
+            if (cmd.startsWith('su -v')) return 'PROPS\n0\nuser\nPKGS\n__RC=1\n';
+            return '/system/bin/sh: su: not found\n__RC=127\n';
+        });
+        const probe = await probeRoot({ shell } as unknown as RootAudioAdb, 'NR', 1);
+        expect(probe.prefix).toBeUndefined();
+        expect(probe.reason).toContain('其实没有 ROOT');
+        expect(probe.reason).toContain('su: not found');
+        expect(probe.reason).not.toContain('path=');
+    }, 30_000);
+
+    it('describes adb failures without the adb path', () => {
+        const e = Object.assign(new Error('adb exit (path=C:\\Users\\x\\adb.exe, args="-s X shell su")'), {
+            kind: 'exit',
+            cause: { code: 1, stdout: '', stderr: 'Permission denied' },
+        });
+        expect(adbErrorText(e)).toBe('adb exit：退出码 1：Permission denied');
+    });
 
     it('remembers a root yes, retries a no after a while', async () => {
         const shell = vi

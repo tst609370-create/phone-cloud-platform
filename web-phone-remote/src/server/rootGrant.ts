@@ -102,7 +102,7 @@ export async function prepareMagiskPrompt(adb: GrantShell, serial: string): Prom
     try {
         out = await adb.shell(
             serial,
-            'getprop ro.miui.ui.version.name; echo PKGS; pm list packages 2>/dev/null | grep -i -E "magisk|kernelsu|supersu|superuser"',
+            'getprop ro.miui.ui.version.name; echo PKGS; pm list packages 2>/dev/null | grep -i -E "magisk|kernelsu|supersu|superuser"; true',
             8_000,
         );
     } catch {

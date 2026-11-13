@@ -694,7 +694,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261113v',
+                ui: '20261113w',
             });
             return `snapshot.html?${params}`;
         }
@@ -708,7 +708,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261113v',
+            ui: '20261113w',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         if (card.dataset.hear === '1' && audioSourceFor(card.dataset.device) === 'playback') {
