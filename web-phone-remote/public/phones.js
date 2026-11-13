@@ -222,7 +222,7 @@
             ['tools', '展开功能', '功能'],
             ['upload', '安装 APP 或导入图片', CARD_ICONS.upload],
             ['reconnect', '重新连接', CARD_ICONS.reconnect],
-            ['fullscreen', '全屏操作', CARD_ICONS.fullscreen],
+            ['fullscreen', '放大操作', CARD_ICONS.fullscreen],
             ['close', '关闭', CARD_ICONS.close],
         ]) {
             const button = document.createElement('button');
@@ -294,8 +294,8 @@
         const shield = document.createElement('button');
         shield.type = 'button';
         shield.className = 'preview-shield';
-        shield.setAttribute('aria-label', `全屏操作 ${name}`);
-        shield.innerHTML = '<span>点击全屏操作</span>';
+        shield.setAttribute('aria-label', `放大操作 ${name}`);
+        shield.innerHTML = '<span>点击放大操作</span>';
         shield.addEventListener('click', () => expand(card));
         card.append(header, lastFrame, frame, nativeInput, resume, shield, phoneNav, operationStatus, fileInput);
         grid.appendChild(card);
@@ -581,6 +581,7 @@
                     localStorage.setItem(`phone-auto-cap:${card.dataset.device}`, String(have.maxSize));
                 }
             } catch { /* per-session only */ }
+            card._goodProfile = { ...have };
             if (have.maxSize > autoVerified(card.dataset.device)) {
                 try { localStorage.setItem(`phone-auto-ok:${card.dataset.device}`, String(have.maxSize)); } catch { /* per-session only */ }
                 if (quality.value === 'auto') applyStreamProfile(card);
@@ -588,7 +589,17 @@
             return;
         }
         const lower = [...AUTO_SIZE_STEPS].reverse().find((step) => step < have.maxSize);
-        if (!lower) return;
+        if (!lower) {
+            // 已是最小尺寸还没画面：多半是刚才为放大/升码率重连后出不来（如安卓 9 的旧手机）。
+            // 退回上次出过画面的设置并在本次打开期间固定，不再黑屏。
+            const good = card._goodProfile;
+            if (good && !card._pinProfile && (good.bitrate !== have.bitrate || good.maxFps !== have.maxFps)) {
+                card._pinProfile = good;
+                logOperation(card, '提高画质后没出画面，已退回原来的画质');
+                connect(card, true);
+            }
+            return;
+        }
         card._healthRetries = (card._healthRetries || 0) + 1;
         if (card._healthRetries > 2) return; // still black at the lowest size: stop reconnecting
         try { localStorage.setItem(`phone-auto-cap:${card.dataset.device}`, String(lower)); } catch { /* per-session only */ }
@@ -649,7 +660,12 @@
         return Date.now() - (card._lastInputAt || 0) < INPUT_IDLE_MS;
     }
 
+    function openCount() {
+        return cards.filter((item) => !item.classList.contains('closed')).length;
+    }
+
     function videoProfile(card) {
+        if (card._pinProfile) return { ...card._pinProfile };
         // scrcpy maxSize limits the LONGEST side. Option values are long-side
         // pixels (1080/1600/2400 ≈ 480p/720p/1080p on a 20:9 phone).
         const netBitrate = card._netBitrate || Infinity;
@@ -660,7 +676,8 @@
         const requestedFps = Number(fps.value);
         const activeBitrate = Math.min(netBitrate, requestedSize > 1600 ? 8000000 : requestedSize > 1080 ? 4000000 : 2000000);
         // 九宫格小窗只用来看：低码率、15 帧、最多 1080，省流量；点开全屏才用正常画质。
-        if (!card.classList.contains('expanded')) {
+        // 只有 4 台以上才压低小窗画质；台数少时小窗和放大用同一路流，点开不用重连、不会黑一下。
+        if (!card.classList.contains('expanded') && openCount() > 3) {
             return {
                 bitrate: Math.min(PREVIEW_BITRATE, activeBitrate),
                 maxFps: Math.min(15, requestedFps),
@@ -675,7 +692,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261113p',
+                ui: '20261113s',
             });
             return `snapshot.html?${params}`;
         }
@@ -689,7 +706,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261113p',
+            ui: '20261113s',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         if (card.dataset.hear === '1' && audioSourceFor(card.dataset.device) === 'playback') {
@@ -1179,6 +1196,7 @@
             if (aspect && aspect !== card._videoAspect) {
                 card._videoAspect = aspect;
                 card._lastAspect = aspect;
+                sizeExpanded(card);
                 fitCardToPhone(card, canvas, doc.querySelector('.control-buttons-list'));
                 if (autoArrange || needsInitialLayout) scheduleTile();
             }
@@ -1534,6 +1552,7 @@
             if (card._retries <= 2) connect(card, true);
             else setState(card, 'error', '连接超时，点刷新按钮重连');
         }, CONNECT_TIMEOUT_MS);
+        const wasStreaming = card.dataset.streaming === '1';
         if (card.dataset.streaming === '1' && force) {
             captureLastFrame(card);
             if (card.querySelector('.last-frame').src) card.classList.add('reconnecting');
@@ -1552,11 +1571,26 @@
             card.style.height = '';
         }
         setState(card, '', '连接中');
-        card.querySelector('iframe').src = streamUrl(card);
+        const frame = card.querySelector('iframe');
+        const url = streamUrl(card);
+        clearTimeout(card._srcTimer);
+        if (wasStreaming && force) {
+            // 先断开旧会话，等服务器把手机上的旧 scrcpy 收掉再连新的；
+            // 两个会话叠在一起时部分手机（安卓 9 等）新会话只出黑屏。期间显示最后一帧。
+            frame.src = 'about:blank';
+            card._srcTimer = setTimeout(() => {
+                card._srcTimer = 0;
+                if (card.dataset.streaming === '1') frame.src = url;
+            }, 800);
+        } else {
+            frame.src = url;
+        }
         watchState(card);
     }
 
     function close(card, update = true) {
+        clearTimeout(card._srcTimer);
+        card._srcTimer = 0;
         clearFrameObservers(card);
         card.querySelector('iframe').src = 'about:blank';
         card.dataset.streaming = '0';
@@ -1626,10 +1660,26 @@
     }
 
     // 九宫格小窗只看不操作；点小窗进入全屏才能操作手机，避免误触。
+    // 电脑上放大成一个按手机比例、按浏览器高度自适应的窗口居中显示，不铺满整个浏览器；手机浏览器上才铺满。
+    function sizeExpanded(card) {
+        if (!card.classList.contains('expanded') || innerWidth <= 700) return;
+        const aspect = card._lastAspect || 9 / 20;
+        const margin = 24;
+        const chrome = 36 + 36 + 22 + 2; // 标题栏 + 导航按钮 + 状态行 + 边框
+        const videoHeight = Math.max(240, innerHeight - margin * 2 - chrome);
+        const videoWidth = Math.min(videoHeight * aspect, innerWidth - margin * 2 - 2);
+        const width = Math.min(innerWidth - margin * 2, Math.max(480, Math.round(videoWidth + 2)));
+        const height = Math.round(Math.min(videoHeight, videoWidth / aspect) + chrome);
+        // 偶数像素，居中平移后不落在半像素上（画面不发虚）。
+        card.style.setProperty('--expanded-w', `${width - (width % 2)}px`);
+        card.style.setProperty('--expanded-h', `${height - (height % 2)}px`);
+    }
+
     function expand(card) {
         if (card.classList.contains('expanded')) return;
         collapseExpanded();
         card.classList.add('expanded');
+        sizeExpanded(card);
         card._expandAt = Date.now();
         backdrop.classList.add('visible');
         document.body.classList.add('has-expanded');
@@ -1833,7 +1883,7 @@
         scheduleTile();
     });
     // 手动换画质/帧率 = 重新按设定来，清掉网络自适应降下来的码率。
-    const resetNetBitrate = () => cards.forEach((card) => { card._netBitrate = 0; card._episodeTimes = []; });
+    const resetNetBitrate = () => cards.forEach((card) => { card._netBitrate = 0; card._episodeTimes = []; card._pinProfile = null; });
     quality.addEventListener('change', () => { resetNetBitrate(); updateStreamingMode(true); });
     fps.addEventListener('change', () => { resetNetBitrate(); updateStreamingMode(true); });
     backdrop.addEventListener('click', collapseExpanded);
@@ -1848,7 +1898,10 @@
     let refitTimer = 0;
     window.addEventListener('resize', () => {
         clearTimeout(refitTimer);
-        refitTimer = setTimeout(refitCards, 200);
+        refitTimer = setTimeout(() => {
+            refitCards();
+            cards.forEach(sizeExpanded);
+        }, 200);
         refreshAutoQuality();
     });
     const events = new EventSource('/api/events');
