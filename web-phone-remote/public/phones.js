@@ -4,7 +4,7 @@
     const quality = document.getElementById('quality');
     const fps = document.getElementById('fps');
     const tileSize = document.getElementById('tile-size');
-    const UI_VERSION = '1113u';
+    const UI_VERSION = '1113w';
     const sizeValue = document.getElementById('size-value');
     const backdrop = document.getElementById('viewer-backdrop');
     const grid = document.getElementById('phone-grid');
@@ -694,7 +694,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261113t',
+                ui: '20261113v',
             });
             return `snapshot.html?${params}`;
         }
@@ -708,7 +708,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261113t',
+            ui: '20261113v',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         if (card.dataset.hear === '1' && audioSourceFor(card.dataset.device) === 'playback') {
@@ -806,14 +806,14 @@
         else if (mine && browserMic.phase === 'requesting') label = '正在请求';
         else if (mine && browserMic.phase === 'capturing') {
             const phone = card._micPhone;
-            label = phone && phone.ready ? '送往手机' : phone ? '手机未就绪' : '采集中';
+            label = phone && phone.ready ? '送往手机' : phone ? '麦克风未通' : '采集中';
         }
         else if (mine && browserMic.phase === 'denied') label = '允许麦克风';
         button.textContent = label;
-        button.classList.toggle('active', label === '采集中' || label === '送往手机' || label === '手机未就绪');
-        button.classList.toggle('warn', label === '手机未就绪');
-        button.title = label === '手机未就绪'
-            ? `电脑麦克风在采集，但手机还收不到：${card._micPhone?.reason || '手机端未就绪'}。点此关闭。`
+        button.classList.toggle('active', label === '采集中' || label === '送往手机' || label === '麦克风未通');
+        button.classList.toggle('warn', label === '麦克风未通');
+        button.title = label === '麦克风未通'
+            ? `只影响麦克风，不影响画面和操作：电脑麦克风在采集，但手机还收不到：${card._micPhone?.reason || '手机端麦克风注入未就绪'}。点此关闭。`
             : label === '送往手机'
             ? '电脑麦克风的声音正在送进这部手机。微信等 App 是否有声取决于它们是否在用麦克风。点此关闭，关闭后不会自动再开。'
             : label === '采集中'
@@ -996,8 +996,8 @@
 
     /** 按打开的手机数（最多 9）算出一屏放得下的小窗尺寸：试每种列数，取画面最大的。 */
     function gridFit(chrome, aspect) {
-        const open = cards.filter((card) => !card.classList.contains('closed')).length || 1;
-        const n = Math.min(9, open);
+        // 不管现在几台，小窗都按「一屏放 9 台」的一格大小，1~2 台时也不会撑满。
+        const n = 9;
         const gap = 12;
         const W = Math.max(200, grid.clientWidth);
         const H = Math.max(200, grid.clientHeight);
@@ -1194,7 +1194,9 @@
             const canvas = doc.querySelector('.touch-layer');
             fitStreamToFrame(card, doc, canvas);
             installNativeInputBridge(card, canvas);
-            const aspect = canvas?.width / canvas?.height;
+            // 画面没出来前 canvas 是默认的 300×150，别拿它当手机比例（会把放大窗口撑成横的）。
+            const realCanvas = canvas && !(canvas.width === 300 && canvas.height === 150);
+            const aspect = realCanvas ? canvas.width / canvas.height : 0;
             if (aspect && aspect !== card._videoAspect) {
                 card._videoAspect = aspect;
                 card._lastAspect = aspect;
@@ -1202,6 +1204,7 @@
                 fitCardToPhone(card, canvas, doc.querySelector('.control-buttons-list'));
                 if (autoArrange || needsInitialLayout) scheduleTile();
             }
+            if (card.classList.contains('expanded')) sizeExpanded(card);
             paintAudioNote(card, doc.getElementById('audio-note'));
             if (status.classList.contains('hidden') || /^connected\b/i.test(status.textContent)) {
                 setState(card, 'connected', '已连接');
@@ -1966,7 +1969,9 @@
         const card = cards.find((item) => item.dataset.device === mobilePicker.value);
         if (card) {
             if (syncEnabled) setMaster(card);
-            expand(card);
+            // 手机上选哪台就铺满哪台；电脑上只切换当前手机，不自动放大（一进来保持九宫格）。
+            if (isDesktop()) activate(card, false, true);
+            else expand(card);
         }
     });
     tileSize.addEventListener('input', () => {
