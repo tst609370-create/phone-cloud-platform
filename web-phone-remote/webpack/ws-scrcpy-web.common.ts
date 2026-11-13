@@ -224,6 +224,7 @@ class CopyVirtualMicJarPlugin {
             for (const [rel, name] of [
                 ['android/virtual-mic/prebuilt/virtual-mic.jar', 'virtual-mic.jar'],
                 ['android/root-audio/prebuilt/root-audio.jar', 'root-audio.jar'],
+                ['android/root-audio/prebuilt/mic-audio.apk', 'mic-audio.apk'],
             ] as const) {
                 const src = path.resolve(PROJECT_ROOT, rel);
                 if (existsSync(src)) copyFileSync(src, path.resolve(SERVER_DIST_PATH, name));

@@ -20,7 +20,7 @@ export const ROOT_AUDIO_MAIN = 'com.wsphone.rootaudio.RootAudioMain';
 export const ROOT_AUDIO_MIN_SDK = 21;
 
 /** No root: the phone plays out loud and its microphone records it (adb shell may record on Android 9/10). */
-export const MIC_FALLBACK_FAILED = '这台没 ROOT，改用麦克风录手机外放也失败了';
+export const MIC_FALLBACK_FAILED = '这台没 ROOT，改用录音小程序录手机外放也失败了';
 export const ROOT_AUDIO_FAILED = '已拿到 ROOT，但采集手机声音失败';
 
 export interface RootAudioAdb {

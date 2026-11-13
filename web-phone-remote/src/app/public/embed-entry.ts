@@ -168,13 +168,24 @@ function createAudioNote(): { set(problem: string | undefined): void } {
     note.id = 'audio-note';
     note.hidden = true;
     note.style.cssText =
-        // 只占顶部一行小条，不挡手机画面下半部分（导航栏、输入框）；完整原因在悬停提示里。
+        // 只占顶部一行小条，不挡手机画面下半部分（导航栏、输入框）；点一下展开完整原因。
         'position:fixed;left:6px;top:6px;max-width:calc(100% - 12px);z-index:30;padding:2px 8px;border-radius:999px;' +
         'background:rgba(20,20,20,.72);color:#ffd27a;font:11px/1.5 system-ui,sans-serif;cursor:pointer;' +
         'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-sizing:border-box;';
-    note.title = '点一下重试播放声音';
+    note.title = '点一下展开完整原因并重试播放声音';
+    // 手机浏览器没有悬停：点一下展开成多行显示完整原因，再点收起。
+    let expanded = false;
+    const applyExpanded = () => {
+        note.style.whiteSpace = expanded ? 'normal' : 'nowrap';
+        note.style.borderRadius = expanded ? '10px' : '999px';
+        note.style.maxHeight = expanded ? '60vh' : '';
+        note.style.overflowY = expanded ? 'auto' : 'hidden';
+        note.style.userSelect = expanded ? 'text' : '';
+    };
     note.addEventListener('click', (event) => {
         event.stopPropagation();
+        expanded = !expanded;
+        applyExpanded();
         window.postMessage({ type: 'phone-audio-resume' }, location.origin);
     });
     const attach = () => document.body?.appendChild(note);
@@ -183,7 +194,7 @@ function createAudioNote(): { set(problem: string | undefined): void } {
     return {
         set(problem) {
             note.textContent = problem ?? '';
-            note.title = problem ? `${problem}\n（点一下重试播放声音）` : '点一下重试播放声音';
+            note.title = problem ? `${problem}\n（点一下展开/收起，并重试播放声音）` : '点一下重试播放声音';
             note.hidden = !problem;
         },
     };
