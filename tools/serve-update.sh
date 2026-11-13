@@ -19,11 +19,21 @@ cd "$BASE"
 red() { echo -e "\033[31m$*\033[0m" >&2; }
 trap 'red "失败：第 $LINENO 行出错，上面是原因。修好后重跑同一条命令即可。"' ERR
 
-fetch() { # fetch <github 地址（不带 https://）> <输出文件>
+# 卡住/太慢就换下一个源：连接 15 秒超时，速度低于 20KB/s 持续 15 秒即放弃；下载后校验 zip 完整
+zip_ok() { python3 -c 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); sys.exit(1 if z.testzip() else 0)' "$1" 2>/dev/null; }
+try_dl() { # try_dl <输出文件> <url> [curl 额外参数...]
+  local out="$1" u="$2"; shift 2
+  echo "下载 $u"
+  rm -f "$out.tmp"
+  if curl -fL --connect-timeout 15 --speed-limit 20480 --speed-time 15 --max-time 900 "$@" -o "$out.tmp" "$u" \
+     && [ -s "$out.tmp" ] && zip_ok "$out.tmp"; then mv "$out.tmp" "$out"; return 0; fi
+  echo "  该源失败或太慢，换下一个" >&2; rm -f "$out.tmp"; return 1
+}
+fetch() { # fetch <github 地址（不带 https://）> <输出文件>：公开仓库，先直连（不通/太慢 30 秒内放弃），再各镜像
   local path="$1" out="$2" u
-  for u in "https://ghfast.top/https://$path" "https://gh-proxy.com/https://$path" "https://$path"; do
-    echo "下载 $u"
-    if curl -fL --connect-timeout 15 --max-time 900 -o "$out.tmp" "$u" && [ -s "$out.tmp" ]; then mv "$out.tmp" "$out"; return 0; fi
+  for u in "https://$path" "https://ghfast.top/https://$path" "https://gh-proxy.com/https://$path" \
+           "https://ghproxy.net/https://$path" "https://gh.llkk.cc/https://$path"; do
+    try_dl "$out" "$u" && return 0
   done
   red "所有下载源都失败：$path"
   return 1
@@ -32,7 +42,7 @@ fetch() { # fetch <github 地址（不带 https://）> <输出文件>
 echo "== 1/5 准备 Node 24（npmmirror）"
 NODE_DIR="$BASE/node-$NODE_VER"
 if [ ! -x "$NODE_DIR/bin/node" ]; then
-  curl -fL --connect-timeout 15 -o node.tar.xz "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-linux-x64.tar.xz"
+  curl -fL --connect-timeout 15 --speed-limit 20480 --speed-time 30 --retry 3 -o node.tar.xz "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-linux-x64.tar.xz"
   rm -rf "$NODE_DIR" && mkdir -p "$NODE_DIR" && tar -xJf node.tar.xz -C "$NODE_DIR" --strip-components=1 && rm -f node.tar.xz
 fi
 export PATH="$NODE_DIR/bin:$PATH"
@@ -54,12 +64,10 @@ elif [ -n "$TOKEN" ]; then
   COMMIT=$(curl -fsS --connect-timeout 15 --retry 3 -u "x:$TOKEN" -H "Accept: application/vnd.github.sha" \
     "https://api.github.com/repos/$REPO/commits/$REF" || true)
   ok=""
+  # 令牌只发给 GitHub 官方地址，不经过第三方镜像
   for i in 1 2 3; do
-    echo "下载 api.github.com/repos/$REPO/zipball/$REF（第 $i 次）"
-    if curl -fL --connect-timeout 15 --max-time 900 -u "x:$TOKEN" -o src.zip.tmp "https://api.github.com/repos/$REPO/zipball/$REF" && [ -s src.zip.tmp ]; then
-      mv src.zip.tmp src.zip; ok=1; break
-    fi
-    sleep 5
+    try_dl src.zip "https://api.github.com/repos/$REPO/zipball/$REF" -u "x:$TOKEN" && { ok=1; break; }
+    sleep 3
   done
   [ -n "$ok" ] || { red "从 GitHub 下载失败：令牌无效/过期（重新跑首次命令换令牌），或服务器连不上 api.github.com（改用 SRC_ZIP）"; exit 1; }
 else
