@@ -4,7 +4,7 @@
     const quality = document.getElementById('quality');
     const fps = document.getElementById('fps');
     const tileSize = document.getElementById('tile-size');
-    const UI_VERSION = '1113s';
+    const UI_VERSION = '1113t';
     const sizeValue = document.getElementById('size-value');
     const backdrop = document.getElementById('viewer-backdrop');
     const grid = document.getElementById('phone-grid');
@@ -240,9 +240,9 @@
         const backToGrid = document.createElement('button');
         backToGrid.type = 'button';
         backToGrid.className = 'back-to-grid';
-        backToGrid.title = '返回九宫格（Esc）';
+        backToGrid.title = '缩回小窗（Esc 全部缩回）';
         backToGrid.textContent = '‹ 九宫格';
-        backToGrid.addEventListener('click', collapseExpanded);
+        backToGrid.addEventListener('click', () => collapseCard(card));
         header.append(backToGrid, number, title, state, rentalBadge, syncControls, actions);
 
         const frame = document.createElement('iframe');
@@ -313,13 +313,13 @@
         card.querySelector('[data-action="upload"]').addEventListener('click', () => fileInput.click());
         card.querySelector('[data-action="reconnect"]').addEventListener('click', () => activate(card, true, true));
         card.querySelector('[data-action="fullscreen"]').addEventListener('click', () => {
-            if (card.classList.contains('expanded')) collapseExpanded();
+            if (card.classList.contains('expanded')) collapseCard(card);
             else expand(card);
         });
         card.querySelector('[data-action="close"]').addEventListener('click', () => {
             const wasExpanded = card.classList.contains('expanded');
             close(card);
-            if (wasExpanded) collapseExpanded();
+            if (wasExpanded) collapseCard(card);
             else refitCards();
         });
         master.addEventListener('change', () => master.checked && setMaster(card));
@@ -692,7 +692,7 @@
             const params = new URLSearchParams({
                 device: card.dataset.device,
                 interval: '0',
-                ui: '20261113s',
+                ui: '20261113t',
             });
             return `snapshot.html?${params}`;
         }
@@ -706,7 +706,7 @@
             maxFps: String(profile.maxFps),
             maxSize: String(profile.maxSize),
             secure: location.protocol === 'https:' ? 'true' : 'false',
-            ui: '20261113s',
+            ui: '20261113t',
         });
         params.set('audio', card.dataset.hear === '1' ? 'true' : 'false');
         if (card.dataset.hear === '1' && audioSourceFor(card.dataset.device) === 'playback') {
@@ -1355,7 +1355,8 @@
         if (source?.closest('input, select, textarea, [contenteditable="true"]')) return false;
         if (source?.closest('button, a') && (event.key === 'Enter' || event.key === ' ')) return false;
         // 键盘只发给全屏的那台；九宫格状态下不发，避免误操作。
-        const card = cards.find((item) => item.classList.contains('expanded') && !item.classList.contains('closed'));
+        const expandedCards = cards.filter((item) => item.classList.contains('expanded') && !item.classList.contains('closed'));
+        const card = expandedCards.find((item) => item.dataset.device === activeSerial) || expandedCards[expandedCards.length - 1];
         const doc = card?.querySelector('iframe')?.contentDocument;
         if (!card || !doc?.body) return false;
         const copy = new doc.defaultView.KeyboardEvent(event.type, {
@@ -1650,39 +1651,61 @@
         applyBrowserMic({ type: 'activate', serial: card.dataset.device, gesture: gesture === true });
     }
 
+    const isDesktop = () => innerWidth > 700;
+
+    // 收回一台（电脑上可以同时放大多台，各自收回）。
+    function collapseCard(card) {
+        if (!card.classList.contains('expanded')) return;
+        card.classList.remove('expanded');
+        if (!cards.some((item) => item.classList.contains('expanded'))) {
+            backdrop.classList.remove('visible');
+            document.body.classList.remove('has-expanded');
+        }
+        refitCards();
+    }
+
     function collapseExpanded() {
         const was = cards.filter((card) => card.classList.contains('expanded'));
         cards.forEach((card) => card.classList.remove('expanded'));
         backdrop.classList.remove('visible');
         document.body.classList.remove('has-expanded');
-        // 回到九宫格后重新排一下，免得全屏前的位置把小窗挡住。
+        // 回到九宫格后重新排一下，免得放大时的位置把小窗挡住。
         if (was.length) refitCards();
     }
 
-    // 九宫格小窗只看不操作；点小窗进入全屏才能操作手机，避免误触。
-    // 电脑上放大成一个按手机比例、按浏览器高度自适应的窗口居中显示，不铺满整个浏览器；手机浏览器上才铺满。
+    // 九宫格小窗只看不操作；点小窗放大成操作窗口才能操作手机，避免误触。
+    // 电脑上：在九宫格里原地放大成手机比例的窗口（大小跟侧栏小/中/大），可以同时放大多台并排操作；
+    // 手机浏览器上：一次铺满一台。
     function sizeExpanded(card) {
-        if (!card.classList.contains('expanded') || innerWidth <= 700) return;
+        if (!card.classList.contains('expanded') || !isDesktop()) return;
         const aspect = card._lastAspect || 9 / 20;
-        const margin = 24;
+        const gap = 12;
         const chrome = 36 + 36 + 22 + 2; // 标题栏 + 导航按钮 + 状态行 + 边框
-        const videoHeight = Math.max(240, innerHeight - margin * 2 - chrome);
-        const videoWidth = Math.min(videoHeight * aspect, innerWidth - margin * 2 - 2);
-        const width = Math.min(innerWidth - margin * 2, Math.max(480, Math.round(videoWidth + 2)));
+        const available = Math.max(300, (grid.clientHeight || innerHeight - 52) - gap * 2);
+        // 侧栏「窗口大小」小/中/大 决定放大窗口的高度：小 65%、中 82%、大 占满一屏高。
+        const tier = { 300: 0.65, 400: 0.82, 520: 1 }[tileSize.value] || 0.82;
+        const videoHeight = Math.max(240, (available - chrome) * tier);
+        const videoWidth = Math.min(videoHeight * aspect, (grid.clientWidth || innerWidth) - gap * 2 - 2);
+        const width = Math.max(420, Math.round(videoWidth + 2));
         const height = Math.round(Math.min(videoHeight, videoWidth / aspect) + chrome);
-        // 偶数像素，居中平移后不落在半像素上（画面不发虚）。
-        card.style.setProperty('--expanded-w', `${width - (width % 2)}px`);
-        card.style.setProperty('--expanded-h', `${height - (height % 2)}px`);
+        card.style.setProperty('--expanded-w', `${width}px`);
+        card.style.setProperty('--expanded-h', `${height}px`);
     }
 
     function expand(card) {
         if (card.classList.contains('expanded')) return;
-        collapseExpanded();
+        if (!isDesktop()) collapseExpanded();
         card.classList.add('expanded');
         sizeExpanded(card);
         card._expandAt = Date.now();
-        backdrop.classList.add('visible');
-        document.body.classList.add('has-expanded');
+        if (!isDesktop()) {
+            backdrop.classList.add('visible');
+            document.body.classList.add('has-expanded');
+        } else {
+            card.style.zIndex = String(++topLayer);
+            refitCards();
+            setTimeout(() => card.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' }), 520);
+        }
         activate(card, false, true);
         // 布局定下来以后按全屏尺寸升到正常画质（只重连这一次）。
         setTimeout(() => {
@@ -1872,6 +1895,7 @@
         });
     }
     tileSize.addEventListener('change', () => {
+        cards.forEach(sizeExpanded);
         // No reconnect needed for a size change: refit each card to its stream,
         // and let 「自动」 step up later if the bigger window needs it.
         cards.forEach((card) => {
