@@ -27,7 +27,7 @@
 | 路径 | 职责 |
 | --- | --- |
 | `src/server/index.ts` | 服务端入口（HTTP + WebSocket，ADB 设备跟踪、scrcpy 推流） |
-| `src/server/api/` | REST：`AuthApi` 登录、`UsersApi` 用户、`RentalsApi` 租用（识别码/有效期，含外网入口常量）、`ApkLibraryApi`、`DeviceDiscoveryApi`、`SettingsApi`、`UpdatesApi` 等 |
+| `src/server/api/` | REST：`MaintApi` 维护接口（密钥）、`AuthApi` 登录、`UsersApi` 用户、`RentalsApi` 租用（识别码/有效期，含外网入口常量）、`ApkLibraryApi`、`DeviceDiscoveryApi`、`SettingsApi`、`UpdatesApi` 等 |
 | `src/server/auth/` | 鉴权：`AuthGate`（HTTP/WS 门禁）、`deviceAccess`（设备分配给谁）、`rentalExpiry`、`lockdown`、`session`、`loginPolicy` |
 | `src/server/db/` | SQLite 存储与迁移（用户、设备、设置） |
 | `src/server/mic/` + `MicInject.ts` | 电脑麦克风 → 手机麦克风：`route` WS 路由（action=`mic`）、`hub`/`session` 会话、`deviceBridge` 选 LSPosed 或 shell 通道 |
@@ -76,6 +76,7 @@ node --test installer/setup-auth.test.mjs installer/bootstrap/*.test.mjs   # 安
 - 网速跟不上时的丢帧/追帧 → `src/server/videoBackpressure.ts`（`ackedThresholds` 按码率定阈值，`StreamNetMeter` 统计在途/往返/送达码率），接入点 `ScrcpyConnection.ts` 的 `onVideoFrame`/`onAck`/`startStats`；浏览器每帧回 ACK（`ChannelId.ACK`，`ScrcpyDemuxer.sendAck`），服务器每秒发 `ChannelId.STATS`；WebSocket 心跳 → `services/WebSocketServer.ts` 的 `startHeartbeat`
 - 九宫格小窗（只看不操作）→ 点小窗原地放大操作（电脑可同时放大多台，大小跟侧栏小/中/大；手机浏览器铺满一台）：`public/phones.js` 的 `expand`/`collapseCard`/`collapseExpanded`/`sizeExpanded`、小窗挡板 `.preview-shield`（`createCard` 里）、小窗尺寸 `gridFit`/`refitCards`、小窗低码率 `videoProfile`（`PREVIEW_BITRATE`），操作中不为升画质重连 `userBusy`；样式在 `phones.css` 的「九宫格小窗」段和 700px 以下媒体查询
 - 电脑端放大后按钮竖排在画面右侧：`phones.js` 的 `placeTools`（放大时把 主/跟、card-actions、phone-nav 搬进 `.side-tools`，缩回放回原处）、`SIDE_TOOLS_W`；黑屏提示 `updateStreamHint`/`paintStreamHint`（`.stream-hint`）；样式在 `phones.css` 的 `.side-mode` 段
+- AI/脚本维护接口（密钥鉴权）→ `src/server/api/MaintApi.ts`（/api/maint/status|logs|adb|restart|help|key，`MAINT_HELP` 是给 AI 的说明）、密钥 `src/server/auth/maintKey.ts`（app_settings `maintApiKey` 存哈希）；密钥代替浏览器实例令牌在 `services/HttpServer.ts` + `security/requestGate.ts`，登录模式放行在 `auth/AuthGate.ts`；后台入口 `admin.html` 的「AI 维护」页；说明 `web-phone-remote/docs/维护API.md`
 - 触控手感 → `src/app/interactionHandler/`：拖出画面边缘贴边不断（`buildTouchOnClient` 的 `clampToEdge`）、真手指多点触控各自 pointerId（`buildPointerTouch`、`FeaturedInteractionHandler.fingerId`）、滚轮按幅度每帧合并（`buildScrollEvent`/`flushScroll`，`WHEEL_PX_PER_UNIT`）
 - 手机窗口下方的「延迟/帧/码率」显示和按实测带宽自动降码率 → `public/phones.js` 的 `onNetStats`（事件 `phone-net-stats` 由 `StreamClientScrcpy.onNetStats` 发出），颜色在 `phones.css` 的 `[data-net]`
 - frpc 配置与守护脚本 → `installer/windows/logic.go`（`renderFrpcToml`、`frpcRunScript`）；已装机器由 `tools/update-local-windows.ps1` 补丁

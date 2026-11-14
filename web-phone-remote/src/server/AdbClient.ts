@@ -340,6 +340,11 @@ export class AdbClient {
         return this.exec(['connect', address], { timeoutMs: DEFAULT_TIMEOUT_MS.connect });
     }
 
+    /** `adb -s <serial> reconnect`: drop and re-establish one device's transport (USB or network). */
+    async reconnect(serial: string): Promise<string> {
+        return this.exec(['-s', serial, 'reconnect'], { timeoutMs: DEFAULT_TIMEOUT_MS.connect });
+    }
+
     async disconnect(address: string): Promise<string> {
         return this.exec(['disconnect', address], { timeoutMs: DEFAULT_TIMEOUT_MS.disconnect });
     }

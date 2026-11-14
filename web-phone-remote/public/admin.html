@@ -85,6 +85,7 @@
         dialog.tx-dialog .qr-image{display:block;width:240px;height:240px;margin:16px auto 10px;padding:10px;border-radius:var(--tx-radius-lg);background:#fff}
         .qr-code{text-align:center;font:600 20px var(--tx-font-mono);letter-spacing:.12em;color:var(--tx-fg)}
         #proxy-panel{display:none;padding:0;height:calc(100vh - 56px)}#proxy-frame{width:100%;height:100%;border:1px solid var(--tx-line);border-radius:var(--tx-radius-lg);background:var(--tx-surface)}
+        #maint-panel{display:none}.maint-layout{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.maint-key{display:flex;gap:8px;align-items:center;margin:10px 0}.maint-key code,.maint-help{flex:1;min-width:0;overflow-wrap:anywhere;white-space:pre-wrap;padding:10px;border:1px solid var(--tx-line);border-radius:8px;background:var(--tx-field,#0b0c0d);font:12px/1.6 var(--tx-mono,ui-monospace,monospace)}@media(max-width:900px){.maint-layout{grid-template-columns:minmax(0,1fr)}}
         #apks-panel{display:none}.apk-layout{display:grid;grid-template-columns:minmax(280px,.7fr) minmax(360px,1fr);gap:12px}.apk-library-card{grid-column:1/-1}
         .apk-upload{display:grid;gap:12px;align-content:start}.apk-upload h2{margin:0}.apk-upload p{margin:0;color:var(--tx-fg-3);line-height:1.6}.apk-upload button{justify-self:start}
         .apk-device-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:6px}.apk-device{grid-template-columns:auto 1fr}
@@ -106,6 +107,7 @@
             <button class="active" data-panel="rentals"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>设备与租用</button>
             <button data-panel="apks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5Z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>APK 软件库</button>
             <button data-panel="proxy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>SOCKS5 代理</button>
+            <button data-panel="maint"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4Z"/></svg>AI 维护</button>
             <a href="/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>打开设备墙</a>
             <button class="bottom" id="logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg>退出管理端</button>
         </nav>
@@ -137,6 +139,16 @@
                 <section class="card apk-upload"><h2>上传安装包</h2><p>APK 保存在 Mac，不会因为浏览器关闭或手机刷机而丢失。</p><input id="apk-file" type="file" accept=".apk,application/vnd.android.package-archive" hidden><button class="primary" id="apk-upload" type="button">选择并上传 APK</button><small id="apk-upload-status" class="device-empty">单个文件最大 512 MB</small></section>
                 <section class="card"><div class="section-head"><h2>安装目标</h2><button class="secondary" id="apk-select-all" type="button">全选</button></div><div class="apk-device-list" id="apk-devices"><div class="empty">正在读取设备…</div></div></section>
                 <section class="card apk-library-card"><h2>已上传 APK</h2><div class="apk-list" id="apk-list"><div class="empty">正在读取安装包…</div></div></section>
+            </div>
+        </section>
+        <section id="maint-panel">
+            <header class="top"><div><span class="tx-eyebrow">SYS / MAINT API</span><h1>AI 维护接口</h1><p>给 AI 或脚本一把密钥，用它查状态、看日志、重连手机、重启服务</p></div></header>
+            <div class="maint-layout">
+                <section class="card"><h2>访问密钥</h2><p id="maint-key-state" class="device-empty">正在读取…</p>
+                    <div class="maint-key" id="maint-key-box" hidden><code id="maint-key"></code><button class="secondary" id="maint-copy" type="button">复制</button></div>
+                    <small class="device-empty" id="maint-key-note" hidden>密钥只显示这一次，关掉页面就看不到了。泄露了就重新生成，旧的立即失效。</small>
+                    <div class="form-actions"><button class="primary" id="maint-rotate" type="button">生成新密钥</button><button class="danger" id="maint-revoke" type="button">停用</button></div></section>
+                <section class="card"><h2>交给 AI 的说明</h2><p>把下面这段和密钥一起发给 AI，它会先读接口说明再动手。</p><pre class="maint-help" id="maint-prompt"></pre><button class="secondary" id="maint-copy-prompt" type="button">复制说明</button></section>
             </div>
         </section>
         <section id="proxy-panel"><iframe id="proxy-frame" title="SOCKS5 代理管理"></iframe></section>
@@ -265,10 +277,26 @@
     $('#apk-upload').onclick = () => $('#apk-file').click();
     $('#apk-file').onchange = () => uploadApk($('#apk-file').files?.[0]);
     $('#apk-select-all').onclick = () => { const boxes=[...document.querySelectorAll('#apk-devices input')];const checked=boxes.some((box)=>!box.checked);boxes.forEach((box)=>box.checked=checked);$('#apk-select-all').textContent=checked?'取消全选':'全选'; };
+    const maintPrompt = () => { const local=['127.0.0.1','localhost'].includes(location.hostname); return `这是我的云手机后台，请帮我做维护。\n地址：${local?'<公网地址，例如 https://81.71.94.90:20000>':location.origin}（本机可用 ${location.origin}）\n每个请求带请求头 Authorization: Bearer <我给你的密钥>\n先 GET /api/maint/help 看接口说明，再 GET /api/maint/status 看状态。\n重启服务、重启 adb、重启手机会打断正在用的人，做之前先问我。`; };
+    async function loadMaint() {
+        $('#maint-prompt').textContent = maintPrompt();
+        try { const info = await api('/api/maint/key'); $('#maint-key-state').textContent = info.configured ? `已启用：${info.hint}（${new Date(info.createdAt).toLocaleString()} 生成）` : '还没有密钥，AI 暂时连不上。'; $('#maint-revoke').disabled = !info.configured; }
+        catch (error) { $('#maint-key-state').textContent = error.message; }
+    }
+    $('#maint-rotate').onclick = async () => {
+        if (!(await window.TX.confirm('生成后旧密钥立即失效，正在用旧密钥的 AI 会连不上。继续？',{title:'生成新密钥',okText:'生成'}))) return;
+        try { const data = await api('/api/maint/key',{method:'POST'}); $('#maint-key').textContent = data.key; $('#maint-key-box').hidden = false; $('#maint-key-note').hidden = false; toast('新密钥已生成'); await loadMaint(); } catch (error) { toast(error.message,true); }
+    };
+    $('#maint-revoke').onclick = async () => {
+        if (!(await window.TX.confirm('停用后 AI 将无法访问后台。',{title:'停用密钥',okText:'停用',danger:true}))) return;
+        try { await api('/api/maint/key',{method:'DELETE'}); $('#maint-key-box').hidden = true; $('#maint-key-note').hidden = true; toast('密钥已停用'); await loadMaint(); } catch (error) { toast(error.message,true); }
+    };
+    $('#maint-copy').onclick = async () => { await copyText($('#maint-key').textContent); toast('密钥已复制'); };
+    $('#maint-copy-prompt').onclick = async () => { await copyText(maintPrompt()); toast('说明已复制'); };
     $('#logout').onclick = async () => { await fetch('/api/auth/logout',{method:'POST'}); location.href='/'; };
     document.querySelectorAll('[data-panel]').forEach((button) => button.onclick = () => {
         document.querySelectorAll('[data-panel]').forEach((item)=>item.classList.toggle('active',item===button));
-        const panel=button.dataset.panel,proxy=panel==='proxy'; $('#rentals-panel').style.display=panel==='rentals'?'':'none'; $('#apks-panel').style.display=panel==='apks'?'block':'none'; $('#proxy-panel').style.display=proxy?'block':'none'; document.querySelector('.shell').classList.toggle('proxy',proxy);
+        const panel=button.dataset.panel,proxy=panel==='proxy'; $('#rentals-panel').style.display=panel==='rentals'?'':'none'; $('#apks-panel').style.display=panel==='apks'?'block':'none'; $('#maint-panel').style.display=panel==='maint'?'block':'none'; if(panel==='maint')loadMaint(); $('#proxy-panel').style.display=proxy?'block':'none'; document.querySelector('.shell').classList.toggle('proxy',proxy);
         if(proxy && !$('#proxy-frame').src) $('#proxy-frame').src='http://127.0.0.1:8099/';
     });
     const events=new EventSource('/api/events');
