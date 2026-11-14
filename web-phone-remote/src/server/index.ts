@@ -9,6 +9,7 @@ import { ConfigApi } from './api/ConfigApi';
 import { DependencyApi } from './api/DependencyApi';
 import { DeviceDiscoveryApi } from './api/DeviceDiscoveryApi';
 import { DeviceFileApi } from './api/DeviceFileApi';
+import { MaintApi } from './api/MaintApi';
 import { MicAudioApi } from './api/MicAudioApi';
 import { RealtimeEventsApi } from './api/RealtimeEventsApi';
 import { RentalsApi } from './api/RentalsApi';
@@ -168,6 +169,9 @@ if (__ssArgs) {
         },
     });
     HttpServer.addApiHandler(shutdownApi);
+
+    // AI/脚本维护接口（密钥鉴权）。重启不跑 gracefulShutdown：保留 adb 守护进程，网络连接的手机不掉。
+    HttpServer.addApiHandler(new MaintApi());
 
     const updateService = new UpdateService();
     updateService.init();

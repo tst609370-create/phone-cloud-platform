@@ -30,6 +30,8 @@ export function evaluateHttpRequest(
     host: string | undefined,
     cookieHeader: string | undefined,
     secure: boolean,
+    /** 带了有效的维护 API 密钥：可代替浏览器的实例令牌（AI/脚本没有那个 cookie）。 */
+    maintKeyValid = false,
 ): HttpGateDecision {
     // The Host allowlist is universal — a rebinding/foreign Host is never served
     // (and never handed a token cookie), even for documents and static assets.
@@ -44,7 +46,7 @@ export function evaluateHttpRequest(
             return { allowed: false, status: 403, reason: verdict.reason ?? 'forbidden' };
         }
     }
-    if (requiresToken(method, pathname) && !isValidToken(parseTokenFromCookie(cookieHeader))) {
+    if (requiresToken(method, pathname) && !maintKeyValid && !isValidToken(parseTokenFromCookie(cookieHeader))) {
         return { allowed: false, status: 403, reason: 'missing or invalid token' };
     }
     if (shouldSetTokenCookie(method, pathname)) {

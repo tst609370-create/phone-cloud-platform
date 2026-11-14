@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { Db } from '../db/Db';
 import { isAllowlisted, isAuthEnabled, isLoopbackHost, parseCookie, SESSION_COOKIE } from './authState';
+import { authenticateMaintKey } from './maintKey';
 import { isRentalExpired } from './rentalExpiry';
 import { SessionStore } from './session';
 
@@ -169,6 +170,18 @@ export class AuthGate {
 
         const url = new URL(req.url ?? '/', 'http://localhost');
         if (isAllowlisted(url.pathname)) return false;
+
+        // 维护 API 密钥（AI/脚本）：有效即以管理员身份放行，带了但无效直接 401。
+        const keyUser = authenticateMaintKey(db, req);
+        if (keyUser === 'bad') {
+            res.writeHead(401, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'unauthorized', reason: '维护 API 密钥无效或已停用' }));
+            return true;
+        }
+        if (keyUser !== 'none') {
+            (req as IncomingMessage & { user?: unknown }).user = keyUser;
+            return false;
+        }
 
         const token = parseCookie(req.headers.cookie)[SESSION_COOKIE];
         const session = token ? new SessionStore(db.sqlite).findValid(token, Date.now()) : undefined;

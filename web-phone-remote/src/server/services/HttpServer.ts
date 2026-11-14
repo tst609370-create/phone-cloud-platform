@@ -5,6 +5,7 @@ import path from 'path';
 import * as process from 'process';
 import { TypedEmitter } from '../../common/TypedEmitter';
 import { sendInternalError } from '../api/utils';
+import { isValidMaintKey, presentedMaintKey } from '../auth/maintKey';
 import { resolveBindHost } from '../bindHost';
 import { Config } from '../Config';
 import { EnvName } from '../EnvName';
@@ -170,6 +171,13 @@ export class HttpServer extends TypedEmitter<HttpServerEvents> implements Servic
             // allowlist (CSRF / DNS-rebinding) plus a per-instance token, with
             // the SPA's token cookie attached on document responses. See
             // requestGate for the composed policy.
+            const maintKey = presentedMaintKey(req);
+            const maintKeyValid = maintKey !== undefined && isValidMaintKey(Config.getInstance().db, maintKey);
+            if (maintKey !== undefined && !maintKeyValid && pathname.startsWith('/api/')) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'unauthorized', reason: '维护 API 密钥无效或已停用' }));
+                return;
+            }
             const decision = evaluateHttpRequest(
                 req.method,
                 pathname,
@@ -177,6 +185,7 @@ export class HttpServer extends TypedEmitter<HttpServerEvents> implements Servic
                 req.headers.host,
                 req.headers.cookie,
                 secure,
+                maintKeyValid,
             );
             if (!decision.allowed) {
                 res.writeHead(decision.status, { 'Content-Type': 'application/json' });

@@ -38,6 +38,11 @@ function resolveLogFilePath(): string {
 
 const LOG_FILE = resolveLogFilePath();
 
+/** Path of the server log file (its directory also holds node.log / frpc.log on Windows installs). */
+export function getLogFilePath(): string {
+    return LOG_FILE;
+}
+
 /**
  * Rotate `logFile` to `logFile.1` when it reaches `maxBytes`. Called on EVERY
  * write (no once-per-process guard) so a long-running process stays bounded.
